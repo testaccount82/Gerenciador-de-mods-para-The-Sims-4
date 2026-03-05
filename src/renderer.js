@@ -535,10 +535,13 @@ function renderGallery(mods) {
     ${mods.map(mod => {
       const sel = state.selectedMods.has(mod.path);
       const cached = state.thumbnailCache[mod.path];
+      // cached === undefined  → ainda não verificado (mostrar spinner para carregar)
+      // cached === null       → verificado, sem miniatura (mostrar placeholder)
+      // cached === string     → base64 da miniatura (mostrar imagem)
       const thumbHtml = cached
         ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
-        : mod.type !== 'package'
-          ? `<div class="gallery-thumb-placeholder">${fileIcon(mod.type)}</div>`
+        : (cached === null || mod.type !== 'package')
+          ? `<div class="gallery-thumb-placeholder">${mod.type !== 'package' ? fileIcon(mod.type) : '📦'}</div>`
           : `<div class="gallery-thumb-loading" data-load="${escapeHtml(mod.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
 
       return `

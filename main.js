@@ -168,11 +168,15 @@ function readUInt24BE(data, offset) {
 }
 
 function internalDecompression(data) {
-  const decompressedSize = readUInt24BE(data, 2);
+  // Quando o flag 0x80 está ativo, o tamanho descomprimido usa 4 bytes (big-endian)
+  // em vez de 3 — alocar o buffer correto evita corrupção em arquivos grandes
+  const largeFile = (data[0] & 0x80) !== 0;
+  const decompressedSize = largeFile
+    ? (data[2] * 16777216 + data[3] * 65536 + data[4] * 256 + data[5])
+    : readUInt24BE(data, 2);
   const udata = Buffer.alloc(decompressedSize);
   let uIdx = 0;
-  let dIdx = 5; // 2 bytes flags + 3 bytes size
-  if (data[0] & 0x80) dIdx++;
+  let dIdx = largeFile ? 6 : 5; // 2 bytes flags + 3 ou 4 bytes de tamanho
 
   let cc;
   do {
