@@ -241,8 +241,6 @@ async function renderDashboard() {
       </div>
     </div>
 
-    <div id="dash-alerts" style="display:flex;flex-direction:column;gap:8px"></div>
-
     <div class="card">
       <div class="card-title">Ações Rápidas</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -257,6 +255,8 @@ async function renderDashboard() {
         <button class="btn btn-secondary" id="quick-organize">📁 Verificar Organização</button>
       </div>
     </div>
+
+    <div id="dash-alerts" style="display:flex;flex-direction:column;gap:8px"></div>
   `;
 
   el.querySelector('#dash-refresh')?.addEventListener('click', async () => { await loadMods(); renderDashboard(); toast('Atualizado', 'info', 1500); });
