@@ -1,0 +1,73 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build do instalador Windows
+        run: npm run build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Listar arquivos gerados
+        run: Get-ChildItem -Recurse dist\
+        shell: pwsh
+
+      - name: Upload do artefato (instalador)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TS4-Mod-Manager-Windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+          retention-days: 30
+
+      - name: Criar Release com o EXE
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "TS4 Mod Manager v1.0.0"
+          body: |
+            ## TS4 Mod Manager v1.0.0 🎮
+
+            Gerenciador de mods para The Sims 4 com interface Fluent 2.
+
+            ### 📥 Como instalar
+            Baixe o arquivo `.exe` abaixo e execute o instalador.
+
+            ### ✨ O que há nesta versão
+            - Dashboard com estatísticas de mods
+            - Gerenciador com busca, filtros e colunas redimensionáveis
+            - Importação por drag-and-drop (zip, rar, 7z, package, ts4script)
+            - Ativar/Desativar mods individualmente ou em lote
+            - Sistema de Desfazer para operações em lote
+            - Detecção de conflitos por nome, hash MD5 e duplicatas do SO
+            - Organização automática de arquivos mal colocados
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.exe
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
