@@ -383,9 +383,17 @@ function getFolders() {
 
 function renderMods() {
   const el = document.getElementById('page-mods');
-  const allFiltered = getFilteredMods();
-  const folders = getFolders();
-  const total = [...state.mods, ...state.trayFiles].length;
+  const allFiltered  = getFilteredMods();
+  const folders      = getFolders();
+  const allMods      = [...state.mods, ...state.trayFiles];
+  const total        = allMods.length;
+  const activeCount  = allMods.filter(m => m.enabled).length;
+  const pkgCount     = allMods.filter(m => m.type === 'package').length;
+  const scriptCount  = allMods.filter(m => m.type === 'script').length;
+  const trayCount    = allMods.filter(m => m.type === 'tray').length;
+  const selCount     = state.selectedMods.size;
+  const hasFilter    = state.searchQuery || state.filterStatus !== 'all'
+                     || state.filterType !== 'all' || state.filterFolder !== 'all';
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(allFiltered.length / state.itemsPerPage));
@@ -395,98 +403,155 @@ function renderMods() {
 
   const isGrid = state.viewMode === 'grid';
 
+  const subtitle = total === 0
+    ? 'Nenhum mod encontrado'
+    : hasFilter
+      ? `${allFiltered.length} de ${total} · ${activeCount} ativos`
+      : `${total} mods · ${activeCount} ativos`;
+
   el.innerHTML = `
+    <!-- ── Header ─────────────────────────────────────────────────── -->
     <div class="page-header">
       <div>
         <div class="page-title">Mods</div>
-        <div class="page-subtitle">${allFiltered.length} mod(s) exibido(s) de ${total} total</div>
+        <div class="page-subtitle">${subtitle}</div>
       </div>
       <div class="header-actions">
         <div class="view-toggle">
-          <button class="view-btn ${!isGrid ? 'active' : ''}" id="view-list" title="Visualização em lista">
+          <button class="view-btn ${!isGrid ? 'active' : ''}" id="view-list" title="Lista">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
               <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
               <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
             </svg>
           </button>
-          <button class="view-btn ${isGrid ? 'active' : ''}" id="view-grid" title="Visualização em grade">
+          <button class="view-btn ${isGrid ? 'active' : ''}" id="view-grid" title="Grade">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
               <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
             </svg>
           </button>
         </div>
+        <button class="btn btn-secondary" id="btn-refresh-mods">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+          </svg>
+          Atualizar
+        </button>
         <button class="btn btn-primary" id="btn-import">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
           Importar
         </button>
-        <button class="btn btn-secondary" id="btn-refresh-mods">Atualizar</button>
       </div>
     </div>
 
-    <!-- Drop zone -->
-    <div class="drop-zone" id="drop-zone">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto">
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
-      <p>Arraste mods aqui para importar</p>
-      <small>Suporta .package, .ts4script, .zip, .rar, .7z e arquivos de Tray</small>
-    </div>
-
-    <!-- Toolbar -->
-    <div class="toolbar">
+    <!-- ── Filter bar ──────────────────────────────────────────────── -->
+    <div class="mods-filterbar">
+      <!-- Search -->
       <div class="search-box">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
-        <input type="text" class="search-input" id="search-input" placeholder="Buscar mods..." value="${escapeHtml(state.searchQuery)}" />
+        <input class="search-input" id="search-input" type="text"
+               placeholder="Buscar mods…" value="${escapeHtml(state.searchQuery)}">
+        ${state.searchQuery ? `<button class="search-clear-btn" id="search-clear">✕</button>` : ''}
       </div>
 
-      <select class="select-filter" id="filter-status">
-        <option value="all" ${state.filterStatus==='all'?'selected':''}>Todos os status</option>
-        <option value="active" ${state.filterStatus==='active'?'selected':''}>Ativos</option>
-        <option value="inactive" ${state.filterStatus==='inactive'?'selected':''}>Inativos</option>
-      </select>
+      <!-- Status chips -->
+      <div class="chip-group">
+        <button class="chip ${state.filterStatus === 'all'    ? 'chip-on' : ''}" data-fs="all">Todos</button>
+        <button class="chip ${state.filterStatus === 'active' ? 'chip-on' : ''}" data-fs="active">
+          <span class="chip-dot chip-dot-green"></span>Ativos
+        </button>
+        <button class="chip ${state.filterStatus === 'inactive' ? 'chip-on' : ''}" data-fs="inactive">
+          <span class="chip-dot chip-dot-dim"></span>Inativos
+        </button>
+      </div>
 
-      <select class="select-filter" id="filter-type">
-        <option value="all" ${state.filterType==='all'?'selected':''}>Todos os tipos</option>
-        <option value="package" ${state.filterType==='package'?'selected':''}>Package</option>
-        <option value="script" ${state.filterType==='script'?'selected':''}>Script</option>
-        <option value="tray" ${state.filterType==='tray'?'selected':''}>Tray</option>
-      </select>
+      <!-- Type chips -->
+      <div class="chip-group">
+        <button class="chip ${state.filterType === 'all'     ? 'chip-on' : ''}" data-ft="all">
+          <span class="chip-pill">${total}</span>Qualquer
+        </button>
+        <button class="chip ${state.filterType === 'package' ? 'chip-on' : ''}" data-ft="package">
+          <span class="chip-pill chip-pill-pkg">${pkgCount}</span>.package
+        </button>
+        <button class="chip ${state.filterType === 'script'  ? 'chip-on' : ''}" data-ft="script">
+          <span class="chip-pill chip-pill-scr">${scriptCount}</span>Script
+        </button>
+        <button class="chip ${state.filterType === 'tray'    ? 'chip-on' : ''}" data-ft="tray">
+          <span class="chip-pill chip-pill-tray">${trayCount}</span>Tray
+        </button>
+      </div>
 
-      <select class="select-filter" id="filter-folder">
-        <option value="all">Todas as pastas</option>
-        ${folders.map(f => `<option value="${escapeHtml(f)}" ${state.filterFolder===f?'selected':''}>${escapeHtml(f === '/' ? '(raiz)' : f)}</option>`).join('')}
-      </select>
-
-      <div style="flex:1"></div>
-
-      ${isGrid ? `
-        <label class="select-all-label">
-          <input type="checkbox" class="checkbox" id="select-all-grid"> Selecionar todos
-        </label>
-        <select class="select-filter" id="items-per-page">
-          <option value="24" ${state.itemsPerPage===24?'selected':''}>24 por página</option>
-          <option value="48" ${state.itemsPerPage===48?'selected':''}>48 por página</option>
-          <option value="96" ${state.itemsPerPage===96?'selected':''}>96 por página</option>
-        </select>
-      ` : ''}
-      <button class="btn btn-secondary btn-sm" id="btn-enable-all-sel">Ativar Sel.</button>
-      <button class="btn btn-secondary btn-sm" id="btn-disable-all-sel">Desativar Sel.</button>
-      <button class="btn btn-danger btn-sm" id="btn-delete-sel">Deletar Sel.</button>
+      <!-- Folder select + extras -->
+      <div class="mods-filterbar-end">
+        ${folders.length > 0 ? `
+          <select class="select-filter" id="filter-folder" style="width:auto;font-size:12px;padding:5px 26px 5px 8px">
+            <option value="all">📁 Todas as pastas</option>
+            ${folders.map(f => `<option value="${escapeHtml(f)}" ${state.filterFolder===f?'selected':''}>${escapeHtml(f === '/' ? '(raiz)' : f)}</option>`).join('')}
+          </select>
+        ` : ''}
+        ${hasFilter ? `<button class="chip chip-clear" id="clear-filters">✕ Limpar</button>` : ''}
+        ${isGrid ? `
+          <label class="select-all-label">
+            <input type="checkbox" class="checkbox" id="select-all-grid">
+            <span>Todos</span>
+          </label>
+          <select class="select-filter" id="items-per-page" style="width:auto;font-size:12px;padding:5px 26px 5px 8px">
+            <option value="24" ${state.itemsPerPage===24?'selected':''}>24/pág</option>
+            <option value="48" ${state.itemsPerPage===48?'selected':''}>48/pág</option>
+            <option value="96" ${state.itemsPerPage===96?'selected':''}>96/pág</option>
+          </select>
+        ` : ''}
+      </div>
     </div>
 
-    <!-- Content -->
+    <!-- ── Drag overlay (hidden until drag enters) ─────────────────── -->
+    <div class="drop-overlay" id="drop-zone">
+      <div class="drop-overlay-inner">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p>Solte para importar</p>
+        <small>.package · .ts4script · .zip · .rar · .7z · Tray</small>
+      </div>
+    </div>
+
+    <!-- ── Content ────────────────────────────────────────────────── -->
     ${isGrid ? renderGallery(mods) : renderTable(mods)}
 
-    <!-- Pagination -->
+    <!-- ── Pagination ─────────────────────────────────────────────── -->
     ${totalPages > 1 ? renderPagination(state.galleryPage, totalPages, allFiltered.length) : ''}
+
+    <!-- ── Floating selection bar ─────────────────────────────────── -->
+    <div class="sel-bar ${selCount > 0 ? 'sel-bar-show' : ''}" id="sel-bar">
+      <span class="sel-bar-count" id="sel-bar-count">
+        ${selCount} selecionado${selCount !== 1 ? 's' : ''}
+      </span>
+      <div class="sel-bar-sep"></div>
+      <div class="sel-bar-actions">
+        <button class="btn btn-sm btn-secondary" id="btn-enable-all-sel">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+          Ativar
+        </button>
+        <button class="btn btn-sm btn-secondary" id="btn-disable-all-sel">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Desativar
+        </button>
+        <button class="btn btn-sm btn-danger" id="btn-delete-sel">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+          </svg>
+          Deletar
+        </button>
+        <button class="sel-bar-close" id="btn-deselect" title="Cancelar seleção">✕</button>
+      </div>
+    </div>
   `;
 
   isGrid ? setupGalleryEvents(el, mods) : setupModsEvents(el, mods);
@@ -554,18 +619,20 @@ function renderGallery(mods) {
           ? `<div class="gallery-thumb-placeholder">${fileIcon(mod.type)}</div>`
           : `<div class="gallery-thumb-loading" data-load="${escapeHtml(mod.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
 
+      const typeLabel = mod.type === 'package' ? '.pkg' : mod.type === 'script' ? '.ts4' : 'tray';
+      const typeClass = mod.type === 'package' ? 'card-tag-pkg' : mod.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+
       return `
-        <div class="gallery-card ${sel ? 'selected' : ''} ${!mod.enabled ? 'disabled' : ''}"
+        <div class="gallery-card ${sel ? 'selected' : ''} ${!mod.enabled ? 'card-inactive' : ''}"
              data-path="${escapeHtml(mod.path)}">
           <input type="checkbox" class="card-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}>
+          <span class="card-type-tag ${typeClass}">${typeLabel}</span>
           ${thumbHtml}
           <div class="gallery-info">
             <div class="gallery-name" title="${escapeHtml(mod.name)}">${escapeHtml(mod.name)}</div>
             <div class="gallery-meta">
               <span>${formatBytes(mod.size)}</span>
-              <div style="display:flex;align-items:center;gap:4px">
-                <div class="gallery-status-dot ${mod.enabled ? 'active' : 'inactive'}"></div>
-              </div>
+              <span class="gallery-status-dot ${mod.enabled ? 'dot-active' : 'dot-inactive'}"></span>
             </div>
           </div>
         </div>`;
@@ -599,118 +666,136 @@ function renderPagination(current, total, itemCount) {
 }
 
 function setupGalleryEvents(el, mods) {
-  // View toggle
+  // ── View toggle ───────────────────────────────────────────────────────
   el.querySelector('#view-list')?.addEventListener('click', () => { state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
   el.querySelector('#view-grid')?.addEventListener('click', () => { state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
 
-  // Items per page
+  // ── Items per page ────────────────────────────────────────────────────
   el.querySelector('#items-per-page')?.addEventListener('change', e => {
     state.itemsPerPage = parseInt(e.target.value); state.galleryPage = 1; renderMods();
   });
 
-  // Pagination
+  // ── Pagination ────────────────────────────────────────────────────────
   el.querySelectorAll('[data-page]').forEach(btn => {
     btn.addEventListener('click', () => { state.galleryPage = parseInt(btn.dataset.page); renderMods(); });
   });
   el.querySelector('#page-prev')?.addEventListener('click', () => { if (state.galleryPage > 1) { state.galleryPage--; renderMods(); }});
   el.querySelector('#page-next')?.addEventListener('click', () => { state.galleryPage++; renderMods(); });
 
-  // Search
+  // ── Search ────────────────────────────────────────────────────────────
   el.querySelector('#search-input')?.addEventListener('input', e => {
     state.searchQuery = e.target.value;
-    const cursorPos = e.target.selectionStart;
+    const pos = e.target.selectionStart;
     state.galleryPage = 1;
     renderMods();
-    const newInput = document.getElementById('search-input');
-    if (newInput) { newInput.focus(); newInput.setSelectionRange(cursorPos, cursorPos); }
+    const ni = document.getElementById('search-input');
+    if (ni) { ni.focus(); ni.setSelectionRange(pos, pos); }
+  });
+  el.querySelector('#search-clear')?.addEventListener('click', () => {
+    state.searchQuery = ''; state.galleryPage = 1; renderMods();
+    document.getElementById('search-input')?.focus();
   });
 
-  // Filters
-  el.querySelector('#filter-status')?.addEventListener('change', e => { state.filterStatus = e.target.value; state.galleryPage = 1; renderMods(); });
-  el.querySelector('#filter-type')?.addEventListener('change', e => { state.filterType = e.target.value; state.galleryPage = 1; renderMods(); });
+  // ── Filter chips — status ─────────────────────────────────────────────
+  el.querySelectorAll('[data-fs]').forEach(btn => {
+    btn.addEventListener('click', () => { state.filterStatus = btn.dataset.fs; state.galleryPage = 1; renderMods(); });
+  });
+
+  // ── Filter chips — type ───────────────────────────────────────────────
+  el.querySelectorAll('[data-ft]').forEach(btn => {
+    btn.addEventListener('click', () => { state.filterType = btn.dataset.ft; state.galleryPage = 1; renderMods(); });
+  });
+
+  // ── Folder filter ─────────────────────────────────────────────────────
   el.querySelector('#filter-folder')?.addEventListener('change', e => { state.filterFolder = e.target.value; state.galleryPage = 1; renderMods(); });
 
-  // Import & refresh
+  // ── Clear all filters ─────────────────────────────────────────────────
+  el.querySelector('#clear-filters')?.addEventListener('click', () => {
+    state.searchQuery = ''; state.filterStatus = 'all'; state.filterType = 'all';
+    state.filterFolder = 'all'; state.galleryPage = 1; renderMods();
+  });
+
+  // ── Import & refresh ──────────────────────────────────────────────────
   el.querySelector('#btn-import')?.addEventListener('click', importFiles);
   el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
 
-  // Drop zone
+  // ── Drag-and-drop overlay ─────────────────────────────────────────────
   const dz = el.querySelector('#drop-zone');
   if (dz) {
-    dz.addEventListener('click', importFiles);
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
-    dz.addEventListener('drop', async e => {
-      e.preventDefault(); dz.classList.remove('drag-over');
+    let dragDepth = 0;
+    el.addEventListener('dragenter', e => { e.preventDefault(); if (++dragDepth === 1) dz.classList.add('drop-overlay-show'); });
+    el.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dz.classList.remove('drop-overlay-show'); } });
+    el.addEventListener('dragover', e => e.preventDefault());
+    el.addEventListener('drop', async e => {
+      e.preventDefault(); dragDepth = 0; dz.classList.remove('drop-overlay-show');
       const files = [...e.dataTransfer.files].map(f => f.path);
       if (files.length) await doImport(files);
     });
+    dz.addEventListener('click', importFiles);
   }
 
-  // Select all (grade)
-  const selectAllGrid = el.querySelector('#select-all-grid');
-  if (selectAllGrid) {
-    selectAllGrid.addEventListener('change', () => {
-      state.selectedMods.clear();
-      if (selectAllGrid.checked) mods.forEach(m => state.selectedMods.add(m.path));
-      el.querySelectorAll('.card-check').forEach(c => {
-        c.checked = selectAllGrid.checked;
-        c.closest('.gallery-card').classList.toggle('selected', selectAllGrid.checked);
-      });
+  // ── Select all ────────────────────────────────────────────────────────
+  el.querySelector('#select-all-grid')?.addEventListener('change', e => {
+    state.selectedMods.clear();
+    if (e.target.checked) mods.forEach(m => state.selectedMods.add(m.path));
+    el.querySelectorAll('.card-check').forEach(c => {
+      c.checked = e.target.checked;
+      c.closest('.gallery-card').classList.toggle('selected', e.target.checked);
     });
-  }
+    refreshSelBar(el);
+  });
 
-  // Card selection
+  // ── Card checkbox ─────────────────────────────────────────────────────
   el.querySelectorAll('.card-check').forEach(cb => {
     cb.addEventListener('change', e => {
       e.stopPropagation();
       const p = cb.dataset.path;
-      if (cb.checked) state.selectedMods.add(p);
-      else state.selectedMods.delete(p);
+      cb.checked ? state.selectedMods.add(p) : state.selectedMods.delete(p);
       cb.closest('.gallery-card').classList.toggle('selected', cb.checked);
+      refreshSelBar(el);
     });
   });
 
-  // Card click → toggle mod
+  // ── Card click → toggle mod ───────────────────────────────────────────
   el.querySelectorAll('.gallery-card').forEach(card => {
     card.addEventListener('click', async e => {
       if (e.target.classList.contains('card-check')) return;
-      const filePath = card.dataset.path;
-      const result = await window.api.toggleMod(filePath);
+      const result = await window.api.toggleMod(card.dataset.path);
       if (result.success) { await loadMods(); renderMods(); }
       else toast('Erro ao alternar mod', 'error');
     });
   });
 
-  // Load thumbnails for .package files not yet cached
+  // ── Load thumbnails ───────────────────────────────────────────────────
   loadVisibleThumbnails(el);
 
-  // Batch enable
+  // ── Deselect button (inside sel-bar) ──────────────────────────────────
+  el.querySelector('#btn-deselect')?.addEventListener('click', () => {
+    state.selectedMods.clear();
+    el.querySelectorAll('.card-check').forEach(c => { c.checked = false; c.closest('.gallery-card').classList.remove('selected'); });
+    refreshSelBar(el);
+  });
+
+  // ── Batch enable ──────────────────────────────────────────────────────
   el.querySelector('#btn-enable-all-sel')?.addEventListener('click', async () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
-    const targets = sel.filter(p => {
-      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
-      return mod && !mod.enabled;
-    });
+    const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && !m.enabled; });
     if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
     for (const p of targets) await window.api.toggleMod(p);
     await loadMods(); state.selectedMods.clear(); renderMods();
     toast(`${targets.length} mod(s) ativados`, 'success');
     pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
-      for (const p of targets) await window.api.toggleMod(p); // re-disables them
+      for (const p of targets) await window.api.toggleMod(p);
       await loadMods(); renderMods();
     });
   });
 
-  // Batch disable
+  // ── Batch disable ─────────────────────────────────────────────────────
   el.querySelector('#btn-disable-all-sel')?.addEventListener('click', async () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
-    const targets = sel.filter(p => {
-      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
-      return mod && mod.enabled;
-    });
+    const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && m.enabled; });
     if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
     for (const p of targets) await window.api.toggleMod(p);
     await loadMods(); state.selectedMods.clear(); renderMods();
@@ -721,7 +806,7 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Batch delete
+  // ── Batch delete ──────────────────────────────────────────────────────
   el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
@@ -738,6 +823,15 @@ function setupGalleryEvents(el, mods) {
       ]
     );
   });
+}
+
+function refreshSelBar(el) {
+  const bar = el.querySelector('#sel-bar');
+  if (!bar) return;
+  const n = state.selectedMods.size;
+  bar.classList.toggle('sel-bar-show', n > 0);
+  const cEl = bar.querySelector('#sel-bar-count');
+  if (cEl) cEl.textContent = `${n} selecionado${n !== 1 ? 's' : ''}`;
 }
 
 async function loadVisibleThumbnails(el) {
