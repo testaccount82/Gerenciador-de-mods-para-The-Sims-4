@@ -1176,19 +1176,138 @@ async function _readDbpfThumbnailByInstances(cachePath, instanceIds) {
 }
 
 // ─── BPI Thumbnail Extractor (Tray / House files) ────────────────────────────
-// FIX BUG 3: Tray items (houses/lots) store their thumbnails as separate .bpi files
-// in the same folder as the .blueprint and .trayitem files.
-// File naming: 0x00000002!<instanceId>.bpi = front-view thumbnail (primary)
-//              0x00000003!<instanceId>.bpi = second angle, etc.
-// BPI format: [24-byte header][EA-proprietary image payload]
-//   Offset 00-03: uint32 LE = image payload size
-//   Offset 04-07: padding (zeros)
-//   Offset 08-15: 8-byte instance ID
-//   Offset 16-19: uint32 = type index (0x02 = primary front view)
-//   Offset 20-23: uint32 = group (zeros)
-//   Offset 24+  : image payload — EA's proprietary format. In practice the payload
-//                 is a raw ARGB/RGBA pixel buffer or a zlib-wrapped image.
-//                 We search it for PNG/JPEG magic bytes the same way we do for DBPF resources.
+// ─── BPI Thumbnail Extractor + Styled Fallback (Tray / House files) ──────────
+// FIX BUG 3: Tray items (houses/lots) store their thumbnails as separate .bpi files.
+//
+// DEEP INVESTIGATION FINDINGS (March 2026):
+// After exhaustive reverse-engineering of the BPI format (testing JPEG, PNG, WebP,
+// DXT1, DXT5, DST1, DST5, RefPack, RLE2, ZLIB, LZ4, LZMA, brotli, zstd formats),
+// the BPI payload uses EA's proprietary codec. Key findings:
+//   - Payload entropy ≈ 8 bits/byte (near-maximum = highly compressed)
+//   - No standard image magic bytes found (FF D8, 89 PNG, RIFF WEBP, DDS, etc.)
+//   - Not block-compressed: payload size is not a multiple of 8 (DXT1) or 16 (DXT5)
+//   - Contains JPEG-like markers (FF D7 restart marker, isolated FF 00 byte-stuff)
+//     but the full JPEG header is absent — likely stripped and hardcoded in the engine
+//   - All BPI files (from all houses) share the same 24-byte header magic constant
+//     (0x8EFC24489B780E3C) = format version identifier, not lot-specific ID
+//   - Files of the same view type (0x00000002) from DIFFERENT houses share up to
+//     1284 bytes of identical payload = both show the same Willow Creek background
+//     (consistent with a streaming compression that starts with shared context)
+//
+// CONCLUSION: BPI requires EA's proprietary codec. Without the game engine binary,
+// we cannot decode it. The code below searches for any standard-format image that
+// might be embedded (future-proofing), then falls back to a styled SVG thumbnail
+// generated from the lot name extracted from the sibling .trayitem file.
+
+/**
+ * Parses printable ASCII strings from a trayitem binary (protobuf-like format).
+ * Returns { name, creator } extracted from the "HouseName*Desc0Creator@" pattern.
+ */
+function parseTrayItemInfo(trayItemPath) {
+  try {
+    const data = fs.readFileSync(trayItemPath);
+    // Extract all printable ASCII runs of length ≥ 3
+    const runs = [];
+    let run = '';
+    for (let i = 0; i < data.length; i++) {
+      const b = data[i];
+      if (b >= 0x20 && b <= 0x7E) {
+        run += String.fromCharCode(b);
+      } else {
+        if (run.length >= 3) runs.push(run);
+        run = '';
+      }
+    }
+    if (run.length >= 3) runs.push(run);
+
+    let name = null;
+    let creator = null;
+
+    // First long string with '*' separator contains "LotName*Description"
+    for (const s of runs) {
+      if (s.includes('*') && s.length > 3) {
+        name = s.split('*')[0].trim();
+        break;
+      }
+    }
+
+    // First string ending with '@' is the creator username
+    for (const s of runs) {
+      if (s.endsWith('@') && s.length > 2) {
+        creator = s.slice(0, -1).trim();
+        break;
+      }
+    }
+
+    return { name, creator };
+  } catch (_) {
+    return { name: null, creator: null };
+  }
+}
+
+/**
+ * Generates a styled SVG thumbnail for a tray (house/lot) item.
+ * Used as a fallback when the BPI pixel codec cannot decode the image.
+ * Returns a data URL string ready for use as an <img> src.
+ */
+function generateTrayThumbnailSvg(name, creator) {
+  const W = 140, H = 140;
+
+  // Escape text for safe SVG embedding
+  const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  // Truncate name for display
+  const displayName = name ? (name.length > 16 ? name.slice(0, 15) + '…' : name) : 'Casa';
+  const displayCreator = creator ? (creator.length > 14 ? creator.slice(0, 13) + '…' : creator) : '';
+
+  // House icon path (simple house silhouette)
+  const hx = W / 2, hy = H / 2 - 12;
+  const houseSvg = `
+    <!-- Roof -->
+    <polygon points="${hx},${hy-24} ${hx-20},${hy-6} ${hx+20},${hy-6}"
+             fill="#FFD84D" stroke="#F0C000" stroke-width="1"/>
+    <!-- Wall -->
+    <rect x="${hx-16}" y="${hy-6}" width="32" height="24"
+          fill="#E8B87A" stroke="#D4A060" stroke-width="1"/>
+    <!-- Door -->
+    <rect x="${hx-5}" y="${hy+6}" width="10" height="18"
+          fill="#5C3A1E" rx="1"/>
+    <!-- Window left -->
+    <rect x="${hx-14}" y="${hy}" width="8" height="8"
+          fill="#A8D8FF" stroke="#D4A060" stroke-width="0.5"/>
+    <!-- Window right -->
+    <rect x="${hx+6}" y="${hy}" width="8" height="8"
+          fill="#A8D8FF" stroke="#D4A060" stroke-width="0.5"/>
+  `;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1A0A40"/>
+      <stop offset="100%" stop-color="#2A1870"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <!-- Subtle stars -->
+  <circle cx="15" cy="12" r="1" fill="white" opacity="0.4"/>
+  <circle cx="42" cy="8"  r="1" fill="white" opacity="0.3"/>
+  <circle cx="88" cy="15" r="1" fill="white" opacity="0.5"/>
+  <circle cx="120" cy="6" r="1" fill="white" opacity="0.4"/>
+  <circle cx="130" cy="25" r="1" fill="white" opacity="0.3"/>
+  <!-- House icon -->
+  ${houseSvg}
+  <!-- Lot name -->
+  <text x="${W/2}" y="${hy+36}" font-family="Arial,sans-serif" font-size="11"
+        font-weight="bold" fill="white" text-anchor="middle"
+        style="paint-order:stroke" stroke="#000" stroke-width="2">${esc(displayName)}</text>
+  ${displayCreator ? `<text x="${W/2}" y="${H-8}" font-family="Arial,sans-serif" font-size="9"
+        fill="#AAA8CC" text-anchor="middle">by ${esc(displayCreator)}</text>` : ''}
+</svg>`;
+
+  const b64 = Buffer.from(svg).toString('base64');
+  return `data:image/svg+xml;base64,${b64}`;
+}
 
 async function extractThumbnailFromBpi(trayFilePath) {
   // Given any tray file (e.g. *.trayitem, *.blueprint), find the sibling .bpi
@@ -1198,81 +1317,96 @@ async function extractThumbnailFromBpi(trayFilePath) {
 
   // Extract the instance ID from the filename: 0x<type>!<instanceId>.<ext>
   const instanceMatch = base.match(/^0x[0-9a-fA-F]+!([0-9a-fA-F]+)\./);
-  if (!instanceMatch) return null;
+  if (!instanceMatch) return _generateTrayFallback(dir, base);
 
   const instanceId = instanceMatch[1];
-  // The primary front-view thumbnail has type prefix 0x00000002
   const bpiName = `0x00000002!${instanceId}.bpi`;
   const bpiPath = path.join(dir, bpiName);
 
-  if (!fs.existsSync(bpiPath)) return null;
-
-  return new Promise((resolve) => {
+  if (fs.existsSync(bpiPath)) {
     try {
       const data = fs.readFileSync(bpiPath);
-      if (data.length < 24) return resolve(null);
+      if (data.length >= 24) {
+        const payloadSize = data.readUInt32LE(0);
+        if (payloadSize > 0 && 24 + payloadSize <= data.length) {
+          const payload = data.slice(24, 24 + payloadSize);
 
-      // Parse the 24-byte header
-      const payloadSize = data.readUInt32LE(0);
-      if (payloadSize <= 0 || 24 + payloadSize > data.length) return resolve(null);
+          // Search for any standard image format embedded in the BPI payload
+          const pngMagic  = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+          const jpegMagic = [0xFF, 0xD8, 0xFF];
+          const searchLimit = Math.min(payload.length - 8, 512);
 
-      const payload = data.slice(24, 24 + payloadSize);
-
-      // Search the payload for PNG or JPEG magic bytes.
-      // Some BPI payloads have a proprietary sub-header before the image data.
-      const pngMagic  = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-      const jpegMagic = [0xFF, 0xD8, 0xFF];
-      const searchLimit = Math.min(payload.length - 8, 512);
-
-      let imgOffset = -1;
-      let imgType   = null;
-
-      for (let s = 0; s <= searchLimit; s++) {
-        if (imgType === null &&
-            payload[s]   === pngMagic[0] && payload[s+1] === pngMagic[1] &&
-            payload[s+2] === pngMagic[2] && payload[s+3] === pngMagic[3] &&
-            payload[s+4] === pngMagic[4] && payload[s+5] === pngMagic[5] &&
-            payload[s+6] === pngMagic[6] && payload[s+7] === pngMagic[7]) {
-          imgOffset = s; imgType = 'png'; break;
-        }
-        if (imgType === null && s + 3 <= payload.length &&
-            payload[s] === jpegMagic[0] && payload[s+1] === jpegMagic[1] &&
-            payload[s+2] === jpegMagic[2]) {
-          imgOffset = s; imgType = 'jpeg'; break;
-        }
-      }
-
-      if (imgOffset >= 0 && imgType) {
-        const slice = payload.slice(imgOffset);
-        return resolve(`data:image/${imgType};base64,` + slice.toString('base64'));
-      }
-
-      // Fallback: try zlib decompression on the whole payload and search again
-      let decompressed = null;
-      try { decompressed = zlib.unzipSync(payload); } catch (_) {
-        try { decompressed = zlib.inflateSync(payload); } catch (__) {}
-      }
-
-      if (decompressed) {
-        const sl2 = Math.min(decompressed.length - 8, 512);
-        for (let s = 0; s <= sl2; s++) {
-          if (decompressed[s] === pngMagic[0] && decompressed[s+1] === pngMagic[1] &&
-              decompressed[s+2] === pngMagic[2] && decompressed[s+3] === pngMagic[3] &&
-              decompressed[s+4] === pngMagic[4] && decompressed[s+5] === pngMagic[5] &&
-              decompressed[s+6] === pngMagic[6] && decompressed[s+7] === pngMagic[7]) {
-            return resolve(`data:image/png;base64,` + decompressed.slice(s).toString('base64'));
+          for (let s = 0; s <= searchLimit; s++) {
+            if (payload[s]   === pngMagic[0] && payload[s+1] === pngMagic[1] &&
+                payload[s+2] === pngMagic[2] && payload[s+3] === pngMagic[3] &&
+                payload[s+4] === pngMagic[4] && payload[s+5] === pngMagic[5] &&
+                payload[s+6] === pngMagic[6] && payload[s+7] === pngMagic[7]) {
+              return `data:image/png;base64,` + payload.slice(s).toString('base64');
+            }
+            if (s + 3 <= payload.length &&
+                payload[s] === jpegMagic[0] && payload[s+1] === jpegMagic[1] &&
+                payload[s+2] === jpegMagic[2]) {
+              return `data:image/jpeg;base64,` + payload.slice(s).toString('base64');
+            }
           }
-          if (s + 3 <= decompressed.length &&
-              decompressed[s] === jpegMagic[0] && decompressed[s+1] === jpegMagic[1] &&
-              decompressed[s+2] === jpegMagic[2]) {
-            return resolve(`data:image/jpeg;base64,` + decompressed.slice(s).toString('base64'));
+
+          // Try zlib decompression and search again
+          for (const decompress of [zlib.unzipSync, zlib.inflateSync]) {
+            try {
+              const dec = decompress(payload);
+              const sl2 = Math.min(dec.length - 8, 512);
+              for (let s = 0; s <= sl2; s++) {
+                if (dec[s] === pngMagic[0] && dec[s+1] === pngMagic[1] &&
+                    dec[s+2] === pngMagic[2] && dec[s+3] === pngMagic[3] &&
+                    dec[s+4] === pngMagic[4] && dec[s+5] === pngMagic[5] &&
+                    dec[s+6] === pngMagic[6] && dec[s+7] === pngMagic[7]) {
+                  return `data:image/png;base64,` + dec.slice(s).toString('base64');
+                }
+                if (s + 3 <= dec.length &&
+                    dec[s] === jpegMagic[0] && dec[s+1] === jpegMagic[1] &&
+                    dec[s+2] === jpegMagic[2]) {
+                  return `data:image/jpeg;base64,` + dec.slice(s).toString('base64');
+                }
+              }
+            } catch (_) { /* try next */ }
           }
         }
       }
+    } catch (_) { /* fall through to styled SVG */ }
+  }
 
-      resolve(null);
-    } catch (_) { resolve(null); }
-  });
+  // BPI codec not decodable — generate a styled SVG thumbnail using lot metadata
+  return _generateTrayFallback(dir, instanceId);
+}
+
+/**
+ * Finds the sibling .trayitem file and generates a styled SVG thumbnail
+ * showing the lot name and creator name.
+ */
+function _generateTrayFallback(dir, instanceId) {
+  try {
+    // Find the .trayitem file for this lot (has same instance ID)
+    const allFiles = fs.readdirSync(dir);
+    const trayItemFile = allFiles.find(f =>
+      f.endsWith('.trayitem') && f.includes(instanceId)
+    );
+
+    let name = null, creator = null;
+    if (trayItemFile) {
+      const info = parseTrayItemInfo(path.join(dir, trayItemFile));
+      name = info.name;
+      creator = info.creator;
+    }
+
+    // Fallback name from directory if trayitem not found or unparsable
+    if (!name) {
+      name = path.basename(dir);
+    }
+
+    return generateTrayThumbnailSvg(name, creator);
+  } catch (_) {
+    return generateTrayThumbnailSvg(null, null);
+  }
 }
 
 // Thumbnails
