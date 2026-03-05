@@ -248,23 +248,33 @@ const THUMBNAIL_TYPES = new Set([
 ]);
 
 const THUMBNAIL_CACHE_PATH = path.join(app.getPath('userData'), 'thumbnail-cache.json');
+// Incrementar sempre que a lógica de extração mudar — invalida cache antigo automaticamente
+const THUMBNAIL_CACHE_VERSION = 3;
 let _thumbnailCache = null;
 
 function loadThumbnailCache() {
   if (_thumbnailCache) return _thumbnailCache;
   try {
     if (fs.existsSync(THUMBNAIL_CACHE_PATH)) {
-      _thumbnailCache = JSON.parse(fs.readFileSync(THUMBNAIL_CACHE_PATH, 'utf-8'));
+      const saved = JSON.parse(fs.readFileSync(THUMBNAIL_CACHE_PATH, 'utf-8'));
+      // Se a versão não bater, descarta o cache inteiro (pode ter nulls inválidos de versões antigas)
+      if (saved.__version !== THUMBNAIL_CACHE_VERSION) {
+        _thumbnailCache = { __version: THUMBNAIL_CACHE_VERSION };
+      } else {
+        _thumbnailCache = saved;
+      }
     } else {
-      _thumbnailCache = {};
+      _thumbnailCache = { __version: THUMBNAIL_CACHE_VERSION };
     }
-  } catch (_) { _thumbnailCache = {}; }
+  } catch (_) { _thumbnailCache = { __version: THUMBNAIL_CACHE_VERSION }; }
   return _thumbnailCache;
 }
 
 function saveThumbnailCache() {
-  try { fs.writeFileSync(THUMBNAIL_CACHE_PATH, JSON.stringify(_thumbnailCache), 'utf-8'); }
-  catch (_) {}
+  try {
+    _thumbnailCache.__version = THUMBNAIL_CACHE_VERSION;
+    fs.writeFileSync(THUMBNAIL_CACHE_PATH, JSON.stringify(_thumbnailCache), 'utf-8');
+  } catch (_) {}
 }
 
 function purgeThumbnailCache(existingPaths) {
