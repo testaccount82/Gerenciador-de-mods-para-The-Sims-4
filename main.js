@@ -265,9 +265,9 @@ function toggleFolder(folderPath, modsFolder) {
   return results;
 }
 
-function deleteMod(filePath) {
+async function deleteMod(filePath) {
   try {
-    fs.unlinkSync(filePath);
+    await shell.trashItem(filePath);
     return { success: true, path: filePath };
   } catch (e) {
     return { success: false, path: filePath, error: e.message };
@@ -540,9 +540,9 @@ ipcMain.handle('tray:scan', (_, trayFolder) => scanTrayFolder(trayFolder));
 // Mod operations
 ipcMain.handle('mods:toggle', (_, filePath) => toggleMod(filePath));
 ipcMain.handle('mods:toggle-folder', (_, folderPath, modsFolder) => toggleFolder(folderPath, modsFolder));
-ipcMain.handle('mods:delete', (_, filePaths) => {
+ipcMain.handle('mods:delete', async (_, filePaths) => {
   const results = [];
-  for (const fp of filePaths) results.push(deleteMod(fp));
+  for (const fp of filePaths) results.push(await deleteMod(fp));
   return results;
 });
 ipcMain.handle('mods:move', (_, from, to) => moveFile(from, to));
@@ -552,7 +552,7 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
 
 // Conflicts
 ipcMain.handle('conflicts:scan', async (_, modsFolder) => scanConflicts(modsFolder));
-ipcMain.handle('conflicts:resolve-delete', (_, filePath) => deleteMod(filePath));
+ipcMain.handle('conflicts:resolve-delete', async (_, filePath) => deleteMod(filePath));
 
 // Organizer
 ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => scanMisplaced(modsFolder, trayFolder));
