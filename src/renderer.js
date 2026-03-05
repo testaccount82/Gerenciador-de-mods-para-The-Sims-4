@@ -382,7 +382,7 @@ function renderMods() {
         <table id="mods-table">
           <thead>
             <tr>
-              <th style="width:36px"><div class="th-content"><input type="checkbox" class="checkbox" id="select-all"></div></th>
+              <th style="width:40px;text-overflow:clip"><div style="display:flex;align-items:center;justify-content:center;padding:10px 6px"><input type="checkbox" class="checkbox" id="select-all"></div></th>
               ${renderTh('name', 'Nome')}
               ${renderTh('type', 'Tipo', '110px')}
               ${renderTh('size', 'Tamanho', '90px')}
@@ -420,7 +420,7 @@ function renderModRow(mod) {
   const sel = state.selectedMods.has(mod.path);
   return `
     <tr class="${!mod.enabled ? 'disabled' : ''} ${sel ? 'selected' : ''}" data-path="${escapeHtml(mod.path)}">
-      <td><input type="checkbox" class="checkbox row-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}></td>
+      <td style="text-align:center;padding:9px 6px"><input type="checkbox" class="checkbox row-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}></td>
       <td><div class="cell-name"><span class="file-icon">${fileIcon(mod.type)}</span><span title="${escapeHtml(mod.path)}">${escapeHtml(mod.name)}</span></div></td>
       <td>${typeBadge(mod.type)}</td>
       <td>${formatBytes(mod.size)}</td>
