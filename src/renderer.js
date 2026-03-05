@@ -469,11 +469,10 @@ function renderMods() {
           <option value="48" ${state.itemsPerPage===48?'selected':''}>48 por página</option>
           <option value="96" ${state.itemsPerPage===96?'selected':''}>96 por página</option>
         </select>
-      ` : `
-        <button class="btn btn-secondary btn-sm" id="btn-enable-all-sel">Ativar Sel.</button>
-        <button class="btn btn-secondary btn-sm" id="btn-disable-all-sel">Desativar Sel.</button>
-        <button class="btn btn-danger btn-sm" id="btn-delete-sel">Deletar Sel.</button>
-      `}
+      ` : ''}
+      <button class="btn btn-secondary btn-sm" id="btn-enable-all-sel">Ativar Sel.</button>
+      <button class="btn btn-secondary btn-sm" id="btn-disable-all-sel">Desativar Sel.</button>
+      <button class="btn btn-danger btn-sm" id="btn-delete-sel">Deletar Sel.</button>
     </div>
 
     <!-- Content -->
