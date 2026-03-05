@@ -216,15 +216,35 @@ function internalDecompression(data) {
 
 // ─── DBPF Thumbnail Extractor ────────────────────────────────────────────────
 
-// Type IDs that may contain a viewable PNG image
-// Source: https://github.com/Kuree/Sims4Tools/wiki/Sims-4---Packed-File-Types
+// Type IDs que contêm imagens PNG/JPEG — extraídos diretamente do s4pe (ImageResources.txt + ThumbnailResourceHandler)
+// Fonte: https://github.com/s4ptacle/Sims4Tools
 const THUMBNAIL_TYPES = new Set([
-  0x2F7D0004, // PNG Image (generic / background blends)
+  // ── THUM (miniaturas gerais) ─────────────────────────────────────────
+  0x0580A2B4, 0x0580A2B5, 0x0580A2B6,
+  0x0589DC44, 0x0589DC45, 0x0589DC46, 0x0589DC47,
+  0x05B17698, 0x05B17699, 0x05B1769A,
+  0x05B1B524, 0x05B1B525, 0x05B1B526,
+  0x2653E3C8, 0x2653E3C9, 0x2653E3CA,
+  0x2D4284F0, 0x2D4284F1, 0x2D4284F2,
   0x3C1AF1F2, // CAS Part Thumbnail
+  0x3C2A8647, // Buy/Build Thumbnail (válido — registrado no ThumbnailResourceHandler do s4pe)
   0x5B282D45, // Body Part Thumbnail
-  0xCD9DE247, // Thumbnails (Sim Featured Outfit / Buy/Build)
+  0x5DE9DBA0, 0x5DE9DBA1, 0x5DE9DBA2,
+  0x626F60CC, 0x626F60CD, 0x626F60CE,
   0x9C925813, // Sim Preset Thumbnail
-  // 0x3C2A8647 removido — não é um type ID documentado no formato DBPF do TS4
+  0xAD366F95, 0xAD366F96,
+  0xCD9DE247, // Sim Featured Outfit Thumbnail
+  0xFCEAB65B,
+  // ── SNAP (snapshots) ────────────────────────────────────────────────
+  0x0580A2CD, 0x0580A2CE, 0x0580A2CF,
+  0x6B6D837D, 0x6B6D837E, 0x6B6D837F,
+  0x0668F635, // TWNI
+  // ── ICON ────────────────────────────────────────────────────────────
+  0x2E75C764, 0x2E75C765, 0x2E75C766, 0x2E75C767,
+  0xD84E7FC5, 0xD84E7FC6, 0xD84E7FC7,
+  // ── IMAG (imagens genéricas) ─────────────────────────────────────────
+  0x2F7D0002, // JPEG
+  0x2F7D0004, // PNG
 ]);
 
 const THUMBNAIL_CACHE_PATH = path.join(app.getPath('userData'), 'thumbnail-cache.json');
@@ -411,6 +431,37 @@ async function _readDbpfThumbnail(filePath) {
 
         if (imgOffset >= 0 && imgType) {
           const slice = imageData.slice(imgOffset);
+
+          // ── Formato JFIF+ALFA do TS4 (descoberto no s4pe/ThumbnailResource.cs) ──
+          // Miniaturas JPEG do TS4 podem ter um canal alpha separado embutido:
+          // bytes 24-27 do JPEG = magic 0x41464C41 ("ALFA" em big-endian)
+          // bytes 28-31 = tamanho do PNG alpha em big-endian byte-swapped
+          // bytes 32..  = PNG com o canal alpha em escala de cinza
+          // O browser não entende esse formato, então precisamos remontá-lo
+          // como um PNG RGBA combinando a cor do JPEG com o alpha do PNG embutido.
+          if (imgType === 'jpeg' && slice.length > 32) {
+            const alfaMagic = slice.readUInt32BE(24);
+            if (alfaMagic === 0x41464C41) {
+              try {
+                // Lê tamanho do alpha (big-endian byte-swapped como no s4pe)
+                const lenRaw = slice.readUInt32BE(28);
+                const alphaLen = ((lenRaw & 0xFF000000) >>> 24) |
+                                 ((lenRaw & 0x00FF0000) >>> 8)  |
+                                 ((lenRaw & 0x0000FF00) << 8)   |
+                                 ((lenRaw & 0x000000FF) << 24);
+                if (alphaLen > 0 && 32 + alphaLen <= slice.length) {
+                  // Extrai somente o JPEG puro (sem o bloco ALFA)
+                  // removendo os 20 bytes extras injetados (offset 12..31)
+                  const jpegPure = Buffer.concat([slice.slice(0, 12), slice.slice(32 + alphaLen)]);
+                  fs.closeSync(fd);
+                  // Retorna o JPEG puro — o alpha é decorativo na maioria dos casos
+                  // e navegadores exibem o JPEG normalmente sem ele
+                  return resolve(`data:image/jpeg;base64,` + jpegPure.toString('base64'));
+                }
+              } catch (_) { /* fallback para o slice original abaixo */ }
+            }
+          }
+
           fs.closeSync(fd);
           return resolve(`data:image/${imgType};base64,` + slice.toString('base64'));
         }
