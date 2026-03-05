@@ -158,6 +158,58 @@ function getRealName(filePath) {
 }
 
 
+
+// ─── Internal Compression (RefPack/LZ) ───────────────────────────────────────
+// Ported from @s4tk/compression, originally by Scumbumbo
+// https://modthesims.info/showthread.php?t=618074
+
+function readUInt24BE(data, offset) {
+  return data[offset] * 65536 + data[offset + 1] * 256 + data[offset + 2];
+}
+
+function internalDecompression(data) {
+  const decompressedSize = readUInt24BE(data, 2);
+  const udata = Buffer.alloc(decompressedSize);
+  let uIdx = 0;
+  let dIdx = 5; // 2 bytes flags + 3 bytes size
+  if (data[0] & 0x80) dIdx++;
+
+  let cc;
+  do {
+    cc = data[dIdx++];
+    if (cc <= 0x7F) {
+      const size       = cc & 0x3;
+      const copySize   = ((cc & 0x1C) >> 2) + 3;
+      const copyOffset = ((cc & 0x60) << 3) + data[dIdx];
+      dIdx++;
+      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
+    } else if (cc <= 0xBF) {
+      const size       = (data[dIdx] & 0xC0) >> 6;
+      const copySize   = (cc & 0x3F) + 4;
+      const copyOffset = ((data[dIdx] & 0x3F) << 8) + data[dIdx + 1];
+      dIdx += 2;
+      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
+    } else if (cc <= 0xDF) {
+      const size       = cc & 0x3;
+      const copySize   = ((cc & 0xC) << 6) + data[dIdx + 2] + 5;
+      const copyOffset = ((cc & 0x10) << 12) + (data[dIdx] << 8) + data[dIdx + 1];
+      dIdx += 3;
+      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
+    } else if (cc <= 0xFB) {
+      const size = ((cc & 0x1F) << 2) + 4;
+      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+    } else {
+      const size = cc & 0x3;
+      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+    }
+  } while (cc < 0xFC);
+
+  return udata;
+}
+
 // ─── DBPF Thumbnail Extractor ────────────────────────────────────────────────
 
 // Type IDs that may contain a viewable PNG image
@@ -306,20 +358,26 @@ async function _readDbpfThumbnail(filePath) {
 
         let imageData = dataBuf;
 
-        // 0x5A42 = zlib, 0x5042 = RefPack/internal (try zlib first, skip if fails)
+        // Compression types from @s4tk/compression:
+        // 0x0000 = Uncompressed
+        // 0x5A42 = ZLIB
+        // 0xFFFF = InternalCompression (RefPack/LZ — EA proprietary)
+        // 0xFFFE = StreamableCompression (skip)
+        // 0xFFE0 = DeletedRecord (skip)
         if (compressionType === 0x5A42) {
-          try { imageData = zlib.inflateSync(dataBuf); }
+          try { imageData = zlib.unzipSync(dataBuf); }
           catch (_) {
-            try { imageData = zlib.inflateRawSync(dataBuf); }
+            try { imageData = zlib.inflateSync(dataBuf); }
             catch (__) { continue; }
           }
-        } else if (compressionType === 0x5042) {
-          // RefPack: skip — not standard zlib, avoid corrupt output
-          continue;
-        } else if (compressionType === 0x0000 || compressionType === 0xFFFF) {
+        } else if (compressionType === 0xFFFF) {
+          // Internal compression — port of Scumbumbo's algorithm via @s4tk/compression
+          try { imageData = internalDecompression(dataBuf); }
+          catch (_) { continue; }
+        } else if (compressionType === 0x0000) {
           imageData = dataBuf;
         } else {
-          continue; // unsupported compression
+          continue; // unsupported compression type
         }
 
         // Search for PNG/JPEG magic bytes within the buffer (some resources
