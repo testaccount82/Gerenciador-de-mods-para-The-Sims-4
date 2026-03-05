@@ -578,6 +578,12 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
 // Shell
 ipcMain.handle('shell:open', (_, folderPath) => shell.openPath(folderPath));
 
+// Filesystem checks
+ipcMain.handle('fs:exists', (_, folderPath) => {
+  try { return fs.existsSync(folderPath); }
+  catch (_) { return false; }
+});
+
 // Window controls
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
 ipcMain.on('window:maximize', () => {

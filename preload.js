@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('api', {
   // Shell
   openInExplorer: (folderPath) => ipcRenderer.invoke('shell:open', folderPath),
 
+  // Filesystem
+  pathExists: (folderPath) => ipcRenderer.invoke('fs:exists', folderPath),
+
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),

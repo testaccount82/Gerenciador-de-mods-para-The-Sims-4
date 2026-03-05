@@ -170,8 +170,8 @@ function renderDashboard() {
   const active = allMods.filter(m => m.enabled).length;
   const inactive = allMods.filter(m => !m.enabled).length;
   const totalSize = allMods.reduce((s, m) => s + m.size, 0);
-  const modsOk = state.config?.modsFolder && fs_exists(state.config.modsFolder);
-  const trayOk = state.config?.trayFolder && fs_exists(state.config.trayFolder);
+  const modsOk = state.modsFolderExists ?? false;
+  const trayOk = state.trayFolderExists ?? false;
 
   el.innerHTML = `
     <div class="page-header">
@@ -965,22 +965,23 @@ function renderSettings() {
 
 // ─── Data Loading ─────────────────────────────────────────────────────────────
 
-function fs_exists(p) {
-  // We can't check directly from renderer; use heuristic (path not empty means configured)
-  return Boolean(p && p.length > 3);
-}
-
 async function loadMods() {
   if (!state.config) return;
   try {
-    const [mods, tray] = await Promise.all([
+    const [modsOk, trayOk, mods, tray] = await Promise.all([
+      window.api.pathExists(state.config.modsFolder),
+      window.api.pathExists(state.config.trayFolder),
       window.api.scanMods(state.config.modsFolder),
       window.api.scanTray(state.config.trayFolder)
     ]);
+    state.modsFolderExists = Boolean(modsOk);
+    state.trayFolderExists = Boolean(trayOk);
     state.mods = mods || [];
     state.trayFiles = tray || [];
   } catch (e) {
     console.error('Error loading mods:', e);
+    state.modsFolderExists = false;
+    state.trayFolderExists = false;
     state.mods = [];
     state.trayFiles = [];
   }
