@@ -321,7 +321,7 @@ async function _readDbpfThumbnail(filePath) {
       if (majorVersion !== 2) { fs.closeSync(fd); return resolve(null); }
 
       const indexCount  = header.readUInt32LE(36);
-      const indexOffset = header.readUInt32LE(64);
+      const indexOffset = header.readUInt32LE(64) || header.readUInt32LE(40);
 
       if (indexCount === 0 || indexOffset === 0) { fs.closeSync(fd); return resolve(null); }
 
@@ -951,7 +951,7 @@ async function _readDbpfInstanceIds(filePath) {
       if (header.readUInt32LE(4) !== 2) { fs.closeSync(fd); return resolve(ids); }
 
       const indexCount  = header.readUInt32LE(36);
-      const indexOffset = header.readUInt32LE(64);
+      const indexOffset = header.readUInt32LE(64) || header.readUInt32LE(40);
       if (!indexCount || !indexOffset) { fs.closeSync(fd); return resolve(ids); }
 
       const flagsBuf = Buffer.alloc(4);
@@ -1007,7 +1007,7 @@ async function _readDbpfThumbnailByInstances(cachePath, instanceIds) {
       if (header.toString('ascii', 0, 4) !== 'DBPF') { fs.closeSync(fd); return resolve(null); }
 
       const indexCount  = header.readUInt32LE(36);
-      const indexOffset = header.readUInt32LE(64);
+      const indexOffset = header.readUInt32LE(64) || header.readUInt32LE(40);
       if (!indexCount || !indexOffset) { fs.closeSync(fd); return resolve(null); }
 
       const flagsBuf = Buffer.alloc(4);
