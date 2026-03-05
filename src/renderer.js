@@ -639,7 +639,10 @@ function setupModsEvents(el, mods) {
   // Search
   el.querySelector('#search-input')?.addEventListener('input', e => {
     state.searchQuery = e.target.value;
+    const cursorPos = e.target.selectionStart;
     renderMods();
+    const newInput = document.getElementById('search-input');
+    if (newInput) { newInput.focus(); newInput.setSelectionRange(cursorPos, cursorPos); }
   });
 
   // Filters
