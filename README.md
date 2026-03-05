@@ -97,8 +97,3 @@ O instalador será gerado em `dist/`.
 Este projeto usa [SemVer](https://semver.org/lang/pt-BR/) para versionamento.  
 Consulte o [CHANGELOG.md](CHANGELOG.md) para o histórico de versões.
 
----
-
-## 📄 Licença
-
-MIT © testaccount82
