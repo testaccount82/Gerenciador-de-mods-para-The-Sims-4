@@ -2,6 +2,10 @@
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
+// FIX BUG 4: Sentinel symbol to mark thumbnails that are currently being loaded.
+// Using Symbol ensures it can never equal undefined (key-not-present), null (no thumb), or a base64 string.
+const THUMB_LOADING = Symbol('loading');
+
 const state = {
   config: null,
   mods: [],
@@ -21,7 +25,7 @@ const state = {
   conflictScanning: false,
   organizeScanning: false,
   // Gallery
-  viewMode: 'list',       // 'list' | 'grid'
+  viewMode: 'grid',       // 'list' | 'grid' — FIX BUG 2: was 'list', thumbnails only show in grid mode
   galleryPage: 1,
   itemsPerPage: 24,
   thumbnailCache: {},     // path -> base64 | null
@@ -537,13 +541,17 @@ function renderGallery(mods) {
     ${mods.map(mod => {
       const sel = state.selectedMods.has(mod.path);
       const cached = state.thumbnailCache[mod.path];
-      // cached === undefined  → ainda não verificado (mostrar spinner para carregar)
-      // cached === null       → verificado, sem miniatura (mostrar placeholder)
-      // cached === string     → base64 da miniatura (mostrar imagem)
-      const thumbHtml = cached
+      // cached === undefined        → not yet checked (show spinner)
+      // cached === THUMB_LOADING    → in-progress (show spinner, skip re-request)
+      // cached === null             → checked, no thumbnail found (show placeholder)
+      // cached === string (base64)  → thumbnail ready (show image)
+      // FIX BUG 3: Include 'tray' type in spinner logic so house thumbnails are loaded.
+      // Previously only 'package' files got the spinner; tray files always showed placeholder.
+      const canHaveThumb = mod.type === 'package' || mod.type === 'tray';
+      const thumbHtml = (cached && cached !== THUMB_LOADING)
         ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
-        : (cached === null || mod.type !== 'package')
-          ? `<div class="gallery-thumb-placeholder">${mod.type !== 'package' ? fileIcon(mod.type) : '📦'}</div>`
+        : (cached === null || !canHaveThumb)
+          ? `<div class="gallery-thumb-placeholder">${fileIcon(mod.type)}</div>`
           : `<div class="gallery-thumb-loading" data-load="${escapeHtml(mod.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
 
       return `
@@ -736,13 +744,18 @@ async function loadVisibleThumbnails(el) {
   const loaders = el.querySelectorAll('[data-load]');
   for (const loader of loaders) {
     const filePath = loader.dataset.load;
+    // FIX BUG 4: Previously used `undefined` as both "not checked" and "in-progress",
+    // but cache[key] returns undefined whether the key is absent OR set to undefined,
+    // making the lock completely ineffective. A Symbol sentinel is unique and never
+    // equal to undefined, null, or a base64 string, so it works correctly.
     if (state.thumbnailCache[filePath] !== undefined) continue;
 
-    // Mark as loading to avoid double requests
-    state.thumbnailCache[filePath] = undefined;
+    // Mark as in-progress to prevent duplicate requests if renderMods() is called
+    // during an async load (e.g. user types in search while thumbnails load).
+    state.thumbnailCache[filePath] = THUMB_LOADING;
 
     const thumb = await window.api.getThumbnail(filePath);
-    state.thumbnailCache[filePath] = thumb; // null if none found
+    state.thumbnailCache[filePath] = thumb ?? null; // null = checked, no thumbnail found
 
     // Update DOM in place without full re-render
     const stillThere = el.querySelector(`[data-load="${CSS.escape(filePath)}"]`);

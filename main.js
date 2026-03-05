@@ -469,14 +469,14 @@ async function _readDbpfThumbnail(filePath) {
 
           // ── Formato JFIF+ALFA do TS4 (descoberto no s4pe/ThumbnailResource.cs) ──
           // Miniaturas JPEG do TS4 podem ter um canal alpha separado embutido:
-          // bytes 24-27 do JPEG = magic 0x41464C41 ("ALFA" em big-endian)
+          // bytes 24-27 do JPEG = magic 0x414C4641 ("ALFA" em big-endian)
           // bytes 28-31 = tamanho do PNG alpha em big-endian byte-swapped
           // bytes 32..  = PNG com o canal alpha em escala de cinza
           // O browser não entende esse formato, então precisamos remontá-lo
           // como um PNG RGBA combinando a cor do JPEG com o alpha do PNG embutido.
           if (imgType === 'jpeg' && slice.length > 32) {
             const alfaMagic = slice.readUInt32BE(24);
-            if (alfaMagic === 0x41464C41) {
+            if (alfaMagic === 0x414C4641) { // FIX BUG 1: was 0x41464C41 ("AFLA"), correct is 0x414C4641 ("ALFA")
               try {
                 // Lê tamanho do alpha (big-endian byte-swapped como no s4pe)
                 const lenRaw = slice.readUInt32BE(28);
@@ -1175,9 +1175,118 @@ async function _readDbpfThumbnailByInstances(cachePath, instanceIds) {
   });
 }
 
+// ─── BPI Thumbnail Extractor (Tray / House files) ────────────────────────────
+// FIX BUG 3: Tray items (houses/lots) store their thumbnails as separate .bpi files
+// in the same folder as the .blueprint and .trayitem files.
+// File naming: 0x00000002!<instanceId>.bpi = front-view thumbnail (primary)
+//              0x00000003!<instanceId>.bpi = second angle, etc.
+// BPI format: [24-byte header][EA-proprietary image payload]
+//   Offset 00-03: uint32 LE = image payload size
+//   Offset 04-07: padding (zeros)
+//   Offset 08-15: 8-byte instance ID
+//   Offset 16-19: uint32 = type index (0x02 = primary front view)
+//   Offset 20-23: uint32 = group (zeros)
+//   Offset 24+  : image payload — EA's proprietary format. In practice the payload
+//                 is a raw ARGB/RGBA pixel buffer or a zlib-wrapped image.
+//                 We search it for PNG/JPEG magic bytes the same way we do for DBPF resources.
+
+async function extractThumbnailFromBpi(trayFilePath) {
+  // Given any tray file (e.g. *.trayitem, *.blueprint), find the sibling .bpi
+  // file with the primary (type=2, front view) thumbnail.
+  const dir = path.dirname(trayFilePath);
+  const base = path.basename(trayFilePath);
+
+  // Extract the instance ID from the filename: 0x<type>!<instanceId>.<ext>
+  const instanceMatch = base.match(/^0x[0-9a-fA-F]+!([0-9a-fA-F]+)\./);
+  if (!instanceMatch) return null;
+
+  const instanceId = instanceMatch[1];
+  // The primary front-view thumbnail has type prefix 0x00000002
+  const bpiName = `0x00000002!${instanceId}.bpi`;
+  const bpiPath = path.join(dir, bpiName);
+
+  if (!fs.existsSync(bpiPath)) return null;
+
+  return new Promise((resolve) => {
+    try {
+      const data = fs.readFileSync(bpiPath);
+      if (data.length < 24) return resolve(null);
+
+      // Parse the 24-byte header
+      const payloadSize = data.readUInt32LE(0);
+      if (payloadSize <= 0 || 24 + payloadSize > data.length) return resolve(null);
+
+      const payload = data.slice(24, 24 + payloadSize);
+
+      // Search the payload for PNG or JPEG magic bytes.
+      // Some BPI payloads have a proprietary sub-header before the image data.
+      const pngMagic  = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+      const jpegMagic = [0xFF, 0xD8, 0xFF];
+      const searchLimit = Math.min(payload.length - 8, 512);
+
+      let imgOffset = -1;
+      let imgType   = null;
+
+      for (let s = 0; s <= searchLimit; s++) {
+        if (imgType === null &&
+            payload[s]   === pngMagic[0] && payload[s+1] === pngMagic[1] &&
+            payload[s+2] === pngMagic[2] && payload[s+3] === pngMagic[3] &&
+            payload[s+4] === pngMagic[4] && payload[s+5] === pngMagic[5] &&
+            payload[s+6] === pngMagic[6] && payload[s+7] === pngMagic[7]) {
+          imgOffset = s; imgType = 'png'; break;
+        }
+        if (imgType === null && s + 3 <= payload.length &&
+            payload[s] === jpegMagic[0] && payload[s+1] === jpegMagic[1] &&
+            payload[s+2] === jpegMagic[2]) {
+          imgOffset = s; imgType = 'jpeg'; break;
+        }
+      }
+
+      if (imgOffset >= 0 && imgType) {
+        const slice = payload.slice(imgOffset);
+        return resolve(`data:image/${imgType};base64,` + slice.toString('base64'));
+      }
+
+      // Fallback: try zlib decompression on the whole payload and search again
+      let decompressed = null;
+      try { decompressed = zlib.unzipSync(payload); } catch (_) {
+        try { decompressed = zlib.inflateSync(payload); } catch (__) {}
+      }
+
+      if (decompressed) {
+        const sl2 = Math.min(decompressed.length - 8, 512);
+        for (let s = 0; s <= sl2; s++) {
+          if (decompressed[s] === pngMagic[0] && decompressed[s+1] === pngMagic[1] &&
+              decompressed[s+2] === pngMagic[2] && decompressed[s+3] === pngMagic[3] &&
+              decompressed[s+4] === pngMagic[4] && decompressed[s+5] === pngMagic[5] &&
+              decompressed[s+6] === pngMagic[6] && decompressed[s+7] === pngMagic[7]) {
+            return resolve(`data:image/png;base64,` + decompressed.slice(s).toString('base64'));
+          }
+          if (s + 3 <= decompressed.length &&
+              decompressed[s] === jpegMagic[0] && decompressed[s+1] === jpegMagic[1] &&
+              decompressed[s+2] === jpegMagic[2]) {
+            return resolve(`data:image/jpeg;base64,` + decompressed.slice(s).toString('base64'));
+          }
+        }
+      }
+
+      resolve(null);
+    } catch (_) { resolve(null); }
+  });
+}
+
 // Thumbnails
 ipcMain.handle('thumbnail:get', async (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return null;
+
+  const ext = path.extname(filePath).toLowerCase();
+  const trayExts = new Set(['.trayitem', '.blueprint', '.bpi']);
+
+  if (trayExts.has(ext)) {
+    // FIX BUG 3: For tray files, look for the sibling .bpi thumbnail file
+    return await extractThumbnailFromBpi(filePath);
+  }
+
   // 1. Tenta extrair miniatura embutida no próprio .package
   const embedded = await extractThumbnailFromPackage(filePath);
   if (embedded) return embedded;
