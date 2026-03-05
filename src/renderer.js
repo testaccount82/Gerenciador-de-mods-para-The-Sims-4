@@ -676,6 +676,60 @@ function setupGalleryEvents(el, mods) {
 
   // Load thumbnails for .package files not yet cached
   loadVisibleThumbnails(el);
+
+  // Batch enable
+  el.querySelector('#btn-enable-all-sel')?.addEventListener('click', async () => {
+    const sel = [...state.selectedMods];
+    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    const targets = sel.filter(p => {
+      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
+      return mod && !mod.enabled;
+    });
+    if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+    for (const p of targets) await window.api.toggleMod(p);
+    await loadMods(); state.selectedMods.clear(); renderMods();
+    toast(`${targets.length} mod(s) ativados`, 'success');
+    pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
+      for (const p of targets) await window.api.toggleMod(p); // re-disables them
+      await loadMods(); renderMods();
+    });
+  });
+
+  // Batch disable
+  el.querySelector('#btn-disable-all-sel')?.addEventListener('click', async () => {
+    const sel = [...state.selectedMods];
+    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    const targets = sel.filter(p => {
+      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
+      return mod && mod.enabled;
+    });
+    if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+    for (const p of targets) await window.api.toggleMod(p);
+    await loadMods(); state.selectedMods.clear(); renderMods();
+    toast(`${targets.length} mod(s) desativados`, 'success');
+    pushUndo(`Desativar ${targets.length} mod(s)`, async () => {
+      for (const p of targets.map(p => p + '.disabled')) await window.api.toggleMod(p);
+      await loadMods(); renderMods();
+    });
+  });
+
+  // Batch delete
+  el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
+    const sel = [...state.selectedMods];
+    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    openModal('Confirmar Exclusão em Lote',
+      `<p>Tem certeza que deseja deletar <strong>${sel.length}</strong> mod(s) selecionado(s)?</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: `Deletar ${sel.length}`, cls: 'btn-danger', action: async () => {
+          const results = await window.api.deleteMods(sel);
+          const failed = results.filter(r => !r.success).length;
+          await loadMods(); state.selectedMods.clear(); renderMods();
+          toast(`${results.length - failed} deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+        }}
+      ]
+    );
+  });
 }
 
 async function loadVisibleThumbnails(el) {
@@ -834,9 +888,14 @@ function setupModsEvents(el, mods) {
       const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
       return mod && !mod.enabled;
     });
+    if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
     for (const p of targets) await window.api.toggleMod(p);
     await loadMods(); state.selectedMods.clear(); renderMods();
     toast(`${targets.length} mod(s) ativados`, 'success');
+    pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
+      for (const p of targets) await window.api.toggleMod(p); // re-disables
+      await loadMods(); renderMods();
+    });
   });
 
   // Batch disable
@@ -914,6 +973,11 @@ async function importFiles() {
 }
 
 async function doImport(filePaths) {
+  if (!state.config?.modsFolder || !state.config?.trayFolder) {
+    toast('Configure as pastas Mods e Tray primeiro', 'warning');
+    navigate('settings');
+    return;
+  }
   toast(`Importando ${filePaths.length} arquivo(s)...`, 'info', 2000);
   const result = await window.api.importFiles(filePaths, state.config.modsFolder, state.config.trayFolder);
   await loadMods();

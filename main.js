@@ -74,7 +74,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     },
     show: false
   });
@@ -155,6 +155,30 @@ function getRealName(filePath) {
   return base.endsWith(DISABLED_SUFFIX)
     ? base.slice(0, -DISABLED_SUFFIX.length)
     : base;
+}
+
+// ─── Path Safety Validator ────────────────────────────────────────────────────
+// Garante que um filePath está dentro de pelo menos uma das raízes permitidas,
+// prevenindo path traversal (e.g. ../../Windows/System32).
+
+function isPathSafe(filePath, ...allowedRoots) {
+  if (!filePath || typeof filePath !== 'string') return false;
+  const resolved = path.resolve(filePath);
+  return allowedRoots.some(root => {
+    if (!root) return false;
+    const resolvedRoot = path.resolve(root);
+    // path.resolve normaliza e remove '..' — suficiente para garantir confinamento
+    return resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot;
+  });
+}
+
+function getAllowedRoots() {
+  const cfg = readConfig();
+  return [
+    cfg.modsFolder,
+    cfg.trayFolder,
+    path.join(app.getPath('userData'), 'trash'),
+  ].filter(Boolean);
 }
 
 
@@ -282,6 +306,7 @@ function purgeThumbnailCache(existingPaths) {
   const pathSet = new Set(existingPaths);
   let dirty = false;
   for (const key of Object.keys(cache)) {
+    if (key === '__version') continue; // nunca deletar a chave de versão
     if (!pathSet.has(key)) { delete cache[key]; dirty = true; }
   }
   if (dirty) saveThumbnailCache();
@@ -647,7 +672,9 @@ function copyModFile(src, modsFolder, trayFolder) {
 }
 
 function collectModFiles(dir, found = []) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch (_) { return found; }
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -863,35 +890,76 @@ function fixMisplaced(items) {
 
 // Config
 ipcMain.handle('config:get', () => readConfig());
-ipcMain.handle('config:set', (_, config) => { writeConfig(config); return true; });
+ipcMain.handle('config:set', (_, config) => {
+  if (!config || typeof config !== 'object') return false;
+  // Rejeita campos não-string onde string é esperada
+  const stringFields = ['modsFolder', 'trayFolder', 'tempFolder', 'theme'];
+  for (const field of stringFields) {
+    if (field in config && typeof config[field] !== 'string') return false;
+  }
+  // Impede apontar pastas do jogo para diretórios do sistema
+  const BLOCKED = [
+    os.homedir(),
+    app.getPath('userData'),
+    process.env.SystemRoot || 'C:\\Windows',
+    '/etc', '/bin', '/usr', '/sbin',
+  ].map(p => p && path.resolve(p)).filter(Boolean);
+  for (const field of ['modsFolder', 'trayFolder']) {
+    if (config[field]) {
+      const resolved = path.resolve(config[field]);
+      if (BLOCKED.some(b => resolved === b)) return false;
+    }
+  }
+  writeConfig(config);
+  return true;
+});
 
 // Mods scanning
 ipcMain.handle('mods:scan', (_, modsFolder) => scanModsFolder(modsFolder));
 ipcMain.handle('tray:scan', (_, trayFolder) => scanTrayFolder(trayFolder));
 
 // Mod operations
-ipcMain.handle('mods:toggle', (_, filePath) => toggleMod(filePath));
-ipcMain.handle('mods:toggle-folder', (_, folderPath, modsFolder) => toggleFolder(folderPath, modsFolder));
+ipcMain.handle('mods:toggle', (_, filePath) => {
+  if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
+  return toggleMod(filePath);
+});
+ipcMain.handle('mods:toggle-folder', (_, folderPath, modsFolder) => {
+  if (!isPathSafe(folderPath, ...getAllowedRoots())) return [];
+  return toggleFolder(folderPath, modsFolder);
+});
 ipcMain.handle('mods:delete', async (_, filePaths) => {
+  const roots = getAllowedRoots();
   const results = [];
-  for (const fp of filePaths) results.push(await deleteMod(fp));
+  for (const fp of filePaths) {
+    if (!isPathSafe(fp, ...roots)) { results.push({ success: false, path: fp, error: 'Caminho não permitido' }); continue; }
+    results.push(await deleteMod(fp));
+  }
   return results;
 });
-ipcMain.handle('mods:move', (_, from, to) => moveFile(from, to));
+ipcMain.handle('mods:move', (_, from, to) => {
+  const roots = getAllowedRoots();
+  if (!isPathSafe(from, ...roots) || !isPathSafe(to, ...roots)) return { success: false, error: 'Caminho não permitido' };
+  return moveFile(from, to);
+});
 ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
   importFiles(filePaths, modsFolder, trayFolder)
 );
 
 // Conflicts
 ipcMain.handle('conflicts:scan', async (_, modsFolder) => scanConflicts(modsFolder));
-ipcMain.handle('conflicts:resolve-delete', async (_, filePath) => deleteMod(filePath));
 ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
+  if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
   const trashDir = path.join(app.getPath('userData'), 'trash');
   ensureDir(trashDir);
   const dest = path.join(trashDir, `${Date.now()}_${path.basename(filePath)}`);
   return moveFile(filePath, dest);
 });
 ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  const roots = getAllowedRoots();
+  // trashPath deve estar na lixeira interna; originalPath deve estar nas raízes permitidas
+  if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Origem não é da lixeira interna' };
+  if (!isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
   return moveFile(trashPath, originalPath);
 });
 
@@ -1109,11 +1177,11 @@ async function _readDbpfThumbnailByInstances(cachePath, instanceIds) {
 
 // Thumbnails
 ipcMain.handle('thumbnail:get', async (_, filePath) => {
+  if (!isPathSafe(filePath, ...getAllowedRoots())) return null;
   // 1. Tenta extrair miniatura embutida no próprio .package
   const embedded = await extractThumbnailFromPackage(filePath);
   if (embedded) return embedded;
   // 2. Fallback: busca no localthumbcache.package do jogo
-  //    (a maioria dos mods não embute miniatura — o jogo armazena externamente)
   return await extractThumbnailFromLocalCache(filePath);
 });
 ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => { purgeThumbnailCache(existingPaths); return true; });

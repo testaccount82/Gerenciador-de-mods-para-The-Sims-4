@@ -21,7 +21,6 @@ contextBridge.exposeInMainWorld('api', {
 
   // Conflict detection
   scanConflicts: (modsFolder) => ipcRenderer.invoke('conflicts:scan', modsFolder),
-  resolveConflictDelete: (filePath) => ipcRenderer.invoke('conflicts:resolve-delete', filePath),
   conflictMoveToTrash: (filePath) => ipcRenderer.invoke('conflicts:move-to-trash', filePath),
   conflictRestoreFromTrash: (trashPath, originalPath) => ipcRenderer.invoke('conflicts:restore-from-trash', trashPath, originalPath),
 
