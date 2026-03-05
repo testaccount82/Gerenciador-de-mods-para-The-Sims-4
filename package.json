@@ -1,0 +1,46 @@
+{
+  "name": "gerenciador-mods-sims4",
+  "version": "1.0.0",
+  "description": "Gerenciador de mods para The Sims 4 com interface Fluent 2",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "keywords": ["sims4", "mods", "gerenciador", "electron", "fluent2"],
+  "author": "testaccount82",
+  "license": "MIT",
+  "dependencies": {
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.sims4.modmanager",
+    "productName": "TS4 Mod Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": ["pt_BR"],
+      "language": "1046"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ]
+  }
+}

@@ -1,0 +1,1016 @@
+'use strict';
+
+// ─── State ───────────────────────────────────────────────────────────────────
+
+const state = {
+  config: null,
+  mods: [],
+  trayFiles: [],
+  conflicts: [],
+  misplaced: [],
+  currentPage: 'dashboard',
+  selectedMods: new Set(),
+  searchQuery: '',
+  filterStatus: 'all',
+  filterType: 'all',
+  filterFolder: 'all',
+  sortColumn: 'name',
+  sortDir: 'asc',
+  undoStack: [],
+  scanning: false,
+  conflictScanning: false,
+  organizeScanning: false
+};
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function fileIcon(type) {
+  const icons = { package: '📦', script: '⚙️', tray: '🏠', 'tray-in-mods': '⚠️', 'mods-in-tray': '⚠️' };
+  return icons[type] || '📄';
+}
+
+function typeBadge(type) {
+  if (type === 'package') return '<span class="badge badge-package">.package</span>';
+  if (type === 'script')  return '<span class="badge badge-script">.ts4script</span>';
+  if (type === 'tray')    return '<span class="badge badge-tray">Tray</span>';
+  return '<span class="badge badge-warn">Mal colocado</span>';
+}
+
+function statusBadge(enabled) {
+  return enabled
+    ? '<span class="badge badge-active">Ativo</span>'
+    : '<span class="badge badge-inactive">Inativo</span>';
+}
+
+// ─── Toast ───────────────────────────────────────────────────────────────────
+
+function toast(message, type = 'info', duration = 3500) {
+  const container = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = `<div class="toast-dot"></div><span>${escapeHtml(message)}</span>`;
+  container.appendChild(t);
+  setTimeout(() => {
+    t.classList.add('out');
+    setTimeout(() => t.remove(), 280);
+  }, duration);
+}
+
+// ─── Modal ───────────────────────────────────────────────────────────────────
+
+function openModal(title, bodyHtml, buttons = []) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHtml;
+  const footer = document.getElementById('modal-footer');
+  footer.innerHTML = '';
+  buttons.forEach(({ label, cls, action }) => {
+    const btn = document.createElement('button');
+    btn.className = `btn ${cls || 'btn-secondary'}`;
+    btn.textContent = label;
+    btn.addEventListener('click', () => { action(); closeModal(); });
+    footer.appendChild(btn);
+  });
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+// ─── Undo System ─────────────────────────────────────────────────────────────
+
+function pushUndo(label, undoFn) {
+  state.undoStack.push({ label, undoFn });
+  showUndoBar(label);
+}
+
+function showUndoBar(label) {
+  let bar = document.getElementById('undo-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'undo-bar';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span>${escapeHtml(label)}</span>
+    <button class="btn btn-secondary btn-sm" id="undo-btn">↩ Desfazer</button>
+    <button class="icon-btn" id="undo-dismiss">✕</button>
+  `;
+  bar.classList.remove('hidden');
+  clearTimeout(bar._timer);
+  bar._timer = setTimeout(() => bar.classList.add('hidden'), 6000);
+  document.getElementById('undo-btn').addEventListener('click', () => {
+    const op = state.undoStack.pop();
+    if (op) { op.undoFn(); toast('Operação desfeita', 'info'); }
+    bar.classList.add('hidden');
+  });
+  document.getElementById('undo-dismiss').addEventListener('click', () => {
+    state.undoStack.pop();
+    bar.classList.add('hidden');
+  });
+}
+
+// ─── Column Resize ───────────────────────────────────────────────────────────
+
+function initColumnResize(table) {
+  const handles = table.querySelectorAll('.col-resize-handle');
+  handles.forEach(handle => {
+    let startX, startW, th;
+    handle.addEventListener('mousedown', e => {
+      th = handle.parentElement;
+      startX = e.pageX;
+      startW = th.offsetWidth;
+      e.preventDefault();
+      const onMove = ev => { th.style.width = Math.max(60, startW + ev.pageX - startX) + 'px'; };
+      const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
+// ─── Router ──────────────────────────────────────────────────────────────────
+
+function navigate(page) {
+  state.currentPage = page;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`page-${page}`).classList.add('active');
+  document.querySelector(`[data-page="${page}"]`).classList.add('active');
+
+  const renderers = {
+    dashboard: renderDashboard,
+    mods: renderMods,
+    conflicts: renderConflicts,
+    organizer: renderOrganizer,
+    settings: renderSettings
+  };
+  if (renderers[page]) renderers[page]();
+}
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+
+function renderDashboard() {
+  const el = document.getElementById('page-dashboard');
+  const allMods = [...state.mods, ...state.trayFiles];
+  const active = allMods.filter(m => m.enabled).length;
+  const inactive = allMods.filter(m => !m.enabled).length;
+  const totalSize = allMods.reduce((s, m) => s + m.size, 0);
+  const modsOk = state.config?.modsFolder && fs_exists(state.config.modsFolder);
+  const trayOk = state.config?.trayFolder && fs_exists(state.config.trayFolder);
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Início</div>
+        <div class="page-subtitle">Visão geral dos seus mods</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="dash-refresh">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+          </svg>
+          Atualizar
+        </button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card accent">
+        <div class="stat-label">Total de Mods</div>
+        <div class="stat-value">${allMods.length}</div>
+      </div>
+      <div class="stat-card success">
+        <div class="stat-label">Ativos</div>
+        <div class="stat-value">${active}</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-label">Inativos</div>
+        <div class="stat-value">${inactive}</div>
+      </div>
+      <div class="stat-card info">
+        <div class="stat-label">Pacotes (.package)</div>
+        <div class="stat-value">${state.mods.filter(m => m.type === 'package').length}</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-label">Scripts (.ts4script)</div>
+        <div class="stat-value">${state.mods.filter(m => m.type === 'script').length}</div>
+      </div>
+      <div class="stat-card accent">
+        <div class="stat-label">Tamanho Total</div>
+        <div class="stat-value" style="font-size:18px;letter-spacing:-0.5px">${formatBytes(totalSize)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Status das Pastas</div>
+      <div class="folder-status-grid">
+        <div class="folder-row">
+          <div class="folder-dot ${modsOk ? 'ok' : 'missing'}"></div>
+          <div class="folder-label">Mods</div>
+          <div class="folder-path">${escapeHtml(state.config?.modsFolder || 'Não configurada')}</div>
+          <div class="folder-status-text ${modsOk ? 'ok' : 'missing'}">${modsOk ? '✓ Detectada' : '✗ Não encontrada'}</div>
+          ${!modsOk ? '<button class="btn btn-sm btn-secondary" id="btn-fix-mods">Configurar</button>' : `<button class="btn btn-sm btn-subtle" id="btn-open-mods">Abrir</button>`}
+        </div>
+        <div class="folder-row">
+          <div class="folder-dot ${trayOk ? 'ok' : 'missing'}"></div>
+          <div class="folder-label">Tray</div>
+          <div class="folder-path">${escapeHtml(state.config?.trayFolder || 'Não configurada')}</div>
+          <div class="folder-status-text ${trayOk ? 'ok' : 'missing'}">${trayOk ? '✓ Detectada' : '✗ Não encontrada'}</div>
+          ${!trayOk ? '<button class="btn btn-sm btn-secondary" id="btn-fix-tray">Configurar</button>' : `<button class="btn btn-sm btn-subtle" id="btn-open-tray">Abrir</button>`}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Ações Rápidas</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="quick-import">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Importar Mods
+        </button>
+        <button class="btn btn-secondary" id="quick-conflicts">⚠️ Verificar Conflitos</button>
+        <button class="btn btn-secondary" id="quick-organize">📁 Verificar Organização</button>
+      </div>
+    </div>
+  `;
+
+  el.querySelector('#dash-refresh')?.addEventListener('click', () => { loadMods(); toast('Atualizando...', 'info', 1500); });
+  el.querySelector('#btn-fix-mods')?.addEventListener('click', () => navigate('settings'));
+  el.querySelector('#btn-fix-tray')?.addEventListener('click', () => navigate('settings'));
+  el.querySelector('#btn-open-mods')?.addEventListener('click', () => window.api.openInExplorer(state.config.modsFolder));
+  el.querySelector('#btn-open-tray')?.addEventListener('click', () => window.api.openInExplorer(state.config.trayFolder));
+  el.querySelector('#quick-import')?.addEventListener('click', () => navigate('mods'));
+  el.querySelector('#quick-conflicts')?.addEventListener('click', () => navigate('conflicts'));
+  el.querySelector('#quick-organize')?.addEventListener('click', () => navigate('organizer'));
+}
+
+// ─── Mods Page ───────────────────────────────────────────────────────────────
+
+function getFilteredMods() {
+  let mods = [...state.mods, ...state.trayFiles];
+
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    mods = mods.filter(m => m.name.toLowerCase().includes(q));
+  }
+  if (state.filterStatus !== 'all') {
+    const want = state.filterStatus === 'active';
+    mods = mods.filter(m => m.enabled === want);
+  }
+  if (state.filterType !== 'all') {
+    mods = mods.filter(m => m.type === state.filterType);
+  }
+  if (state.filterFolder !== 'all') {
+    mods = mods.filter(m => m.folder === state.filterFolder);
+  }
+
+  mods.sort((a, b) => {
+    let va = a[state.sortColumn] ?? '';
+    let vb = b[state.sortColumn] ?? '';
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va < vb) return state.sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return state.sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  return mods;
+}
+
+function getFolders() {
+  const allMods = [...state.mods, ...state.trayFiles];
+  return [...new Set(allMods.map(m => m.folder))].filter(Boolean).sort();
+}
+
+function renderMods() {
+  const el = document.getElementById('page-mods');
+  const mods = getFilteredMods();
+  const folders = getFolders();
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Mods</div>
+        <div class="page-subtitle">${mods.length} mod(s) exibido(s) de ${[...state.mods, ...state.trayFiles].length} total</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-primary" id="btn-import">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Importar
+        </button>
+        <button class="btn btn-secondary" id="btn-refresh-mods">Atualizar</button>
+      </div>
+    </div>
+
+    <!-- Drop zone -->
+    <div class="drop-zone" id="drop-zone">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p>Arraste mods aqui para importar</p>
+      <small>Suporta .package, .ts4script, .zip, .rar, .7z e arquivos de Tray</small>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" class="search-input" id="search-input" placeholder="Buscar mods..." value="${escapeHtml(state.searchQuery)}" />
+      </div>
+
+      <select class="select-filter" id="filter-status">
+        <option value="all" ${state.filterStatus==='all'?'selected':''}>Todos os status</option>
+        <option value="active" ${state.filterStatus==='active'?'selected':''}>Ativos</option>
+        <option value="inactive" ${state.filterStatus==='inactive'?'selected':''}>Inativos</option>
+      </select>
+
+      <select class="select-filter" id="filter-type">
+        <option value="all" ${state.filterType==='all'?'selected':''}>Todos os tipos</option>
+        <option value="package" ${state.filterType==='package'?'selected':''}>Package</option>
+        <option value="script" ${state.filterType==='script'?'selected':''}>Script</option>
+        <option value="tray" ${state.filterType==='tray'?'selected':''}>Tray</option>
+      </select>
+
+      <select class="select-filter" id="filter-folder">
+        <option value="all">Todas as pastas</option>
+        ${folders.map(f => `<option value="${escapeHtml(f)}" ${state.filterFolder===f?'selected':''}>${escapeHtml(f)}</option>`).join('')}
+      </select>
+
+      <div style="flex:1"></div>
+
+      <button class="btn btn-secondary btn-sm" id="btn-enable-all-sel">Ativar Sel.</button>
+      <button class="btn btn-secondary btn-sm" id="btn-disable-all-sel">Desativar Sel.</button>
+      <button class="btn btn-danger btn-sm" id="btn-delete-sel">Deletar Sel.</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container" id="mods-table-container">
+      ${mods.length === 0 ? `
+        <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+          </svg>
+          <h3>Nenhum mod encontrado</h3>
+          <p>Tente ajustar os filtros ou importe seus primeiros mods</p>
+        </div>
+      ` : `
+        <table id="mods-table">
+          <thead>
+            <tr>
+              <th style="width:36px"><div class="th-content"><input type="checkbox" class="checkbox" id="select-all"></div></th>
+              ${renderTh('name', 'Nome')}
+              ${renderTh('type', 'Tipo', '110px')}
+              ${renderTh('size', 'Tamanho', '90px')}
+              ${renderTh('folder', 'Pasta', '140px')}
+              ${renderTh('enabled', 'Status', '100px')}
+              <th style="width:90px"><div class="th-content">Ações</div></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${mods.map(mod => renderModRow(mod)).join('')}
+          </tbody>
+        </table>
+      `}
+    </div>
+  `;
+
+  // Events
+  setupModsEvents(el, mods);
+}
+
+function renderTh(col, label, width = '') {
+  const isActive = state.sortColumn === col;
+  const arrow = isActive ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+  return `
+    <th ${width ? `style="width:${width}"` : ''}>
+      <div class="th-content" data-sort="${col}">
+        ${label}
+        <span class="sort-arrow ${isActive ? 'active' : ''}">${arrow}</span>
+      </div>
+      <div class="col-resize-handle"></div>
+    </th>`;
+}
+
+function renderModRow(mod) {
+  const sel = state.selectedMods.has(mod.path);
+  return `
+    <tr class="${!mod.enabled ? 'disabled' : ''} ${sel ? 'selected' : ''}" data-path="${escapeHtml(mod.path)}">
+      <td><input type="checkbox" class="checkbox row-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}></td>
+      <td><div class="cell-name"><span class="file-icon">${fileIcon(mod.type)}</span><span title="${escapeHtml(mod.path)}">${escapeHtml(mod.name)}</span></div></td>
+      <td>${typeBadge(mod.type)}</td>
+      <td>${formatBytes(mod.size)}</td>
+      <td title="${escapeHtml(mod.folder)}">${escapeHtml(mod.folder === '/' ? '(raiz)' : mod.folder)}</td>
+      <td>${statusBadge(mod.enabled)}</td>
+      <td>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="btn btn-sm ${mod.enabled ? 'btn-secondary' : 'btn-primary'} toggle-mod-btn"
+            data-path="${escapeHtml(mod.path)}" title="${mod.enabled ? 'Desativar' : 'Ativar'}">
+            ${mod.enabled ? '⏸' : '▶'}
+          </button>
+          <button class="btn btn-sm btn-danger delete-mod-btn" data-path="${escapeHtml(mod.path)}" title="Deletar">🗑</button>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function setupModsEvents(el, mods) {
+  // Sorting
+  el.querySelectorAll('[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.sort;
+      if (state.sortColumn === col) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortColumn = col;
+        state.sortDir = 'asc';
+      }
+      renderMods();
+    });
+  });
+
+  // Column resize
+  const table = el.querySelector('#mods-table');
+  if (table) initColumnResize(table);
+
+  // Select all
+  const selectAll = el.querySelector('#select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      state.selectedMods.clear();
+      if (selectAll.checked) mods.forEach(m => state.selectedMods.add(m.path));
+      el.querySelectorAll('.row-check').forEach(c => c.checked = selectAll.checked);
+      el.querySelectorAll('tbody tr').forEach(r => r.classList.toggle('selected', selectAll.checked));
+    });
+  }
+
+  // Row checkboxes
+  el.querySelectorAll('.row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const p = cb.dataset.path;
+      if (cb.checked) state.selectedMods.add(p);
+      else state.selectedMods.delete(p);
+      cb.closest('tr').classList.toggle('selected', cb.checked);
+    });
+  });
+
+  // Toggle individual mod
+  el.querySelectorAll('.toggle-mod-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const filePath = btn.dataset.path;
+      const result = await window.api.toggleMod(filePath);
+      if (result.success) {
+        await loadMods();
+        renderMods();
+      } else {
+        toast('Erro ao alternar mod: ' + result.error, 'error');
+      }
+    });
+  });
+
+  // Delete individual
+  el.querySelectorAll('.delete-mod-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const filePath = btn.dataset.path;
+      const name = mods.find(m => m.path === filePath)?.name || filePath;
+      openModal('Confirmar Exclusão',
+        `<p>Tem certeza que deseja deletar <strong>${escapeHtml(name)}</strong>? Esta ação não pode ser desfeita pelo Desfazer.</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: 'Deletar', cls: 'btn-danger', action: async () => {
+            const results = await window.api.deleteMods([filePath]);
+            if (results[0].success) {
+              await loadMods(); renderMods();
+              toast('Mod deletado', 'success');
+            } else {
+              toast('Erro ao deletar: ' + results[0].error, 'error');
+            }
+          }}
+        ]
+      );
+    });
+  });
+
+  // Batch enable
+  el.querySelector('#btn-enable-all-sel')?.addEventListener('click', async () => {
+    const sel = [...state.selectedMods];
+    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    const targets = sel.filter(p => {
+      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
+      return mod && !mod.enabled;
+    });
+    for (const p of targets) await window.api.toggleMod(p);
+    await loadMods(); state.selectedMods.clear(); renderMods();
+    toast(`${targets.length} mod(s) ativados`, 'success');
+  });
+
+  // Batch disable
+  el.querySelector('#btn-disable-all-sel')?.addEventListener('click', async () => {
+    const sel = [...state.selectedMods];
+    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    const targets = sel.filter(p => {
+      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
+      return mod && mod.enabled;
+    });
+    const oldStates = targets.map(p => ({ path: p }));
+    for (const p of targets) await window.api.toggleMod(p);
+    await loadMods(); state.selectedMods.clear(); renderMods();
+    toast(`${targets.length} mod(s) desativados`, 'success');
+    pushUndo(`Desativar ${targets.length} mod(s)`, async () => {
+      for (const p of oldStates.map(o => o.path + '.disabled')) await window.api.toggleMod(p);
+      await loadMods(); renderMods();
+    });
+  });
+
+  // Batch delete
+  el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
+    const sel = [...state.selectedMods];
+    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    openModal('Confirmar Exclusão em Lote',
+      `<p>Tem certeza que deseja deletar <strong>${sel.length}</strong> mod(s) selecionado(s)?</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: `Deletar ${sel.length}`, cls: 'btn-danger', action: async () => {
+          const results = await window.api.deleteMods(sel);
+          const failed = results.filter(r => !r.success).length;
+          await loadMods(); state.selectedMods.clear(); renderMods();
+          toast(`${results.length - failed} deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+        }}
+      ]
+    );
+  });
+
+  // Search
+  el.querySelector('#search-input')?.addEventListener('input', e => {
+    state.searchQuery = e.target.value;
+    renderMods();
+  });
+
+  // Filters
+  el.querySelector('#filter-status')?.addEventListener('change', e => { state.filterStatus = e.target.value; renderMods(); });
+  el.querySelector('#filter-type')?.addEventListener('change', e => { state.filterType = e.target.value; renderMods(); });
+  el.querySelector('#filter-folder')?.addEventListener('change', e => { state.filterFolder = e.target.value; renderMods(); });
+
+  // Import button
+  el.querySelector('#btn-import')?.addEventListener('click', importFiles);
+  el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
+
+  // Drop zone
+  const dz = el.querySelector('#drop-zone');
+  if (dz) {
+    dz.addEventListener('click', importFiles);
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', async e => {
+      e.preventDefault(); dz.classList.remove('drag-over');
+      const files = [...e.dataTransfer.files].map(f => f.path);
+      if (files.length) await doImport(files);
+    });
+  }
+}
+
+async function importFiles() {
+  const files = await window.api.openFilesDialog();
+  if (!files.length) return;
+  await doImport(files);
+}
+
+async function doImport(filePaths) {
+  toast(`Importando ${filePaths.length} arquivo(s)...`, 'info', 2000);
+  const result = await window.api.importFiles(filePaths, state.config.modsFolder, state.config.trayFolder);
+  await loadMods();
+  if (state.currentPage === 'mods') renderMods();
+  if (state.currentPage === 'dashboard') renderDashboard();
+  if (result.imported.length > 0) {
+    toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
+  }
+  if (result.errors.length > 0) {
+    toast(`${result.errors.length} arquivo(s) com erro`, 'error');
+  }
+}
+
+// ─── Conflicts Page ───────────────────────────────────────────────────────────
+
+async function renderConflicts() {
+  const el = document.getElementById('page-conflicts');
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Conflitos</div>
+        <div class="page-subtitle">Detecte arquivos duplicados ou conflitantes</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-primary" id="btn-scan-conflicts">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Escanear Conflitos
+        </button>
+      </div>
+    </div>
+    <div class="notice info">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <div>
+        <strong>Tipos de conflitos detectados:</strong> arquivos com mesmo nome, duplicatas por conteúdo (hash MD5) e duplicatas geradas pelo sistema operacional (ex: arquivo (2).package).
+      </div>
+    </div>
+    <div id="conflicts-result"></div>
+  `;
+
+  el.querySelector('#btn-scan-conflicts').addEventListener('click', () => runConflictScan(el));
+
+  if (state.conflicts.length > 0) renderConflictResults(el);
+}
+
+async function runConflictScan(el) {
+  if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
+  const resultEl = el.querySelector('#conflicts-result');
+  resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Escaneando conflitos... (pode demorar)</div></div>`;
+
+  try {
+    state.conflicts = await window.api.scanConflicts(state.config.modsFolder);
+    renderConflictResults(el);
+  } catch (e) {
+    resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderConflictResults(el) {
+  const resultEl = el.querySelector('#conflicts-result');
+  if (!state.conflicts.length) {
+    resultEl.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <h3>Nenhum conflito encontrado!</h3>
+        <p>Seus mods parecem estar em ordem.</p>
+      </div>`;
+    return;
+  }
+
+  resultEl.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span class="section-title">${state.conflicts.length} conflito(s) encontrado(s)</span>
+      <button class="btn btn-secondary btn-sm" id="btn-dismiss-all">Dispensar Todos</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px" id="conflict-list">
+      ${state.conflicts.map((c, i) => renderConflictCard(c, i)).join('')}
+    </div>
+  `;
+
+  // Wire up events
+  el.querySelectorAll('.conflict-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const path = btn.dataset.path;
+      const idx = parseInt(btn.dataset.conflict);
+      openModal('Confirmar Exclusão',
+        `<p>Deletar o arquivo:<br><strong>${escapeHtml(path)}</strong>?</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: 'Deletar', cls: 'btn-danger', action: async () => {
+            await window.api.resolveConflictDelete(path);
+            state.conflicts.splice(idx, 1);
+            await loadMods();
+            renderConflictResults(el);
+            toast('Arquivo deletado', 'success');
+          }}
+        ]
+      );
+    });
+  });
+
+  el.querySelector('#btn-dismiss-all')?.addEventListener('click', () => {
+    state.conflicts = [];
+    renderConflictResults(el);
+  });
+}
+
+function renderConflictCard(conflict, idx) {
+  const typeLabel = { 'same-name': 'Mesmo Nome', 'hash-duplicate': 'Conteúdo Idêntico', 'os-duplicate': 'Duplicata do Sistema' }[conflict.type] || conflict.type;
+  const typeCls = conflict.type === 'hash-duplicate' ? 'badge-conflict' : 'badge-warn';
+
+  return `
+    <div class="conflict-card">
+      <div class="conflict-header">
+        <span class="badge ${typeCls}">${typeLabel}</span>
+        <span style="font-size:12px;color:var(--text-secondary)">${conflict.files.length} arquivos</span>
+        ${conflict.hash ? `<span style="font-size:11px;color:var(--text-disabled)">MD5: ${conflict.hash.slice(0,16)}...</span>` : ''}
+      </div>
+      <div class="conflict-body">
+        ${conflict.files.map(f => `
+          <div class="conflict-file-row">
+            <span style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+            <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
+            ${statusBadge(f.enabled)}
+            <button class="btn btn-sm btn-danger conflict-delete-btn" data-path="${escapeHtml(f.path)}" data-conflict="${idx}">🗑 Deletar</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+// ─── Organizer Page ───────────────────────────────────────────────────────────
+
+async function renderOrganizer() {
+  const el = document.getElementById('page-organizer');
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Organização Automática</div>
+        <div class="page-subtitle">Detecta e corrige arquivos em locais incorretos</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-primary" id="btn-scan-organize">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Escanear
+        </button>
+      </div>
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <div class="card-title">Regras do The Sims 4</div>
+      <div class="notice info">
+        <div>
+          <strong>.ts4script</strong> — máximo 1 nível de subpasta dentro da pasta Mods.<br>
+          <strong>.package</strong> — pode ir até 5 níveis de profundidade.<br>
+          <strong>Arquivos de Tray</strong> (.trayitem, .blueprint, etc.) — devem estar na pasta Tray, não em Mods.
+        </div>
+      </div>
+    </div>
+
+    <div id="organize-result"></div>
+  `;
+
+  el.querySelector('#btn-scan-organize').addEventListener('click', () => runOrganizeScan(el));
+
+  if (state.misplaced.length > 0) renderOrganizeResults(el);
+}
+
+async function runOrganizeScan(el) {
+  if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
+  const resultEl = el.querySelector('#organize-result');
+  resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização...</div></div>`;
+
+  try {
+    state.misplaced = await window.api.scanMisplaced(state.config.modsFolder, state.config.trayFolder);
+    renderOrganizeResults(el);
+  } catch (e) {
+    resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderOrganizeResults(el) {
+  const resultEl = el.querySelector('#organize-result');
+  if (!state.misplaced.length) {
+    resultEl.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <h3>Tudo organizado!</h3>
+        <p>Nenhum arquivo fora do lugar foi encontrado.</p>
+      </div>`;
+    return;
+  }
+
+  resultEl.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span class="section-title">${state.misplaced.length} arquivo(s) fora do lugar</span>
+      <button class="btn btn-primary" id="btn-fix-all">Corrigir Todos</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${state.misplaced.map((item, i) => `
+        <div class="misplaced-row" data-index="${i}">
+          <span class="file-icon">${fileIcon('package')}</span>
+          <div class="misplaced-info">
+            <div class="misplaced-name" title="${escapeHtml(item.path)}">${escapeHtml(item.name)}</div>
+            <div class="misplaced-issue">⚠ ${escapeHtml(item.issue)}</div>
+          </div>
+          <span class="misplaced-arrow">→</span>
+          <div class="misplaced-dest" title="${escapeHtml(item.suggestedDest)}">${escapeHtml(item.suggestedDest)}</div>
+          <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(item.size)}</span>
+          <button class="btn btn-sm btn-primary fix-one-btn" data-index="${i}">Corrigir</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  el.querySelector('#btn-fix-all')?.addEventListener('click', async () => {
+    const results = await window.api.fixMisplaced(state.misplaced);
+    const ok = results.filter(r => r.success).length;
+    state.misplaced = state.misplaced.filter((_, i) => !results[i]?.success);
+    await loadMods();
+    renderOrganizeResults(el);
+    toast(`${ok} arquivo(s) corrigido(s)`, 'success');
+    pushUndo(`Mover ${ok} arquivo(s)`, async () => {
+      for (const r of results) {
+        if (r.success) await window.api.moveMod(r.to, r.from);
+      }
+      await loadMods();
+    });
+  });
+
+  el.querySelectorAll('.fix-one-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.index);
+      const item = state.misplaced[idx];
+      const result = await window.api.fixOneMisplaced(item);
+      if (result.success) {
+        const from = result.from; const to = result.to;
+        state.misplaced.splice(idx, 1);
+        await loadMods();
+        renderOrganizeResults(el);
+        toast('Arquivo movido com sucesso', 'success');
+        pushUndo(`Mover ${item.name}`, async () => {
+          await window.api.moveMod(to, from);
+          await loadMods();
+        });
+      } else {
+        toast('Erro ao mover arquivo: ' + (result.error || ''), 'error');
+      }
+    });
+  });
+}
+
+// ─── Settings Page ────────────────────────────────────────────────────────────
+
+function renderSettings() {
+  const el = document.getElementById('page-settings');
+  const cfg = state.config || {};
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Configurações</div>
+        <div class="page-subtitle">Configure as pastas e preferências do gerenciador</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Pastas do Jogo</div>
+      <div class="settings-group">
+
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Pasta Mods</div>
+            <div class="settings-desc">Onde os arquivos .package e .ts4script devem estar</div>
+          </div>
+          <div class="path-input-group">
+            <input class="path-input" id="mods-path" value="${escapeHtml(cfg.modsFolder || '')}" readonly title="${escapeHtml(cfg.modsFolder || '')}" />
+            <button class="btn btn-secondary btn-sm" id="browse-mods">Procurar</button>
+          </div>
+        </div>
+
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Pasta Tray</div>
+            <div class="settings-desc">Onde os arquivos .trayitem, .blueprint, etc. devem estar</div>
+          </div>
+          <div class="path-input-group">
+            <input class="path-input" id="tray-path" value="${escapeHtml(cfg.trayFolder || '')}" readonly title="${escapeHtml(cfg.trayFolder || '')}" />
+            <button class="btn btn-secondary btn-sm" id="browse-tray">Procurar</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Informações</div>
+      <div class="settings-group">
+        <div class="settings-item" style="flex-direction:column;align-items:flex-start;gap:8px">
+          <div>
+            <div class="settings-label">Regras de Subpastas do The Sims 4</div>
+            <div class="settings-desc" style="margin-top:6px;line-height:1.7">
+              • <strong>.package</strong> — até 5 níveis de subpasta<br>
+              • <strong>.ts4script</strong> — máximo 1 nível de subpasta<br>
+              • Arquivos de <strong>Tray</strong> — devem estar na pasta Tray, não em Mods<br>
+              • Não crie uma pasta chamada "Mods" dentro da pasta Mods
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sobre</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> v1.0.0<br>
+        Gerenciador de mods para The Sims 4 com interface Fluent 2<br>
+        Desenvolvido com Electron
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" id="save-settings">Salvar Configurações</button>
+      <button class="btn btn-secondary" id="reload-mods-btn">Recarregar Mods</button>
+    </div>
+  `;
+
+  el.querySelector('#browse-mods').addEventListener('click', async () => {
+    const folder = await window.api.openFolderDialog();
+    if (folder) el.querySelector('#mods-path').value = folder;
+  });
+
+  el.querySelector('#browse-tray').addEventListener('click', async () => {
+    const folder = await window.api.openFolderDialog();
+    if (folder) el.querySelector('#tray-path').value = folder;
+  });
+
+  el.querySelector('#save-settings').addEventListener('click', async () => {
+    const modsFolder = el.querySelector('#mods-path').value.trim();
+    const trayFolder = el.querySelector('#tray-path').value.trim();
+    if (!modsFolder || !trayFolder) { toast('Por favor, configure ambas as pastas', 'warning'); return; }
+    state.config = { ...state.config, modsFolder, trayFolder };
+    await window.api.setConfig(state.config);
+    toast('Configurações salvas com sucesso', 'success');
+    await loadMods();
+  });
+
+  el.querySelector('#reload-mods-btn').addEventListener('click', async () => {
+    await loadMods();
+    toast('Mods recarregados', 'info');
+  });
+}
+
+// ─── Data Loading ─────────────────────────────────────────────────────────────
+
+function fs_exists(p) {
+  // We can't check directly from renderer; use heuristic (path not empty means configured)
+  return Boolean(p && p.length > 3);
+}
+
+async function loadMods() {
+  if (!state.config) return;
+  try {
+    const [mods, tray] = await Promise.all([
+      window.api.scanMods(state.config.modsFolder),
+      window.api.scanTray(state.config.trayFolder)
+    ]);
+    state.mods = mods || [];
+    state.trayFiles = tray || [];
+  } catch (e) {
+    console.error('Error loading mods:', e);
+    state.mods = [];
+    state.trayFiles = [];
+  }
+}
+
+// ─── App Init ─────────────────────────────────────────────────────────────────
+
+async function init() {
+  // Window controls
+  document.getElementById('btn-minimize').addEventListener('click', () => window.api.minimize());
+  document.getElementById('btn-maximize').addEventListener('click', () => window.api.maximize());
+  document.getElementById('btn-close').addEventListener('click', () => window.api.close());
+
+  // Modal close
+  document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+  document.getElementById('modal-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal-overlay')) closeModal();
+  });
+
+  // Nav
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => navigate(btn.dataset.page));
+  });
+
+  // Load config & mods
+  state.config = await window.api.getConfig();
+  await loadMods();
+
+  // Initial page
+  navigate('dashboard');
+}
+
+init();
