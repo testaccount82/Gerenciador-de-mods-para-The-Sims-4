@@ -1,10 +1,10 @@
 /* ─── Design Tokens ─────────────────────────────────────────────────── */
 :root {
-  --accent:          #0078D4;
-  --accent-light:    #1a90e8;
-  --accent-dark:     #005fa3;
-  --accent-subtle:   rgba(0, 120, 212, 0.12);
-  --accent-subtle2:  rgba(0, 120, 212, 0.22);
+  --accent:          #0067B8;
+  --accent-light:    #0078D4;
+  --accent-dark:     #004f8c;
+  --accent-subtle:   rgba(0, 103, 184, 0.12);
+  --accent-subtle2:  rgba(0, 103, 184, 0.22);
 
   --bg:              #141414;
   --surface:         #1e1e1e;

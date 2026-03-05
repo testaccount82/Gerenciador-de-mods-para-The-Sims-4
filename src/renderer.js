@@ -164,7 +164,7 @@ function navigate(page) {
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
-function renderDashboard() {
+async function renderDashboard() {
   const el = document.getElementById('page-dashboard');
   const allMods = [...state.mods, ...state.trayFiles];
   const active = allMods.filter(m => m.enabled).length;
@@ -236,6 +236,8 @@ function renderDashboard() {
       </div>
     </div>
 
+    <div id="dash-alerts" style="display:flex;flex-direction:column;gap:8px"></div>
+
     <div class="card">
       <div class="card-title">Ações Rápidas</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -252,7 +254,7 @@ function renderDashboard() {
     </div>
   `;
 
-  el.querySelector('#dash-refresh')?.addEventListener('click', () => { loadMods(); toast('Atualizando...', 'info', 1500); });
+  el.querySelector('#dash-refresh')?.addEventListener('click', async () => { await loadMods(); renderDashboard(); toast('Atualizado', 'info', 1500); });
   el.querySelector('#btn-fix-mods')?.addEventListener('click', () => navigate('settings'));
   el.querySelector('#btn-fix-tray')?.addEventListener('click', () => navigate('settings'));
   el.querySelector('#btn-open-mods')?.addEventListener('click', () => window.api.openInExplorer(state.config.modsFolder));
@@ -260,6 +262,76 @@ function renderDashboard() {
   el.querySelector('#quick-import')?.addEventListener('click', () => navigate('mods'));
   el.querySelector('#quick-conflicts')?.addEventListener('click', () => navigate('conflicts'));
   el.querySelector('#quick-organize')?.addEventListener('click', () => navigate('organizer'));
+
+  // Auto-checks
+  if (modsOk) runDashboardAutoChecks(el);
+}
+
+async function runDashboardAutoChecks(el) {
+  const cfg = state.config;
+  const alertsEl = el.querySelector('#dash-alerts');
+  if (!alertsEl) return;
+
+  const checkMisplaced = cfg?.autoCheckMisplaced !== false;
+  const checkDuplicates = cfg?.autoCheckDuplicates === true;
+
+  if (!checkMisplaced && !checkDuplicates) return;
+
+  alertsEl.innerHTML = `<div class="loading-state" style="padding:12px 0;flex-direction:row;gap:10px;justify-content:flex-start">
+    <div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+    <span style="font-size:12.5px;color:var(--text-secondary)">Verificando problemas...</span>
+  </div>`;
+
+  const alerts = [];
+
+  if (checkMisplaced) {
+    try {
+      const misplaced = await window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder);
+      if (misplaced.length > 0) {
+        alerts.push({
+          type: 'warning',
+          icon: '📁',
+          message: `${misplaced.length} arquivo(s) em locais incorretos`,
+          action: 'organizer',
+          actionLabel: 'Ver e corrigir'
+        });
+      }
+    } catch (_) {}
+  }
+
+  if (checkDuplicates) {
+    try {
+      const conflicts = await window.api.scanConflicts(cfg.modsFolder);
+      if (conflicts.length > 0) {
+        alerts.push({
+          type: 'danger',
+          icon: '⚠️',
+          message: `${conflicts.length} conflito(s) ou duplicata(s) detectado(s)`,
+          action: 'conflicts',
+          actionLabel: 'Ver conflitos'
+        });
+      }
+    } catch (_) {}
+  }
+
+  if (!alertsEl.isConnected) return;
+
+  if (alerts.length === 0) {
+    alertsEl.innerHTML = `<div class="notice success" style="font-size:12.5px">✓ Nenhum problema encontrado</div>`;
+    setTimeout(() => { if (alertsEl.isConnected) alertsEl.innerHTML = ''; }, 4000);
+    return;
+  }
+
+  alertsEl.innerHTML = alerts.map(a => `
+    <div class="notice ${a.type}" style="justify-content:space-between;align-items:center">
+      <span>${a.icon} ${escapeHtml(a.message)}</span>
+      <button class="btn btn-sm btn-secondary dash-alert-btn" data-page="${a.action}" style="flex-shrink:0">${a.actionLabel} →</button>
+    </div>
+  `).join('');
+
+  alertsEl.querySelectorAll('.dash-alert-btn').forEach(btn => {
+    btn.addEventListener('click', () => navigate(btn.dataset.page));
+  });
 }
 
 // ─── Mods Page ───────────────────────────────────────────────────────────────
@@ -917,6 +989,32 @@ function renderSettings() {
     </div>
 
     <div class="card">
+      <div class="card-title">Verificação Automática ao Abrir</div>
+      <div class="settings-group">
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Verificar arquivos mal colocados</div>
+            <div class="settings-desc">Detecta arquivos em pastas incorretas ao abrir o Dashboard (rápido)</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-auto-misplaced" ${cfg.autoCheckMisplaced !== false ? 'checked' : ''}>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+        </div>
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Verificar duplicatas ao abrir</div>
+            <div class="settings-desc">Escaneia conflitos e arquivos duplicados ao abrir o Dashboard — pode causar lentidão com muitos mods</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-auto-duplicates" ${cfg.autoCheckDuplicates ? 'checked' : ''}>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-title">Informações</div>
       <div class="settings-group">
         <div class="settings-item" style="flex-direction:column;align-items:flex-start;gap:8px">
@@ -962,7 +1060,9 @@ function renderSettings() {
     const modsFolder = el.querySelector('#mods-path').value.trim();
     const trayFolder = el.querySelector('#tray-path').value.trim();
     if (!modsFolder || !trayFolder) { toast('Por favor, configure ambas as pastas', 'warning'); return; }
-    state.config = { ...state.config, modsFolder, trayFolder };
+    const autoCheckMisplaced = el.querySelector('#toggle-auto-misplaced')?.checked ?? true;
+    const autoCheckDuplicates = el.querySelector('#toggle-auto-duplicates')?.checked ?? false;
+    state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates };
     await window.api.setConfig(state.config);
     toast('Configurações salvas com sucesso', 'success');
     await loadMods();

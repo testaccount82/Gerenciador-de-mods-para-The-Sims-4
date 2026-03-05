@@ -28,7 +28,9 @@ const DEFAULT_CONFIG = {
   trayFolder: path.join(os.homedir(), 'Documents', 'Electronic Arts', 'The Sims 4', 'Tray'),
   tempFolder: path.join(app.getPath('temp'), 'ts4modmanager'),
   theme: 'dark',
-  windowBounds: { width: 1100, height: 720 }
+  windowBounds: { width: 1100, height: 720 },
+  autoCheckMisplaced: true,
+  autoCheckDuplicates: false
 };
 
 function readConfig() {
