@@ -1267,6 +1267,7 @@ function renderSettings() {
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" id="save-settings">Salvar Configurações</button>
       <button class="btn btn-secondary" id="reload-mods-btn">Recarregar Mods</button>
+      <button class="btn btn-subtle" id="clear-thumb-cache">🗑 Limpar cache de miniaturas</button>
     </div>
   `;
 
@@ -1295,6 +1296,12 @@ function renderSettings() {
   el.querySelector('#reload-mods-btn').addEventListener('click', async () => {
     await loadMods();
     toast('Mods recarregados', 'info');
+  });
+
+  el.querySelector('#clear-thumb-cache')?.addEventListener('click', async () => {
+    await window.api.clearThumbnailCache();
+    state.thumbnailCache = {};
+    toast('Cache de miniaturas limpo — reabra a grade para recarregar', 'success', 4000);
   });
 }
 

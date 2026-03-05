@@ -306,31 +306,50 @@ async function _readDbpfThumbnail(filePath) {
 
         let imageData = dataBuf;
 
-        if (compressionType === 0x5A42 || compressionType === 0x5042) {
+        // 0x5A42 = zlib, 0x5042 = RefPack/internal (try zlib first, skip if fails)
+        if (compressionType === 0x5A42) {
           try { imageData = zlib.inflateSync(dataBuf); }
           catch (_) {
             try { imageData = zlib.inflateRawSync(dataBuf); }
             catch (__) { continue; }
           }
-        } else if (compressionType === 0x0000) {
+        } else if (compressionType === 0x5042) {
+          // RefPack: skip — not standard zlib, avoid corrupt output
+          continue;
+        } else if (compressionType === 0x0000 || compressionType === 0xFFFF) {
           imageData = dataBuf;
         } else {
           continue; // unsupported compression
         }
 
-        // Validate PNG signature: 89 50 4E 47 0D 0A 1A 0A
-        if (imageData.length >= 8 &&
-            imageData[0] === 0x89 && imageData[1] === 0x50 &&
-            imageData[2] === 0x4E && imageData[3] === 0x47) {
-          fs.closeSync(fd);
-          return resolve('data:image/png;base64,' + imageData.toString('base64'));
+        // Search for PNG/JPEG magic bytes within the buffer (some resources
+        // have a small proprietary header before the actual image data)
+        const pngMagic  = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        const jpegMagic = [0xFF, 0xD8, 0xFF];
+
+        let imgOffset = -1;
+        let imgType   = null;
+        const searchLimit = Math.min(imageData.length - 8, 256); // look in first 256 bytes
+
+        for (let s = 0; s <= searchLimit; s++) {
+          if (imgType === null &&
+              imageData[s]   === pngMagic[0] && imageData[s+1] === pngMagic[1] &&
+              imageData[s+2] === pngMagic[2] && imageData[s+3] === pngMagic[3] &&
+              imageData[s+4] === pngMagic[4] && imageData[s+5] === pngMagic[5] &&
+              imageData[s+6] === pngMagic[6] && imageData[s+7] === pngMagic[7]) {
+            imgOffset = s; imgType = 'png'; break;
+          }
+          if (imgType === null && s + 3 <= imageData.length &&
+              imageData[s] === jpegMagic[0] && imageData[s+1] === jpegMagic[1] &&
+              imageData[s+2] === jpegMagic[2]) {
+            imgOffset = s; imgType = 'jpeg'; break;
+          }
         }
 
-        // Validate JPEG signature: FF D8 FF
-        if (imageData.length >= 3 &&
-            imageData[0] === 0xFF && imageData[1] === 0xD8 && imageData[2] === 0xFF) {
+        if (imgOffset >= 0 && imgType) {
+          const slice = imageData.slice(imgOffset);
           fs.closeSync(fd);
-          return resolve('data:image/jpeg;base64,' + imageData.toString('base64'));
+          return resolve(`data:image/${imgType};base64,` + slice.toString('base64'));
         }
       }
 
@@ -779,6 +798,13 @@ ipcMain.handle('shell:open', (_, folderPath) => shell.openPath(folderPath));
 // Thumbnails
 ipcMain.handle('thumbnail:get', async (_, filePath) => extractThumbnailFromPackage(filePath));
 ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => { purgeThumbnailCache(existingPaths); return true; });
+ipcMain.handle('thumbnail:clear-cache', () => {
+  try {
+    _thumbnailCache = {};
+    if (fs.existsSync(THUMBNAIL_CACHE_PATH)) fs.unlinkSync(THUMBNAIL_CACHE_PATH);
+    return true;
+  } catch (_) { return false; }
+});
 
 // Filesystem checks
 ipcMain.handle('fs:exists', (_, folderPath) => {

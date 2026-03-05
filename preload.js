@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('api', {
   // Thumbnails
   getThumbnail: (filePath) => ipcRenderer.invoke('thumbnail:get', filePath),
   purgeThumbnailCache: (existingPaths) => ipcRenderer.invoke('thumbnail:purge-cache', existingPaths),
+  clearThumbnailCache: () => ipcRenderer.invoke('thumbnail:clear-cache'),
 
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
