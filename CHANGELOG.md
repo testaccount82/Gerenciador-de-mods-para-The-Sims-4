@@ -7,6 +7,19 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [1.1.0] - 2025-01-08
+
+### Corrigido
+- Detecção real das pastas Mods e Tray via `fs.existsSync` no processo principal — antes qualquer caminho configurado era incorretamente marcado como detectado
+- Removido `...` (ellipsis) que aparecia na coluna de checkbox da tabela de mods devido ao padding excessivo
+- Filtro de pastas na página Mods não exibe mais `/` como opção inválida
+- Ícone da janela trocado de escudo para controle de videogame
+- Cor de destaque alterada de teal para azul Fluent (#0078D4); texto dos botões primários e thumb do toggle ajustados para branco
+- Caminho completo do arquivo agora é exibido abaixo do nome nos cards de conflito
+- Adicionado suporte a **Desfazer** ao deletar arquivos na página de Conflitos (arquivo é movido para lixeira temporária em vez de deletado permanentemente)
+
+---
+
 ## [1.0.0] - 2025-01-01
 
 ### Adicionado

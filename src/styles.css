@@ -1,10 +1,10 @@
 /* ─── Design Tokens ─────────────────────────────────────────────────── */
 :root {
-  --accent:          #00b4a0;
-  --accent-light:    #00d4be;
-  --accent-dark:     #008f7e;
-  --accent-subtle:   rgba(0, 180, 160, 0.12);
-  --accent-subtle2:  rgba(0, 180, 160, 0.22);
+  --accent:          #0078D4;
+  --accent-light:    #1a90e8;
+  --accent-dark:     #005fa3;
+  --accent-subtle:   rgba(0, 120, 212, 0.12);
+  --accent-subtle2:  rgba(0, 120, 212, 0.22);
 
   --bg:              #141414;
   --surface:         #1e1e1e;
@@ -342,7 +342,7 @@ html, body {
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.btn-primary   { background: var(--accent); color: #000; }
+.btn-primary   { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent-light); }
 
 .btn-secondary { background: var(--elevated); color: var(--text-primary); border: 1px solid var(--border-strong); }
@@ -403,7 +403,7 @@ html, body {
 .toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
 .toggle input:checked + .toggle-track .toggle-thumb {
   transform: translateX(16px);
-  background: #000;
+  background: #fff;
 }
 
 /* ─── Search & Toolbar ──────────────────────────────────────────────── */

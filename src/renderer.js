@@ -689,18 +689,26 @@ function renderConflictResults(el) {
   // Wire up events
   el.querySelectorAll('.conflict-delete-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const path = btn.dataset.path;
+      const filePath = btn.dataset.path;
       const idx = parseInt(btn.dataset.conflict);
+      const fileName = filePath.split('\\').pop() || filePath.split('/').pop();
       openModal('Confirmar Exclusão',
-        `<p>Deletar o arquivo:<br><strong>${escapeHtml(path)}</strong>?</p>`,
+        `<p>Deletar o arquivo:<br><strong>${escapeHtml(filePath)}</strong>?</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Deletar', cls: 'btn-danger', action: async () => {
-            await window.api.resolveConflictDelete(path);
+            const result = await window.api.conflictMoveToTrash(filePath);
+            if (!result.success) { toast('Erro ao deletar: ' + (result.error || ''), 'error'); return; }
+            const trashPath = result.to;
             state.conflicts.splice(idx, 1);
             await loadMods();
             renderConflictResults(el);
             toast('Arquivo deletado', 'success');
+            pushUndo(`Deletar ${fileName}`, async () => {
+              await window.api.conflictRestoreFromTrash(trashPath, filePath);
+              await loadMods();
+              toast('Arquivo restaurado', 'success');
+            });
           }}
         ]
       );
@@ -928,7 +936,7 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> v1.0.0<br>
+        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> v1.1.0<br>
         Gerenciador de mods para The Sims 4 com interface Fluent 2<br>
         Desenvolvido com Electron
       </div>

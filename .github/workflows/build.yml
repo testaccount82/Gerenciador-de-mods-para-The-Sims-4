@@ -46,24 +46,19 @@ jobs:
       - name: Criar Release com o EXE
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "TS4 Mod Manager v1.0.0"
+          tag_name: v1.1.0
+          name: "TS4 Mod Manager v1.1.0"
           body: |
-            ## TS4 Mod Manager v1.0.0 🎮
+            ## TS4 Mod Manager v1.1.0 🎮
 
-            Gerenciador de mods para The Sims 4 com interface Fluent 2.
-
-            ### 📥 Como instalar
-            Baixe o arquivo `.exe` abaixo e execute o instalador.
-
-            ### ✨ O que há nesta versão
-            - Dashboard com estatísticas de mods
-            - Gerenciador com busca, filtros e colunas redimensionáveis
-            - Importação por drag-and-drop (zip, rar, 7z, package, ts4script)
-            - Ativar/Desativar mods individualmente ou em lote
-            - Sistema de Desfazer para operações em lote
-            - Detecção de conflitos por nome, hash MD5 e duplicatas do SO
-            - Organização automática de arquivos mal colocados
+            ### 🐛 Correções
+            - Detecção real das pastas Mods e Tray via `fs.existsSync` (antes qualquer caminho era marcado como detectado)
+            - Removido `...` na coluna de checkbox da tabela de mods
+            - Filtro de pastas não exibe mais `/` como opção
+            - Ícone da janela trocado de escudo para controle de videogame
+            - Cor de destaque alterada para azul Fluent (#0078D4)
+            - Caminho completo do arquivo exibido nos cards de conflito
+            - Desfazer disponível ao deletar arquivos na página de Conflitos
           draft: false
           prerelease: false
           files: |

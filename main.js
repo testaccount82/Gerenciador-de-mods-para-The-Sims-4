@@ -553,6 +553,15 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
 // Conflicts
 ipcMain.handle('conflicts:scan', async (_, modsFolder) => scanConflicts(modsFolder));
 ipcMain.handle('conflicts:resolve-delete', async (_, filePath) => deleteMod(filePath));
+ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  ensureDir(trashDir);
+  const dest = path.join(trashDir, `${Date.now()}_${path.basename(filePath)}`);
+  return moveFile(filePath, dest);
+});
+ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
+  return moveFile(trashPath, originalPath);
+});
 
 // Organizer
 ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => scanMisplaced(modsFolder, trayFolder));
