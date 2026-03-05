@@ -217,13 +217,14 @@ function internalDecompression(data) {
 // ─── DBPF Thumbnail Extractor ────────────────────────────────────────────────
 
 // Type IDs that may contain a viewable PNG image
+// Source: https://github.com/Kuree/Sims4Tools/wiki/Sims-4---Packed-File-Types
 const THUMBNAIL_TYPES = new Set([
-  0x2F7D0004, // PNG Image (generic)
-  0x3C2A8647, // Buy/Build thumbnail
+  0x2F7D0004, // PNG Image (generic / background blends)
   0x3C1AF1F2, // CAS Part Thumbnail
   0x5B282D45, // Body Part Thumbnail
-  0xCD9DE247, // Sim Featured Outfit Thumbnail
+  0xCD9DE247, // Thumbnails (Sim Featured Outfit / Buy/Build)
   0x9C925813, // Sim Preset Thumbnail
+  // 0x3C2A8647 removido — não é um type ID documentado no formato DBPF do TS4
 ]);
 
 const THUMBNAIL_CACHE_PATH = path.join(app.getPath('userData'), 'thumbnail-cache.json');
@@ -857,8 +858,203 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
 // Shell
 ipcMain.handle('shell:open', (_, folderPath) => shell.openPath(folderPath));
 
+// ─── localthumbcache.package fallback ────────────────────────────────────────
+// A maioria dos mods do TS4 não embute miniaturas nos próprios .package files.
+// O jogo gera as miniaturas dinamicamente e as armazena em localthumbcache.package
+// dentro da pasta Documents\Electronic Arts\The Sims 4.
+// Esta função extrai a miniatura de um mod a partir desse cache usando o
+// instance ID do primeiro recurso CAS/Build de qualquer tipo thumbnail do mod.
+
+const LOCALTHUMB_CACHE_PATH = path.join(
+  os.homedir(), 'Documents', 'Electronic Arts', 'The Sims 4', 'localthumbcache.package'
+);
+
+// Tipos de recursos cujo instance ID é usado como chave no localthumbcache
+const INSTANCE_SOURCE_TYPES = new Set([
+  0x034AEECB, // CAS Part (CASP) — mais comum em CC de roupa/cabelo
+  0x3C1AF1F2, // CAS Part Thumbnail
+  0x5B282D45, // Body Part Thumbnail
+  0xCD9DE247, // Thumbnails (Buy/Build)
+  0x9C925813, // Sim Preset Thumbnail
+  0x319E4F1D, // Object Catalog (COBJ) — objetos de Build/Buy
+]);
+
+async function extractThumbnailFromLocalCache(modFilePath) {
+  // 1. Extrai os instance IDs dos recursos do mod
+  const instanceIds = await _readDbpfInstanceIds(modFilePath);
+  if (!instanceIds.length) return null;
+
+  // 2. Abre o localthumbcache.package e procura por esses IDs
+  return await _readDbpfThumbnailByInstances(LOCALTHUMB_CACHE_PATH, instanceIds);
+}
+
+async function _readDbpfInstanceIds(filePath) {
+  return new Promise((resolve) => {
+    let fd;
+    const ids = [];
+    try {
+      fd = fs.openSync(filePath, 'r');
+      const header = Buffer.alloc(96);
+      if (fs.readSync(fd, header, 0, 96, 0) < 96) { fs.closeSync(fd); return resolve(ids); }
+      if (header.toString('ascii', 0, 4) !== 'DBPF') { fs.closeSync(fd); return resolve(ids); }
+      if (header.readUInt32LE(4) !== 2) { fs.closeSync(fd); return resolve(ids); }
+
+      const indexCount  = header.readUInt32LE(36);
+      const indexOffset = header.readUInt32LE(64);
+      if (!indexCount || !indexOffset) { fs.closeSync(fd); return resolve(ids); }
+
+      const flagsBuf = Buffer.alloc(4);
+      fs.readSync(fd, flagsBuf, 0, 4, indexOffset);
+      const flags = flagsBuf.readUInt32LE(0);
+      const typeConst         = (flags & 0x01) !== 0;
+      const groupConst        = (flags & 0x02) !== 0;
+      const instanceHighConst = (flags & 0x04) !== 0;
+
+      let constOffset = indexOffset + 4;
+      let constType = 0, constInstanceHigh = 0;
+      if (typeConst)         { const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset); constType = b.readUInt32LE(0); constOffset += 4; }
+      if (groupConst)        { constOffset += 4; }
+      if (instanceHighConst) { const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset); constInstanceHigh = b.readUInt32LE(0); constOffset += 4; }
+
+      const varBytes  = (typeConst ? 0 : 4) + (groupConst ? 0 : 4) + (instanceHighConst ? 0 : 4);
+      const entrySize = varBytes + 20;
+
+      for (let i = 0; i < Math.min(indexCount, 500); i++) {
+        const entryStart = constOffset + i * entrySize;
+        const entryBuf = Buffer.alloc(entrySize);
+        fs.readSync(fd, entryBuf, 0, entrySize, entryStart);
+
+        let pos = 0;
+        const type = typeConst ? constType : entryBuf.readUInt32LE(pos);
+        if (!typeConst) pos += 4;
+        if (!groupConst) pos += 4;
+        const instanceHigh = instanceHighConst ? constInstanceHigh : entryBuf.readUInt32LE(pos);
+        if (!instanceHighConst) pos += 4;
+        const instanceLow = entryBuf.readUInt32LE(pos);
+
+        if (INSTANCE_SOURCE_TYPES.has(type >>> 0)) {
+          ids.push({ high: instanceHigh, low: instanceLow });
+        }
+      }
+      fs.closeSync(fd);
+      resolve(ids);
+    } catch (e) {
+      try { if (fd !== undefined) fs.closeSync(fd); } catch (_) {}
+      resolve(ids);
+    }
+  });
+}
+
+async function _readDbpfThumbnailByInstances(cachePath, instanceIds) {
+  if (!fs.existsSync(cachePath)) return null;
+  return new Promise((resolve) => {
+    let fd;
+    try {
+      fd = fs.openSync(cachePath, 'r');
+      const header = Buffer.alloc(96);
+      if (fs.readSync(fd, header, 0, 96, 0) < 96) { fs.closeSync(fd); return resolve(null); }
+      if (header.toString('ascii', 0, 4) !== 'DBPF') { fs.closeSync(fd); return resolve(null); }
+
+      const indexCount  = header.readUInt32LE(36);
+      const indexOffset = header.readUInt32LE(64);
+      if (!indexCount || !indexOffset) { fs.closeSync(fd); return resolve(null); }
+
+      const flagsBuf = Buffer.alloc(4);
+      fs.readSync(fd, flagsBuf, 0, 4, indexOffset);
+      const flags = flagsBuf.readUInt32LE(0);
+      const typeConst         = (flags & 0x01) !== 0;
+      const groupConst        = (flags & 0x02) !== 0;
+      const instanceHighConst = (flags & 0x04) !== 0;
+
+      let constOffset = indexOffset + 4;
+      let constType = 0, constGroup = 0, constInstanceHigh = 0;
+      if (typeConst)         { const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset); constType = b.readUInt32LE(0); constOffset += 4; }
+      if (groupConst)        { const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset); constGroup = b.readUInt32LE(0); constOffset += 4; }
+      if (instanceHighConst) { const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset); constInstanceHigh = b.readUInt32LE(0); constOffset += 4; }
+
+      const varBytes  = (typeConst ? 0 : 4) + (groupConst ? 0 : 4) + (instanceHighConst ? 0 : 4);
+      const entrySize = varBytes + 20;
+
+      // Monta um Set de instâncias do mod para lookup O(1)
+      const instanceSet = new Set(instanceIds.map(id => `${id.high}:${id.low}`));
+
+      for (let i = 0; i < indexCount; i++) {
+        const entryStart = constOffset + i * entrySize;
+        const entryBuf = Buffer.alloc(entrySize);
+        fs.readSync(fd, entryBuf, 0, entrySize, entryStart);
+
+        let pos = 0;
+        const type = typeConst ? constType : entryBuf.readUInt32LE(pos);
+        if (!typeConst) pos += 4;
+        if (!groupConst) pos += 4;
+        const instanceHigh = instanceHighConst ? constInstanceHigh : entryBuf.readUInt32LE(pos);
+        if (!instanceHighConst) pos += 4;
+        const instanceLow = entryBuf.readUInt32LE(pos); pos += 4;
+
+        // Verifica se é um tipo de thumbnail E pertence a um dos recursos do mod
+        if (!THUMBNAIL_TYPES.has(type >>> 0)) continue;
+        if (!instanceSet.has(`${instanceHigh}:${instanceLow}`)) continue;
+
+        const dataOffset     = entryBuf.readUInt32LE(pos); pos += 4;
+        const rawCompSize    = entryBuf.readUInt32LE(pos); pos += 4;
+        const compressedSize = rawCompSize & 0x7FFFFFFF;
+        pos += 4; // decompressedSize
+        const compressionType = entryBuf.readUInt16LE(pos);
+
+        if (compressedSize === 0 || compressedSize > 4 * 1024 * 1024) continue;
+
+        const dataBuf = Buffer.alloc(compressedSize);
+        fs.readSync(fd, dataBuf, 0, compressedSize, dataOffset);
+
+        let imageData = dataBuf;
+        if (compressionType === 0x5A42) {
+          try { imageData = zlib.unzipSync(dataBuf); } catch (_) {
+            try { imageData = zlib.inflateSync(dataBuf); } catch (__) { continue; }
+          }
+        } else if (compressionType === 0xFFFF) {
+          try { imageData = internalDecompression(dataBuf); } catch (_) { continue; }
+        } else if (compressionType !== 0x0000) {
+          continue;
+        }
+
+        const pngMagic  = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        const jpegMagic = [0xFF, 0xD8, 0xFF];
+        const limit = Math.min(imageData.length - 8, 256);
+
+        for (let s = 0; s <= limit; s++) {
+          if (imageData[s] === pngMagic[0] && imageData[s+1] === pngMagic[1] &&
+              imageData[s+2] === pngMagic[2] && imageData[s+3] === pngMagic[3] &&
+              imageData[s+4] === pngMagic[4] && imageData[s+5] === pngMagic[5] &&
+              imageData[s+6] === pngMagic[6] && imageData[s+7] === pngMagic[7]) {
+            fs.closeSync(fd);
+            return resolve(`data:image/png;base64,` + imageData.slice(s).toString('base64'));
+          }
+          if (s + 3 <= imageData.length &&
+              imageData[s] === jpegMagic[0] && imageData[s+1] === jpegMagic[1] && imageData[s+2] === jpegMagic[2]) {
+            fs.closeSync(fd);
+            return resolve(`data:image/jpeg;base64,` + imageData.slice(s).toString('base64'));
+          }
+        }
+      }
+
+      fs.closeSync(fd);
+      resolve(null);
+    } catch (e) {
+      try { if (fd !== undefined) fs.closeSync(fd); } catch (_) {}
+      resolve(null);
+    }
+  });
+}
+
 // Thumbnails
-ipcMain.handle('thumbnail:get', async (_, filePath) => extractThumbnailFromPackage(filePath));
+ipcMain.handle('thumbnail:get', async (_, filePath) => {
+  // 1. Tenta extrair miniatura embutida no próprio .package
+  const embedded = await extractThumbnailFromPackage(filePath);
+  if (embedded) return embedded;
+  // 2. Fallback: busca no localthumbcache.package do jogo
+  //    (a maioria dos mods não embute miniatura — o jogo armazena externamente)
+  return await extractThumbnailFromLocalCache(filePath);
+});
 ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => { purgeThumbnailCache(existingPaths); return true; });
 ipcMain.handle('thumbnail:clear-cache', () => {
   try {
