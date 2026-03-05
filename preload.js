@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('api', {
   // Filesystem
   pathExists: (folderPath) => ipcRenderer.invoke('fs:exists', folderPath),
 
+  // Thumbnails
+  getThumbnail: (filePath) => ipcRenderer.invoke('thumbnail:get', filePath),
+  purgeThumbnailCache: (existingPaths) => ipcRenderer.invoke('thumbnail:purge-cache', existingPaths),
+
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),

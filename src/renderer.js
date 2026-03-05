@@ -19,7 +19,12 @@ const state = {
   undoStack: [],
   scanning: false,
   conflictScanning: false,
-  organizeScanning: false
+  organizeScanning: false,
+  // Gallery
+  viewMode: 'list',       // 'list' | 'grid'
+  galleryPage: 1,
+  itemsPerPage: 24,
+  thumbnailCache: {},     // path -> base64 | null
 };
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -374,16 +379,40 @@ function getFolders() {
 
 function renderMods() {
   const el = document.getElementById('page-mods');
-  const mods = getFilteredMods();
+  const allFiltered = getFilteredMods();
   const folders = getFolders();
+  const total = [...state.mods, ...state.trayFiles].length;
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(allFiltered.length / state.itemsPerPage));
+  if (state.galleryPage > totalPages) state.galleryPage = totalPages;
+  const start = (state.galleryPage - 1) * state.itemsPerPage;
+  const mods = allFiltered.slice(start, start + state.itemsPerPage);
+
+  const isGrid = state.viewMode === 'grid';
 
   el.innerHTML = `
     <div class="page-header">
       <div>
         <div class="page-title">Mods</div>
-        <div class="page-subtitle">${mods.length} mod(s) exibido(s) de ${[...state.mods, ...state.trayFiles].length} total</div>
+        <div class="page-subtitle">${allFiltered.length} mod(s) exibido(s) de ${total} total</div>
       </div>
       <div class="header-actions">
+        <div class="view-toggle">
+          <button class="view-btn ${!isGrid ? 'active' : ''}" id="view-list" title="Visualização em lista">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+              <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+          </button>
+          <button class="view-btn ${isGrid ? 'active' : ''}" id="view-grid" title="Visualização em grade">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+              <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+          </button>
+        </div>
         <button class="btn btn-primary" id="btn-import">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -434,45 +463,233 @@ function renderMods() {
 
       <div style="flex:1"></div>
 
-      <button class="btn btn-secondary btn-sm" id="btn-enable-all-sel">Ativar Sel.</button>
-      <button class="btn btn-secondary btn-sm" id="btn-disable-all-sel">Desativar Sel.</button>
-      <button class="btn btn-danger btn-sm" id="btn-delete-sel">Deletar Sel.</button>
-    </div>
-
-    <!-- Table -->
-    <div class="table-container" id="mods-table-container">
-      ${mods.length === 0 ? `
-        <div class="empty-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-            <path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-          </svg>
-          <h3>Nenhum mod encontrado</h3>
-          <p>Tente ajustar os filtros ou importe seus primeiros mods</p>
-        </div>
+      ${isGrid ? `
+        <select class="select-filter" id="items-per-page">
+          <option value="24" ${state.itemsPerPage===24?'selected':''}>24 por página</option>
+          <option value="48" ${state.itemsPerPage===48?'selected':''}>48 por página</option>
+          <option value="96" ${state.itemsPerPage===96?'selected':''}>96 por página</option>
+        </select>
       ` : `
-        <table id="mods-table">
-          <thead>
-            <tr>
-              <th style="width:40px;text-overflow:clip"><div style="display:flex;align-items:center;justify-content:center;padding:10px 6px"><input type="checkbox" class="checkbox" id="select-all"></div></th>
-              ${renderTh('name', 'Nome')}
-              ${renderTh('type', 'Tipo', '110px')}
-              ${renderTh('size', 'Tamanho', '90px')}
-              ${renderTh('folder', 'Pasta', '140px')}
-              ${renderTh('enabled', 'Status', '100px')}
-              <th style="width:90px"><div class="th-content">Ações</div></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${mods.map(mod => renderModRow(mod)).join('')}
-          </tbody>
-        </table>
+        <button class="btn btn-secondary btn-sm" id="btn-enable-all-sel">Ativar Sel.</button>
+        <button class="btn btn-secondary btn-sm" id="btn-disable-all-sel">Desativar Sel.</button>
+        <button class="btn btn-danger btn-sm" id="btn-delete-sel">Deletar Sel.</button>
       `}
     </div>
+
+    <!-- Content -->
+    ${isGrid ? renderGallery(mods) : renderTable(mods)}
+
+    <!-- Pagination -->
+    ${totalPages > 1 ? renderPagination(state.galleryPage, totalPages, allFiltered.length) : ''}
   `;
 
-  // Events
-  setupModsEvents(el, mods);
+  isGrid ? setupGalleryEvents(el, mods) : setupModsEvents(el, mods);
+}
+
+function renderTable(mods) {
+  if (mods.length === 0) return `
+    <div class="table-container">
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+        <h3>Nenhum mod encontrado</h3>
+        <p>Tente ajustar os filtros ou importe seus primeiros mods</p>
+      </div>
+    </div>`;
+
+  return `
+    <div class="table-container" id="mods-table-container">
+      <table id="mods-table">
+        <thead>
+          <tr>
+            <th style="width:40px;text-overflow:clip"><div style="display:flex;align-items:center;justify-content:center;padding:10px 6px"><input type="checkbox" class="checkbox" id="select-all"></div></th>
+            ${renderTh('name', 'Nome')}
+            ${renderTh('type', 'Tipo', '110px')}
+            ${renderTh('size', 'Tamanho', '90px')}
+            ${renderTh('folder', 'Pasta', '140px')}
+            ${renderTh('enabled', 'Status', '100px')}
+            <th style="width:90px"><div class="th-content">Ações</div></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${mods.map(mod => renderModRow(mod)).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderGallery(mods) {
+  if (mods.length === 0) return `
+    <div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+        <path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+      <h3>Nenhum mod encontrado</h3>
+      <p>Tente ajustar os filtros ou importe seus primeiros mods</p>
+    </div>`;
+
+  return `<div class="gallery-grid" id="gallery-grid">
+    ${mods.map(mod => {
+      const sel = state.selectedMods.has(mod.path);
+      const cached = state.thumbnailCache[mod.path];
+      const thumbHtml = cached
+        ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
+        : mod.type !== 'package'
+          ? `<div class="gallery-thumb-placeholder">${fileIcon(mod.type)}</div>`
+          : `<div class="gallery-thumb-loading" data-load="${escapeHtml(mod.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+
+      return `
+        <div class="gallery-card ${sel ? 'selected' : ''} ${!mod.enabled ? 'disabled' : ''}"
+             data-path="${escapeHtml(mod.path)}">
+          <input type="checkbox" class="card-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}>
+          ${thumbHtml}
+          <div class="gallery-info">
+            <div class="gallery-name" title="${escapeHtml(mod.name)}">${escapeHtml(mod.name)}</div>
+            <div class="gallery-meta">
+              <span>${formatBytes(mod.size)}</span>
+              <div style="display:flex;align-items:center;gap:4px">
+                <div class="gallery-status-dot ${mod.enabled ? 'active' : 'inactive'}"></div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderPagination(current, total, itemCount) {
+  const pages = [];
+  const delta = 2;
+  for (let i = 1; i <= total; i++) {
+    if (i === 1 || i === total || (i >= current - delta && i <= current + delta)) {
+      pages.push(i);
+    }
+  }
+
+  let html = '<div class="pagination">';
+  html += `<button class="page-btn" id="page-prev" ${current === 1 ? 'disabled' : ''}>‹</button>`;
+
+  let prev = null;
+  for (const p of pages) {
+    if (prev && p - prev > 1) html += `<span class="pagination-info">…</span>`;
+    html += `<button class="page-btn ${p === current ? 'active' : ''}" data-page="${p}">${p}</button>`;
+    prev = p;
+  }
+
+  html += `<button class="page-btn" id="page-next" ${current === total ? 'disabled' : ''}>›</button>`;
+  html += `<span class="pagination-info">${itemCount} itens</span>`;
+  html += '</div>';
+  return html;
+}
+
+function setupGalleryEvents(el, mods) {
+  // View toggle
+  el.querySelector('#view-list')?.addEventListener('click', () => { state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#view-grid')?.addEventListener('click', () => { state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
+
+  // Items per page
+  el.querySelector('#items-per-page')?.addEventListener('change', e => {
+    state.itemsPerPage = parseInt(e.target.value); state.galleryPage = 1; renderMods();
+  });
+
+  // Pagination
+  el.querySelectorAll('[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => { state.galleryPage = parseInt(btn.dataset.page); renderMods(); });
+  });
+  el.querySelector('#page-prev')?.addEventListener('click', () => { if (state.galleryPage > 1) { state.galleryPage--; renderMods(); }});
+  el.querySelector('#page-next')?.addEventListener('click', () => { state.galleryPage++; renderMods(); });
+
+  // Search
+  el.querySelector('#search-input')?.addEventListener('input', e => {
+    state.searchQuery = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    state.galleryPage = 1;
+    renderMods();
+    const newInput = document.getElementById('search-input');
+    if (newInput) { newInput.focus(); newInput.setSelectionRange(cursorPos, cursorPos); }
+  });
+
+  // Filters
+  el.querySelector('#filter-status')?.addEventListener('change', e => { state.filterStatus = e.target.value; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#filter-type')?.addEventListener('change', e => { state.filterType = e.target.value; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#filter-folder')?.addEventListener('change', e => { state.filterFolder = e.target.value; state.galleryPage = 1; renderMods(); });
+
+  // Import & refresh
+  el.querySelector('#btn-import')?.addEventListener('click', importFiles);
+  el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
+
+  // Drop zone
+  const dz = el.querySelector('#drop-zone');
+  if (dz) {
+    dz.addEventListener('click', importFiles);
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', async e => {
+      e.preventDefault(); dz.classList.remove('drag-over');
+      const files = [...e.dataTransfer.files].map(f => f.path);
+      if (files.length) await doImport(files);
+    });
+  }
+
+  // Card selection
+  el.querySelectorAll('.card-check').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      const p = cb.dataset.path;
+      if (cb.checked) state.selectedMods.add(p);
+      else state.selectedMods.delete(p);
+      cb.closest('.gallery-card').classList.toggle('selected', cb.checked);
+    });
+  });
+
+  // Card click → toggle mod
+  el.querySelectorAll('.gallery-card').forEach(card => {
+    card.addEventListener('click', async e => {
+      if (e.target.classList.contains('card-check')) return;
+      const filePath = card.dataset.path;
+      const result = await window.api.toggleMod(filePath);
+      if (result.success) { await loadMods(); renderMods(); }
+      else toast('Erro ao alternar mod', 'error');
+    });
+  });
+
+  // Load thumbnails for .package files not yet cached
+  loadVisibleThumbnails(el);
+}
+
+async function loadVisibleThumbnails(el) {
+  const loaders = el.querySelectorAll('[data-load]');
+  for (const loader of loaders) {
+    const filePath = loader.dataset.load;
+    if (state.thumbnailCache[filePath] !== undefined) continue;
+
+    // Mark as loading to avoid double requests
+    state.thumbnailCache[filePath] = undefined;
+
+    const thumb = await window.api.getThumbnail(filePath);
+    state.thumbnailCache[filePath] = thumb; // null if none found
+
+    // Update DOM in place without full re-render
+    const stillThere = el.querySelector(`[data-load="${CSS.escape(filePath)}"]`);
+    if (stillThere) {
+      if (thumb) {
+        const img = document.createElement('img');
+        img.className = 'gallery-thumb';
+        img.src = thumb;
+        img.alt = '';
+        img.loading = 'lazy';
+        stillThere.replaceWith(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'gallery-thumb-placeholder';
+        ph.textContent = '📦';
+        stillThere.replaceWith(ph);
+      }
+    }
+  }
 }
 
 function renderTh(col, label, width = '') {
@@ -511,6 +728,10 @@ function renderModRow(mod) {
 }
 
 function setupModsEvents(el, mods) {
+  // View toggle
+  el.querySelector('#view-list')?.addEventListener('click', () => { state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#view-grid')?.addEventListener('click', () => { state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
+
   // Sorting
   el.querySelectorAll('[data-sort]').forEach(th => {
     th.addEventListener('click', () => {
@@ -1092,6 +1313,10 @@ async function loadMods() {
     state.trayFolderExists = Boolean(trayOk);
     state.mods = mods || [];
     state.trayFiles = tray || [];
+
+    // Purge thumbnail cache for files no longer present
+    const allPaths = [...state.mods, ...state.trayFiles].map(m => m.path);
+    window.api.purgeThumbnailCache(allPaths);
   } catch (e) {
     console.error('Error loading mods:', e);
     state.modsFolderExists = false;

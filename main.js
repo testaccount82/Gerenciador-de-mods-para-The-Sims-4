@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { execFile } = require('child_process');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -154,6 +155,192 @@ function getRealName(filePath) {
   return base.endsWith(DISABLED_SUFFIX)
     ? base.slice(0, -DISABLED_SUFFIX.length)
     : base;
+}
+
+
+// ─── DBPF Thumbnail Extractor ────────────────────────────────────────────────
+
+// Type IDs that may contain a viewable PNG image
+const THUMBNAIL_TYPES = new Set([
+  0x2F7D0004, // PNG Image (generic)
+  0x3C2A8647, // Buy/Build thumbnail
+  0x3C1AF1F2, // CAS Part Thumbnail
+  0x5B282D45, // Body Part Thumbnail
+  0xCD9DE247, // Sim Featured Outfit Thumbnail
+  0x9C925813, // Sim Preset Thumbnail
+]);
+
+const THUMBNAIL_CACHE_PATH = path.join(app.getPath('userData'), 'thumbnail-cache.json');
+let _thumbnailCache = null;
+
+function loadThumbnailCache() {
+  if (_thumbnailCache) return _thumbnailCache;
+  try {
+    if (fs.existsSync(THUMBNAIL_CACHE_PATH)) {
+      _thumbnailCache = JSON.parse(fs.readFileSync(THUMBNAIL_CACHE_PATH, 'utf-8'));
+    } else {
+      _thumbnailCache = {};
+    }
+  } catch (_) { _thumbnailCache = {}; }
+  return _thumbnailCache;
+}
+
+function saveThumbnailCache() {
+  try { fs.writeFileSync(THUMBNAIL_CACHE_PATH, JSON.stringify(_thumbnailCache), 'utf-8'); }
+  catch (_) {}
+}
+
+function purgeThumbnailCache(existingPaths) {
+  const cache = loadThumbnailCache();
+  const pathSet = new Set(existingPaths);
+  let dirty = false;
+  for (const key of Object.keys(cache)) {
+    if (!pathSet.has(key)) { delete cache[key]; dirty = true; }
+  }
+  if (dirty) saveThumbnailCache();
+}
+
+async function extractThumbnailFromPackage(filePath) {
+  const cache = loadThumbnailCache();
+
+  // Check cache: { data, mtime }
+  try {
+    const stat = fs.statSync(filePath);
+    const mtime = stat.mtimeMs;
+    if (cache[filePath] && cache[filePath].mtime === mtime) {
+      return cache[filePath].data; // may be null = no thumbnail
+    }
+  } catch (_) { return null; }
+
+  const result = await _readDbpfThumbnail(filePath);
+
+  // Store in cache
+  try {
+    const stat = fs.statSync(filePath);
+    cache[filePath] = { mtime: stat.mtimeMs, data: result };
+    // Debounced save
+    clearTimeout(_thumbnailCache._saveTimer);
+    _thumbnailCache._saveTimer = setTimeout(saveThumbnailCache, 2000);
+  } catch (_) {}
+
+  return result;
+}
+
+async function _readDbpfThumbnail(filePath) {
+  return new Promise((resolve) => {
+    let fd;
+    try {
+      fd = fs.openSync(filePath, 'r');
+
+      // ── Header (96 bytes) ──────────────────────────────────────────────────
+      const header = Buffer.alloc(96);
+      const bytesRead = fs.readSync(fd, header, 0, 96, 0);
+      if (bytesRead < 96) { fs.closeSync(fd); return resolve(null); }
+
+      // Magic check
+      if (header.toString('ascii', 0, 4) !== 'DBPF') { fs.closeSync(fd); return resolve(null); }
+
+      const majorVersion = header.readUInt32LE(4);
+      if (majorVersion !== 2) { fs.closeSync(fd); return resolve(null); }
+
+      const indexCount  = header.readUInt32LE(36);
+      const indexOffset = header.readUInt32LE(64);
+
+      if (indexCount === 0 || indexOffset === 0) { fs.closeSync(fd); return resolve(null); }
+
+      // ── Index header (const-type flags) ───────────────────────────────────
+      const flagsBuf = Buffer.alloc(4);
+      fs.readSync(fd, flagsBuf, 0, 4, indexOffset);
+      const flags = flagsBuf.readUInt32LE(0);
+
+      const typeConst         = (flags & 0x01) !== 0;
+      const groupConst        = (flags & 0x02) !== 0;
+      const instanceHighConst = (flags & 0x04) !== 0;
+
+      let constOffset = indexOffset + 4;
+      let constType = 0, constGroup = 0, constInstanceHigh = 0;
+
+      if (typeConst) {
+        const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset);
+        constType = b.readUInt32LE(0); constOffset += 4;
+      }
+      if (groupConst) {
+        const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset);
+        constGroup = b.readUInt32LE(0); constOffset += 4;
+      }
+      if (instanceHighConst) {
+        const b = Buffer.alloc(4); fs.readSync(fd, b, 0, 4, constOffset);
+        constInstanceHigh = b.readUInt32LE(0); constOffset += 4;
+      }
+
+      // ── Entry size ────────────────────────────────────────────────────────
+      // Variable fields: type?, group?, instanceHigh?
+      // Fixed fields: instanceLow(4) + offset(4) + compressedSize(4) + decompressedSize(4) + compressionType(2) + committed(2) = 20
+      const varBytes  = (typeConst ? 0 : 4) + (groupConst ? 0 : 4) + (instanceHighConst ? 0 : 4);
+      const entrySize = varBytes + 20;
+
+      // ── Scan entries for thumbnail types ──────────────────────────────────
+      for (let i = 0; i < indexCount; i++) {
+        const entryStart = constOffset + i * entrySize;
+        const entryBuf = Buffer.alloc(entrySize);
+        fs.readSync(fd, entryBuf, 0, entrySize, entryStart);
+
+        let pos = 0;
+        const type = typeConst ? constType : entryBuf.readUInt32LE(pos);
+        if (!typeConst) pos += 4;
+        if (!groupConst) pos += 4;         // skip group
+        if (!instanceHighConst) pos += 4;  // skip instanceHigh
+        pos += 4;                           // skip instanceLow
+
+        const dataOffset      = entryBuf.readUInt32LE(pos); pos += 4;
+        const rawCompSize     = entryBuf.readUInt32LE(pos); pos += 4;
+        const compressedSize  = rawCompSize & 0x7FFFFFFF;
+        const decompressedSize = entryBuf.readUInt32LE(pos); pos += 4;
+        const compressionType = entryBuf.readUInt16LE(pos);
+
+        if (!THUMBNAIL_TYPES.has(type >>> 0)) continue;
+        if (compressedSize === 0 || compressedSize > 8 * 1024 * 1024) continue; // skip >8MB
+
+        const dataBuf = Buffer.alloc(compressedSize);
+        fs.readSync(fd, dataBuf, 0, compressedSize, dataOffset);
+
+        let imageData = dataBuf;
+
+        if (compressionType === 0x5A42 || compressionType === 0x5042) {
+          try { imageData = zlib.inflateSync(dataBuf); }
+          catch (_) {
+            try { imageData = zlib.inflateRawSync(dataBuf); }
+            catch (__) { continue; }
+          }
+        } else if (compressionType === 0x0000) {
+          imageData = dataBuf;
+        } else {
+          continue; // unsupported compression
+        }
+
+        // Validate PNG signature: 89 50 4E 47 0D 0A 1A 0A
+        if (imageData.length >= 8 &&
+            imageData[0] === 0x89 && imageData[1] === 0x50 &&
+            imageData[2] === 0x4E && imageData[3] === 0x47) {
+          fs.closeSync(fd);
+          return resolve('data:image/png;base64,' + imageData.toString('base64'));
+        }
+
+        // Validate JPEG signature: FF D8 FF
+        if (imageData.length >= 3 &&
+            imageData[0] === 0xFF && imageData[1] === 0xD8 && imageData[2] === 0xFF) {
+          fs.closeSync(fd);
+          return resolve('data:image/jpeg;base64,' + imageData.toString('base64'));
+        }
+      }
+
+      fs.closeSync(fd);
+      resolve(null);
+    } catch (e) {
+      try { if (fd !== undefined) fs.closeSync(fd); } catch (_) {}
+      resolve(null);
+    }
+  });
 }
 
 // ─── Mod Scanning ────────────────────────────────────────────────────────────
@@ -588,6 +775,10 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
 
 // Shell
 ipcMain.handle('shell:open', (_, folderPath) => shell.openPath(folderPath));
+
+// Thumbnails
+ipcMain.handle('thumbnail:get', async (_, filePath) => extractThumbnailFromPackage(filePath));
+ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => { purgeThumbnailCache(existingPaths); return true; });
 
 // Filesystem checks
 ipcMain.handle('fs:exists', (_, folderPath) => {
