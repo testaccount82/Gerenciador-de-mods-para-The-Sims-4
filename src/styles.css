@@ -464,6 +464,17 @@ html, body {
 .select-filter:focus { border-color: var(--accent); }
 .select-filter option { background: var(--elevated); }
 
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
 /* ─── Table ─────────────────────────────────────────────────────────── */
 .table-container {
   flex: 1;

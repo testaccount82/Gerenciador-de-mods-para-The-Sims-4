@@ -464,6 +464,9 @@ function renderMods() {
       <div style="flex:1"></div>
 
       ${isGrid ? `
+        <label class="select-all-label">
+          <input type="checkbox" class="checkbox" id="select-all-grid"> Selecionar todos
+        </label>
         <select class="select-filter" id="items-per-page">
           <option value="24" ${state.itemsPerPage===24?'selected':''}>24 por página</option>
           <option value="48" ${state.itemsPerPage===48?'selected':''}>48 por página</option>
@@ -633,6 +636,19 @@ function setupGalleryEvents(el, mods) {
       e.preventDefault(); dz.classList.remove('drag-over');
       const files = [...e.dataTransfer.files].map(f => f.path);
       if (files.length) await doImport(files);
+    });
+  }
+
+  // Select all (grade)
+  const selectAllGrid = el.querySelector('#select-all-grid');
+  if (selectAllGrid) {
+    selectAllGrid.addEventListener('change', () => {
+      state.selectedMods.clear();
+      if (selectAllGrid.checked) mods.forEach(m => state.selectedMods.add(m.path));
+      el.querySelectorAll('.card-check').forEach(c => {
+        c.checked = selectAllGrid.checked;
+        c.closest('.gallery-card').classList.toggle('selected', selectAllGrid.checked);
+      });
     });
   }
 
