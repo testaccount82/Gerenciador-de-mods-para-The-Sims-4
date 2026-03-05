@@ -297,7 +297,7 @@ function getFilteredMods() {
 
 function getFolders() {
   const allMods = [...state.mods, ...state.trayFiles];
-  return [...new Set(allMods.map(m => m.folder))].filter(Boolean).sort();
+  return [...new Set(allMods.map(m => m.folder))].filter(f => f && f !== '/').sort();
 }
 
 function renderMods() {
@@ -357,7 +357,7 @@ function renderMods() {
 
       <select class="select-filter" id="filter-folder">
         <option value="all">Todas as pastas</option>
-        ${folders.map(f => `<option value="${escapeHtml(f)}" ${state.filterFolder===f?'selected':''}>${escapeHtml(f)}</option>`).join('')}
+        ${folders.map(f => `<option value="${escapeHtml(f)}" ${state.filterFolder===f?'selected':''}>${escapeHtml(f === '/' ? '(raiz)' : f)}</option>`).join('')}
       </select>
 
       <div style="flex:1"></div>
@@ -727,7 +727,10 @@ function renderConflictCard(conflict, idx) {
       <div class="conflict-body">
         ${conflict.files.map(f => `
           <div class="conflict-file-row">
-            <span style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)">${escapeHtml(f.name)}</span>
+              <span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-disabled)" title="${escapeHtml(f.path)}">${escapeHtml(f.path)}</span>
+            </div>
             <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
             ${statusBadge(f.enabled)}
             <button class="btn btn-sm btn-danger conflict-delete-btn" data-path="${escapeHtml(f.path)}" data-conflict="${idx}">🗑 Deletar</button>
