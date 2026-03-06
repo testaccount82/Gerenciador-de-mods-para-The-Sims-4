@@ -143,6 +143,55 @@ function showUndoBar(label) {
 
 // ─── Column Resize ───────────────────────────────────────────────────────────
 
+// ─── Background Scan (startup) ───────────────────────────────────────────────
+
+// Tracks the number of items still being processed across all active scans.
+// Used to drive the sidebar indicator counter.
+const scanProgress = {
+  remaining: 0,       // files left to hash (conflicts phase)
+  running: false,     // true while any scan is in progress
+  cancelled: false,   // set to true when user hits Stop
+};
+
+function updateScanIndicator() {
+  const el   = document.getElementById('sidebar-scan-indicator');
+  const text = document.getElementById('scan-indicator-text');
+  if (!el || !text) return;
+
+  if (!scanProgress.running) {
+    el.classList.add('hidden');
+    return;
+  }
+
+  el.classList.remove('hidden');
+  text.textContent = scanProgress.remaining > 0
+    ? `Verificando… ${scanProgress.remaining} restantes`
+    : 'Verificando…';
+}
+
+function startScanIndicator() {
+  scanProgress.running   = true;
+  scanProgress.cancelled = false;
+  updateScanIndicator();
+
+  // Wire up the stop button (element is static in HTML, safe to re-attach)
+  const stopBtn = document.getElementById('scan-indicator-stop');
+  if (stopBtn) {
+    stopBtn.onclick = () => {
+      scanProgress.cancelled = true;
+      window.api.cancelConflictScan();
+      stopScanIndicator();
+    };
+  }
+}
+
+function stopScanIndicator() {
+  scanProgress.running   = false;
+  scanProgress.remaining = 0;
+  updateScanIndicator();
+}
+
+
 function initColumnResize(table) {
   const handles = table.querySelectorAll('.col-resize-handle');
   handles.forEach(handle => {
@@ -280,62 +329,58 @@ async function renderDashboard() {
   el.querySelector('#quick-conflicts')?.addEventListener('click', () => navigate('conflicts'));
   el.querySelector('#quick-organize')?.addEventListener('click', () => navigate('organizer'));
 
-  // Auto-checks
-  if (modsOk) runDashboardAutoChecks(el);
+  // Show alerts from already-completed scan results (or "in progress" hint)
+  if (modsOk) renderDashboardAlerts(el);
 }
 
-async function runDashboardAutoChecks(el) {
-  const cfg = state.config;
+// Renders alerts on the dashboard based on already-completed scan results in state.
+// Does NOT trigger any scan — scans are initiated by runStartupChecks() at init().
+function renderDashboardAlerts(el) {
   const alertsEl = el.querySelector('#dash-alerts');
   if (!alertsEl) return;
 
-  const checkMisplaced = cfg?.autoCheckMisplaced !== false;
-  const checkDuplicates = cfg?.autoCheckDuplicates === true;
-
-  if (!checkMisplaced && !checkDuplicates) return;
-
-  alertsEl.innerHTML = `<div class="loading-state" style="padding:12px 0;flex-direction:row;gap:10px;justify-content:flex-start">
-    <div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
-    <span style="font-size:12.5px;color:var(--text-secondary)">Verificando problemas...</span>
-  </div>`;
+  // If a scan is still running, show a subtle "in progress" hint
+  if (scanProgress.running) {
+    alertsEl.innerHTML = `<div class="notice info" style="font-size:12.5px;padding:8px 12px">
+      <div class="spinner" style="width:13px;height:13px;border-width:2px;flex-shrink:0"></div>
+      <span>Verificação em andamento…</span>
+    </div>`;
+    return;
+  }
 
   const alerts = [];
 
-  if (checkMisplaced) {
-    try {
-      const misplaced = await window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder);
-      state.misplaced = misplaced; // salva no state para a página Organizar usar sem re-escanear
-      if (misplaced.length > 0) {
-        alerts.push({
-          type: 'warning',
-          icon: '📁',
-          message: `${misplaced.length} arquivo(s) em locais incorretos`,
-          action: 'organizer',
-          actionLabel: 'Ver e corrigir'
-        });
-      }
-    } catch (_) {}
+  if (state.misplaced.length > 0) {
+    alerts.push({
+      type: 'warning', icon: '📁',
+      message: `${state.misplaced.length} arquivo(s) em locais incorretos`,
+      action: 'organizer', actionLabel: 'Ver e corrigir'
+    });
   }
 
-  if (checkDuplicates) {
-    try {
-      const conflicts = await window.api.scanConflicts(cfg.modsFolder);
-      state.conflicts = conflicts; // salva no state para a página Conflitos usar sem re-escanear
-      if (conflicts.length > 0) {
-        alerts.push({
-          type: 'danger',
-          icon: '⚠️',
-          message: `${conflicts.length} conflito(s) ou duplicata(s) detectado(s)`,
-          action: 'conflicts',
-          actionLabel: 'Ver conflitos'
-        });
-      }
-    } catch (_) {}
+  if (state.emptyFolders.length > 0) {
+    alerts.push({
+      type: 'warning', icon: '🗂️',
+      message: `${state.emptyFolders.length} pasta(s) vazia(s) encontrada(s)`,
+      action: 'organizer', actionLabel: 'Ver e corrigir'
+    });
+  }
+
+  if (state.conflicts.length > 0) {
+    alerts.push({
+      type: 'danger', icon: '⚠️',
+      message: `${state.conflicts.length} conflito(s) ou duplicata(s) detectado(s)`,
+      action: 'conflicts', actionLabel: 'Ver conflitos'
+    });
   }
 
   if (!alertsEl.isConnected) return;
 
   if (alerts.length === 0) {
+    // Only show "no problems" if at least one scan was actually configured to run
+    const cfg = state.config;
+    const didRun = cfg?.autoCheckMisplaced !== false || cfg?.autoCheckDuplicates === true;
+    if (!didRun) { alertsEl.innerHTML = ''; return; }
     alertsEl.innerHTML = `<div class="notice success" style="font-size:12.5px">✓ Nenhum problema encontrado</div>`;
     setTimeout(() => { if (alertsEl.isConnected) alertsEl.innerHTML = ''; }, 4000);
     return;
@@ -351,6 +396,52 @@ async function runDashboardAutoChecks(el) {
   alertsEl.querySelectorAll('.dash-alert-btn').forEach(btn => {
     btn.addEventListener('click', () => navigate(btn.dataset.page));
   });
+}
+
+// Runs all configured startup scans in the background.
+// Drives the sidebar indicator and updates the dashboard when done.
+async function runStartupChecks() {
+  const cfg = state.config;
+  if (!cfg?.modsFolder) return;
+
+  const checkMisplaced  = cfg.autoCheckMisplaced !== false;
+  const checkDuplicates = cfg.autoCheckDuplicates === true;
+  if (!checkMisplaced && !checkDuplicates) return;
+
+  startScanIndicator();
+
+  // --- Phase 1: misplaced + empty folders (fast, no file I/O) ---
+  if (checkMisplaced && !scanProgress.cancelled) {
+    try {
+      const [misplaced, emptyFolders] = await Promise.all([
+        window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder),
+        window.api.scanEmptyFolders(cfg.modsFolder, cfg.trayFolder),
+      ]);
+      state.misplaced    = misplaced;
+      state.emptyFolders = emptyFolders;
+    } catch (_) {}
+  }
+
+  // --- Phase 2: conflicts/hash (slow — drives the remaining counter) ---
+  if (checkDuplicates && !scanProgress.cancelled) {
+    const unsubscribe = window.api.onConflictProgress(({ done, total }) => {
+      scanProgress.remaining = total - done;
+      updateScanIndicator();
+    });
+    try {
+      const result = await window.api.scanConflicts(cfg.modsFolder);
+      if (result !== null) state.conflicts = result;
+    } catch (_) {}
+    unsubscribe();
+  }
+
+  stopScanIndicator();
+
+  // Refresh dashboard alerts if it's the current page
+  const dashEl = document.getElementById('page-dashboard');
+  if (dashEl?.classList.contains('active')) {
+    renderDashboardAlerts(dashEl);
+  }
 }
 
 // ─── Mods Page ───────────────────────────────────────────────────────────────
@@ -1933,8 +2024,8 @@ function renderSettings() {
       <div class="settings-group">
         <div class="settings-item">
           <div>
-            <div class="settings-label">Verificar arquivos mal colocados</div>
-            <div class="settings-desc">Detecta arquivos em pastas incorretas ao abrir o Dashboard (rápido)</div>
+            <div class="settings-label">Verificar arquivos mal colocados ao iniciar</div>
+            <div class="settings-desc">Detecta arquivos em pastas incorretas e pastas vazias automaticamente ao iniciar o programa (rápido)</div>
           </div>
           <label class="toggle">
             <input type="checkbox" id="toggle-auto-misplaced" ${cfg.autoCheckMisplaced !== false ? 'checked' : ''}>
@@ -1943,8 +2034,8 @@ function renderSettings() {
         </div>
         <div class="settings-item">
           <div>
-            <div class="settings-label">Verificar duplicatas ao abrir</div>
-            <div class="settings-desc">Escaneia conflitos e arquivos duplicados ao abrir o Dashboard — pode causar lentidão com muitos mods</div>
+            <div class="settings-label">Verificar duplicatas ao iniciar</div>
+            <div class="settings-desc">Escaneia conflitos e arquivos duplicados automaticamente ao iniciar o programa — pode causar lentidão com muitos mods</div>
           </div>
           <label class="toggle">
             <input type="checkbox" id="toggle-auto-duplicates" ${cfg.autoCheckDuplicates ? 'checked' : ''}>
@@ -2074,6 +2165,9 @@ async function init() {
 
   // Initial page
   navigate('dashboard');
+
+  // Start background checks (non-blocking — runs after first render)
+  runStartupChecks();
 }
 
 init();
