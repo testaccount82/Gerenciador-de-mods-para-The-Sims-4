@@ -81,19 +81,31 @@
           <span>Configurações</span>
         </button>
       </div>
-      <div id="sidebar-scan-indicator" class="hidden">
+      <div id="sidebar-scan-indicator-organize" class="hidden">
         <div class="scan-indicator-header">
           <div class="scan-indicator-title">
             <div class="spinner" style="width:10px;height:10px;border-width:2px;flex-shrink:0"></div>
-            Verificando
+            Organizando
+          </div>
+        </div>
+        <div id="scan-indicator-organize-text">Verificando arquivos…</div>
+        <div class="scan-indicator-bar-bg">
+          <div class="scan-indicator-bar" id="scan-indicator-organize-bar"></div>
+        </div>
+      </div>
+      <div id="sidebar-scan-indicator-conflicts" class="hidden">
+        <div class="scan-indicator-header">
+          <div class="scan-indicator-title">
+            <div class="spinner" style="width:10px;height:10px;border-width:2px;flex-shrink:0"></div>
+            Conflitos
           </div>
           <button id="scan-indicator-stop" title="Parar verificação">
             <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5"/></svg>
           </button>
         </div>
-        <div id="scan-indicator-text">Analisando arquivos…</div>
+        <div id="scan-indicator-conflicts-text">Verificando hashes…</div>
         <div class="scan-indicator-bar-bg">
-          <div class="scan-indicator-bar" id="scan-indicator-bar"></div>
+          <div class="scan-indicator-bar" id="scan-indicator-conflicts-bar"></div>
         </div>
       </div>
       <div id="sidebar-version">v1.0.0</div>

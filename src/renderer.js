@@ -153,33 +153,55 @@ function showUndoBar(label) {
 // Used to drive the sidebar indicator counter.
 const scanProgress = {
   remaining: 0,       // files left to hash (conflicts phase)
+  total: 0,           // total files in conflicts phase
   running: false,     // true while any scan is in progress
   cancelled: false,   // set to true when user hits Stop
+  phase: null,        // 'organize' | 'conflicts'
 };
 
 function updateScanIndicator() {
-  const el   = document.getElementById('sidebar-scan-indicator');
-  const text = document.getElementById('scan-indicator-text');
-  if (!el || !text) return;
+  const elOrg  = document.getElementById('sidebar-scan-indicator-organize');
+  const elConf = document.getElementById('sidebar-scan-indicator-conflicts');
+  if (!elOrg || !elConf) return;
 
-  // Ocultar na aba Conflitos — o progresso aparece lá dentro
-  if (!scanProgress.running || state.currentPage === 'conflicts') {
-    el.classList.add('hidden');
+  if (!scanProgress.running) {
+    elOrg.classList.add('hidden');
+    elConf.classList.add('hidden');
     return;
   }
 
-  el.classList.remove('hidden');
-  text.textContent = scanProgress.remaining > 0
-    ? `Verificando hashes… ${scanProgress.remaining} arquivo(s) restantes`
-    : 'Analisando arquivos…';
+  if (scanProgress.phase === 'organize') {
+    elOrg.classList.remove('hidden');
+    elConf.classList.add('hidden');
+    const text = document.getElementById('scan-indicator-organize-text');
+    if (text) text.textContent = 'Verificando arquivos e pastas…';
+  } else if (scanProgress.phase === 'conflicts') {
+    elOrg.classList.add('hidden');
+    // Hide conflicts indicator when user is already on conflicts page (progress shown there)
+    if (state.currentPage === 'conflicts') {
+      elConf.classList.add('hidden');
+    } else {
+      elConf.classList.remove('hidden');
+      const text = document.getElementById('scan-indicator-conflicts-text');
+      const bar  = document.getElementById('scan-indicator-conflicts-bar');
+      if (text) text.textContent = scanProgress.remaining > 0
+        ? `${scanProgress.remaining} arquivo(s) restantes`
+        : 'Verificando hashes…';
+      if (bar && scanProgress.total > 0) {
+        const done = scanProgress.total - scanProgress.remaining;
+        bar.style.width = Math.round((done / scanProgress.total) * 100) + '%';
+      }
+    }
+  }
 }
 
-function startScanIndicator() {
+function startScanIndicator(phase) {
   scanProgress.running   = true;
   scanProgress.cancelled = false;
+  scanProgress.phase     = phase || 'organize';
   updateScanIndicator();
 
-  // Wire up the stop button (element is static in HTML, safe to re-attach)
+  // Wire up the stop button (only relevant for conflicts phase)
   const stopBtn = document.getElementById('scan-indicator-stop');
   if (stopBtn) {
     stopBtn.onclick = () => {
@@ -193,6 +215,8 @@ function startScanIndicator() {
 function stopScanIndicator() {
   scanProgress.running   = false;
   scanProgress.remaining = 0;
+  scanProgress.total     = 0;
+  scanProgress.phase     = null;
   updateScanIndicator();
 }
 
@@ -469,7 +493,7 @@ async function runStartupChecks() {
   // If another scan was already started (e.g. user opened Conflicts tab quickly), abort
   if (scanProgress.running || state.conflictScanning) return;
 
-  startScanIndicator();
+  startScanIndicator('organize');
 
   // --- Phase 1: misplaced + empty folders (fast, no file I/O) ---
   if (checkMisplaced && !scanProgress.cancelled) {
@@ -487,9 +511,21 @@ async function runStartupChecks() {
   if (checkDuplicates && !scanProgress.cancelled) {
     if (state.conflictScanning) { stopScanIndicator(); return; } // user started manual scan
     state.conflictScanning = true;
+    scanProgress.phase = 'conflicts';
     const unsubscribe = window.api.onConflictProgress(({ done, total }) => {
       scanProgress.remaining = total - done;
+      scanProgress.total     = total;
       updateScanIndicator();
+      // Also update in-page progress if user is on conflicts tab
+      if (state.currentPage === 'conflicts') {
+        const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+        const bar   = document.getElementById('conflict-progress-bar');
+        const label = document.getElementById('conflict-progress-label');
+        const text  = document.getElementById('conflict-loading-text');
+        if (bar)   bar.style.width   = pct + '%';
+        if (label) label.textContent = `${done} de ${total} arquivo${total !== 1 ? 's' : ''}`;
+        if (text)  text.textContent  = 'Verificando conteúdo duplicado (MD5)…';
+      }
     });
     try {
       const result = await window.api.scanConflicts(cfg.modsFolder);
@@ -1878,15 +1914,25 @@ async function renderConflicts() {
       window.api.cancelConflictScan();
     });
 
-    // Aguarda o scan terminar e então renderiza resultados
+    // Populate initial progress from scanProgress state (background scan already running)
+    if (scanProgress.total > 0) {
+      const done = scanProgress.total - scanProgress.remaining;
+      const pct  = Math.round((done / scanProgress.total) * 100);
+      const bar   = document.getElementById('conflict-progress-bar');
+      const label = document.getElementById('conflict-progress-label');
+      if (bar)   bar.style.width   = pct + '%';
+      if (label) label.textContent = `${done} de ${scanProgress.total} arquivo${scanProgress.total !== 1 ? 's' : ''}`;
+    }
+
+    // Subscribe to live progress — background scan already calls onConflictProgress
+    // and will update the in-page elements directly (see runStartupChecks)
+    // We just need to wait for completion and render results
     (async () => {
-      // Polling simples: espera state.conflictScanning virar false
       await new Promise(resolve => {
         const interval = setInterval(() => {
           if (!state.conflictScanning) { clearInterval(interval); resolve(); }
         }, 300);
       });
-      // Só renderiza se ainda estiver na aba conflitos
       if (state.currentPage === 'conflicts') renderConflictResults(el);
     })();
     return;
