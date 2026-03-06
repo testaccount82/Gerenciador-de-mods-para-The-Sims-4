@@ -753,6 +753,17 @@ tbody tr.disabled td { opacity: 0.5; }
 .tray-group-badge::before { content: '🏠 '; }
 .mod-group-badge::before  { content: '📦 '; }
 
+/* list view group row badge */
+.group-row-badge {
+  display: inline-block;
+  margin-left: 8px;
+  background: var(--surface-3, #333);
+  color: var(--text-secondary, #888);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
 /* type badge — top-right corner */
 .card-type-tag {
   position: absolute;

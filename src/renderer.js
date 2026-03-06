@@ -1141,6 +1141,9 @@ function renderTh(col, label, width = '') {
 }
 
 function renderModRow(mod) {
+  if (mod._isTrayGroup) return renderTrayGroupRow(mod);
+  if (mod._isModGroup)  return renderModGroupRow(mod);
+
   const sel = state.selectedMods.has(mod.path);
   return `
     <tr class="${!mod.enabled ? 'disabled' : ''} ${sel ? 'selected' : ''}" data-path="${escapeHtml(mod.path)}">
@@ -1160,6 +1163,46 @@ function renderModRow(mod) {
         </div>
       </td>
     </tr>`;
+}
+
+function renderGroupRow(group, idAttr, idVal, label, badgeEmoji) {
+  const allPaths = group.files.map(f => f.path);
+  const allSel = allPaths.every(p => state.selectedMods.has(p));
+  return `
+    <tr class="group-row ${!group.enabled ? 'disabled' : ''} ${allSel ? 'selected' : ''}"
+        data-${idAttr}="${escapeHtml(idVal)}">
+      <td style="text-align:center;padding:9px 6px">
+        <input type="checkbox" class="checkbox row-check-group" data-${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
+      </td>
+      <td>
+        <div class="cell-name">
+          <span class="file-icon">${badgeEmoji}</span>
+          <span title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
+          <span class="group-row-badge">${group.files.length} arquivos</span>
+        </div>
+      </td>
+      <td>${typeBadge(group.type)}</td>
+      <td>${formatBytes(group.size)}</td>
+      <td title="${escapeHtml(group.folder)}">${escapeHtml(group.folder === '/' ? '(raiz)' : group.folder)}</td>
+      <td>${statusBadge(group.enabled)}</td>
+      <td>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="btn btn-sm ${group.enabled ? 'btn-secondary' : 'btn-primary'} toggle-group-btn"
+            data-${idAttr}="${escapeHtml(idVal)}" title="${group.enabled ? 'Desativar conjunto' : 'Ativar conjunto'}">
+            ${group.enabled ? '⏸' : '▶'}
+          </button>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function renderTrayGroupRow(group) {
+  return renderGroupRow(group, 'tray-guid', group.trayGuid, group.name, '🏠');
+}
+
+function renderModGroupRow(group) {
+  const label = group.modPrefix.charAt(0).toUpperCase() + group.modPrefix.slice(1);
+  return renderGroupRow(group, 'mod-prefix', group.modPrefix, group.name, '📦');
 }
 
 function setupModsEvents(el, mods) {
@@ -1203,6 +1246,37 @@ function setupModsEvents(el, mods) {
       else state.selectedMods.delete(p);
       cb.closest('tr').classList.toggle('selected', cb.checked);
       refreshSelBar(el);
+    });
+  });
+
+  // Checkbox — group rows (tray or mod prefix)
+  el.querySelectorAll('.row-check-group').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = cb.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === cb.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === cb.dataset.modPrefix);
+      if (!group) return;
+      group.files.forEach(f => {
+        cb.checked ? state.selectedMods.add(f.path) : state.selectedMods.delete(f.path);
+      });
+      cb.closest('tr').classList.toggle('selected', cb.checked);
+      refreshSelBar(el);
+    });
+  });
+
+  // Toggle group rows
+  el.querySelectorAll('.toggle-group-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = btn.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === btn.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
+      if (!group) return;
+      try {
+        for (const f of group.files) await window.api.toggleMod(f.path);
+        await loadMods(); renderMods();
+      } catch (err) { toast('Erro ao alternar conjunto', 'error'); }
     });
   });
 
