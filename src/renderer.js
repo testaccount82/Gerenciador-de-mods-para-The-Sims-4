@@ -2546,7 +2546,7 @@ function renderOrganizeResults(el) {
         </div>
         <div class="organize-rows" id="scattered-list">
           ${state.scattered.map((group, i) => `
-            <div class="misplaced-row scattered-group-row" data-index="${i}">
+            <div class="misplaced-row scattered-group-row" data-index="${i}" style="cursor:pointer" title="Clique para ver os arquivos do grupo">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;color:var(--accent-light)">
                 <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
                 <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
@@ -2674,6 +2674,38 @@ function renderOrganizeResults(el) {
           }}
         ]
       );
+    });
+  });
+
+  // Click on a scattered row (outside the Consolidar button) → open group overlay
+  el.querySelectorAll('.scattered-group-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('.consolidate-one-btn')) return;
+      const idx = parseInt(row.dataset.index);
+      const scattered = state.scattered[idx];
+      if (!scattered) return;
+
+      // Enrich scattered files with type + enabled from state.mods
+      const allMods = [...state.mods, ...state.trayFiles];
+      const enrichedFiles = scattered.files.map(f => {
+        const live = allMods.find(m => m.path === f.path);
+        return {
+          path:    f.path,
+          name:    f.name,
+          folder:  f.folder,
+          size:    f.size,
+          type:    live?.type    ?? (f.name.match(/\.ts4script(\.disabled)?$/i) ? 'script' : 'package'),
+          enabled: live?.enabled ?? !f.name.endsWith('.disabled'),
+        };
+      });
+
+      openGroupOverlay({
+        _isTrayGroup: false,
+        _isModGroup:  true,
+        modPrefix:    scattered.prefix,
+        name:         scattered.name,
+        files:        enrichedFiles,
+      });
     });
   });
 
