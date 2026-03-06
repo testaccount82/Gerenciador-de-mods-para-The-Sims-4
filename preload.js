@@ -29,8 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   conflictMoveToTrash: (filePath) => ipcRenderer.invoke('conflicts:move-to-trash', filePath),
   conflictRestoreFromTrash: (trashPath, originalPath) => ipcRenderer.invoke('conflicts:restore-from-trash', trashPath, originalPath),
   onConflictProgress: (cb) => {
-    ipcRenderer.on('conflicts:progress', (_e, data) => cb(data));
-    return () => ipcRenderer.removeAllListeners('conflicts:progress');
+    const listener = (_e, data) => cb(data);
+    ipcRenderer.on('conflicts:progress', listener);
+    return () => ipcRenderer.off('conflicts:progress', listener);
   },
 
   // Auto-organizer

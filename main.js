@@ -1127,8 +1127,8 @@ ipcMain.handle('config:set', (_, config) => {
 ipcMain.handle('mods:scan', (_, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
   const roots = getAllowedRoots();
-  // SEC-03: bloqueia pastas fora das raízes permitidas (lógica estava invertida)
-  if (roots.length && !roots.some(r => modsFolder.startsWith(r))) return [];
+  // SEC-03: bloqueia pastas fora das raízes permitidas
+  if (roots.length && !isPathSafe(modsFolder, ...roots)) return [];
   return scanModsFolder(modsFolder);
 });
 ipcMain.handle('tray:scan', (_, trayFolder) => {
@@ -1228,7 +1228,7 @@ ipcMain.handle('organize:fix-one', (_, item) => {
 ipcMain.handle('organize:scan-scattered', (_, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
   const roots = getAllowedRoots();
-  if (roots.length && !roots.some(r => modsFolder.startsWith(r))) return [];
+  if (roots.length && !isPathSafe(modsFolder, ...roots)) return [];
   return scanScatteredGroups(modsFolder);
 });
 

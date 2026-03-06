@@ -1560,7 +1560,9 @@ async function loadVisibleThumbnails(el) {
     } else {
       const ph = document.createElement('div');
       ph.className = 'gallery-thumb-placeholder';
-      ph.textContent = '📦';
+      // Use the correct icon for this file type instead of always 📦
+      const modEntry = [...state.mods, ...state.trayFiles].find(m => thumbKey(m.path) === cacheKey);
+      ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
       stillThere.replaceWith(ph);
     }
   }));
@@ -1705,7 +1707,10 @@ function setupModsEvents(el, mods) {
   if (selectAll) {
     selectAll.addEventListener('change', () => {
       state.selectedMods.clear();
-      if (selectAll.checked) mods.forEach(m => state.selectedMods.add(m.path));
+      if (selectAll.checked) mods.forEach(m => {
+        if (m._isTrayGroup || m._isModGroup) m.files.forEach(f => state.selectedMods.add(f.path));
+        else state.selectedMods.add(m.path);
+      });
       el.querySelectorAll('.row-check').forEach(c => c.checked = selectAll.checked);
       el.querySelectorAll('tbody tr').forEach(r => r.classList.toggle('selected', selectAll.checked));
       refreshSelBar(el);
@@ -2164,6 +2169,7 @@ function renderConflictResults(el) {
             const result = await window.api.conflictMoveToTrash(filePath);
             if (!result.success) { toast('Erro ao deletar: ' + (result.error || ''), 'error'); return; }
             const trashPath = result.to;
+            const removedConflict = state.conflicts[idx];
             state.conflicts.splice(idx, 1);
             await loadMods();
             renderConflictResults(el);
@@ -2171,6 +2177,11 @@ function renderConflictResults(el) {
             pushUndo(`Deletar ${fileName}`, async () => {
               await window.api.conflictRestoreFromTrash(trashPath, filePath);
               await loadMods();
+              // Restore conflict entry so card reappears without requiring a rescan
+              if (!state.conflicts.find(c => c.id === removedConflict.id)) {
+                state.conflicts.push(removedConflict);
+              }
+              renderConflictResults(el);
               toast('Arquivo restaurado', 'success');
             });
           }}
@@ -2340,9 +2351,14 @@ function renderOrganizeResults(el) {
           </button>
         </div>
         <div class="organize-rows" id="misplaced-list">
-          ${state.misplaced.map((item, i) => `
+          ${state.misplaced.map((item, i) => {
+            const itemExt = item.name.replace(/\.disabled$/i, '').match(/\.[^.]+$/)?.[0]?.toLowerCase();
+            const itemIcon = itemExt === '.ts4script' ? fileIcon('script')
+                           : ['.trayitem','.blueprint','.bpi','.hhi','.sgi','.householdbinary','.room','.rmi'].includes(itemExt) ? fileIcon('tray')
+                           : fileIcon('package');
+            return `
             <div class="misplaced-row" data-index="${i}">
-              <span class="file-icon">${fileIcon('package')}</span>
+              <span class="file-icon">${itemIcon}</span>
               <div class="misplaced-info">
                 <div class="misplaced-name" title="${escapeHtml(item.path)}">${escapeHtml(item.name)}</div>
                 <div class="misplaced-issue">⚠ ${escapeHtml(item.issue)}</div>
@@ -2352,7 +2368,7 @@ function renderOrganizeResults(el) {
               <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(item.size)}</span>
               <button class="btn btn-sm btn-primary fix-one-btn" data-index="${i}">Corrigir</button>
             </div>
-          `).join('')}
+          `}).join('')}
         </div>
       </div>`;
   }
@@ -2549,12 +2565,6 @@ function renderOrganizeResults(el) {
           toast(`${ok} pasta(s) apagada(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           if (ok > 0) {
             pushUndo(`Apagar ${ok} pasta(s) vazia(s)`, async () => {
-              // Recreate the folders (they were empty, so just mkdir)
-              for (const f of deletedFolders) {
-                try { await window.api.moveMod(f.path, f.path); } catch (_) {}
-                // moveMod won't work for dirs — use a workaround: create a placeholder file then delete it
-              }
-              // Actually just show hint, folders can't be easily recreated via existing API
               toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
             });
           }
@@ -2744,8 +2754,10 @@ async function loadMods() {
     state.mods = mods || [];
     state.trayFiles = tray || [];
 
-    // Purge thumbnail cache for files no longer present
-    const allPaths = [...state.mods, ...state.trayFiles].map(m => m.path);
+    // Normalise paths to thumbnail cache keys (strip .disabled) before purging —
+    // the persistent cache keyed by thumbKey(), so passing raw .disabled paths
+    // would cause every disabled mod's thumbnail to be evicted on every reload.
+    const allPaths = [...state.mods, ...state.trayFiles].map(m => thumbKey(m.path));
     window.api.purgeThumbnailCache(allPaths);
   } catch (e) {
     console.error('Error loading mods:', e);
