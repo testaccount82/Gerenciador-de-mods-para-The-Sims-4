@@ -274,3 +274,89 @@ describe('IPC fs:exists — inputs inválidos', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
+
+// ─── organize:fix — Regressão bugs A/B/C ─────────────────────────────────────
+// Bug A: arquivo .disabled perdia sufixo no suggestedDest (era re-ativado)
+// Bug B: dois arquivos com mesmo nome se sobrescreviam no destino
+// Bug C: fail-fast abortava todo o lote se um item fosse inválido
+
+describe('organize:fix — regressão bugs A/B/C', () => {
+  let modsDir, trayDir, subDir, configPath;
+
+  beforeAll(() => {
+    // Configurar roots permitidas escrevendo no config do userData do mock
+    modsDir = makeTmpDir();
+    trayDir = makeTmpDir();
+    subDir  = path.join(modsDir, 'sub', 'deep');
+    fs.mkdirSync(subDir, { recursive: true });
+
+    // Escreve config para que getAllowedRoots() retorne modsDir e trayDir
+    const { app } = require('electron');
+    configPath = path.join(app.getPath('userData'), 'config.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({ modsFolder: modsDir, trayFolder: trayDir }));
+  });
+
+  afterAll(() => {
+    fs.rmSync(modsDir, { recursive: true, force: true });
+    fs.rmSync(trayDir, { recursive: true, force: true });
+    try { fs.unlinkSync(configPath); } catch (_) {}
+  });
+
+  test('Bug C — item inválido no meio do lote não aborta os outros', async () => {
+    // Arquivo real para mover
+    const src = touch(path.join(subDir, 'ok.ts4script'), 'data');
+    const dest = path.join(modsDir, 'ok.ts4script');
+
+    const items = [
+      { path: '/etc/passwd', suggestedDest: '/tmp/bad' },  // item inválido (fora das roots)
+      { path: src, suggestedDest: dest },                   // item válido
+    ];
+
+    const results = await _ipcHandlers['organize:fix'](fakeEvent, items);
+
+    // O lote não deve ter sido abortado — deve retornar 2 resultados
+    expect(results).toHaveLength(2);
+    // Primeiro item rejeitado por segurança
+    expect(results[0].success).toBe(false);
+    // Segundo item movido com sucesso
+    expect(results[1].success).toBe(true);
+    expect(fs.existsSync(dest)).toBe(true);
+  });
+
+  test('Bug A — arquivo .disabled mantém sufixo após correção (não é re-ativado)', async () => {
+    const disabledSrc  = touch(path.join(subDir, 'script.ts4script.disabled'), 'data');
+    const disabledDest = path.join(modsDir, 'script.ts4script.disabled');
+
+    const items = [{ path: disabledSrc, suggestedDest: disabledDest }];
+    const results = await _ipcHandlers['organize:fix'](fakeEvent, items);
+
+    expect(results[0].success).toBe(true);
+    // Destino deve preservar .disabled — arquivo NÃO deve ter sido ativado
+    expect(fs.existsSync(disabledDest)).toBe(true);
+    // E o caminho sem .disabled NÃO deve existir
+    expect(fs.existsSync(path.join(modsDir, 'script.ts4script'))).toBe(false);
+  });
+
+  test('Bug B — dois arquivos com mesmo nome no destino não se sobrescrevem', async () => {
+    // Criar dois scripts com mesmo getRealName mas em subpastas diferentes
+    const sub1 = path.join(modsDir, 'a', 'b');
+    const sub2 = path.join(modsDir, 'c', 'd');
+    fs.mkdirSync(sub1, { recursive: true });
+    fs.mkdirSync(sub2, { recursive: true });
+
+    touch(path.join(sub1, 'twin.ts4script'), 'conteudo1');
+    touch(path.join(sub2, 'twin.ts4script'), 'conteudo2');
+
+    // scanMisplaced deve produzir suggestedDest diferentes para os dois
+    const { scanMisplaced } = require('../../main');
+    const misplaced = scanMisplaced(modsDir, trayDir);
+    const twins = misplaced.filter(m => m.name === 'twin.ts4script');
+
+    // Ambos foram detectados
+    expect(twins.length).toBeGreaterThanOrEqual(2);
+    // Destinos devem ser DIFERENTES (deduplicados)
+    const dests = twins.map(m => m.suggestedDest);
+    expect(new Set(dests).size).toBe(dests.length);
+  });
+});

@@ -900,13 +900,32 @@ async function scanConflicts(modsFolder, sender, cancelToken) {
 
 function scanMisplaced(modsFolder, trayFolder) {
   const misplaced = [];
+  // Track destinations already assigned in THIS scan to avoid name collisions
+  // between items that would be moved to the same folder (Bug B).
+  const assignedDests = new Set();
+
+  // Helper: build a safe destination path that preserves the .disabled suffix,
+  // avoids overwriting an existing file on disk AND avoids colliding with another
+  // item already queued in this same scan batch.
+  function safeDestFor(fullPath, destFolder) {
+    const baseName = path.basename(fullPath); // keep .disabled suffix if present
+    let dest = path.join(destFolder, baseName);
+    let counter = 1;
+    while ((fs.existsSync(dest) && dest !== fullPath) || assignedDests.has(dest)) {
+      const ext = path.extname(baseName);
+      const stem = baseName.slice(0, baseName.length - ext.length);
+      dest = path.join(destFolder, `${stem} (${++counter})${ext}`);
+    }
+    assignedDests.add(dest);
+    return dest;
+  }
 
   // .ts4script files deeper than 1 subfolder
   const modsFiles = walkFolder(modsFolder, modsFolder);
   for (const { fullPath, depth } of modsFiles) {
     const ext = getRealExtension(fullPath);
     if (ext === '.ts4script' && depth > 1) {
-      const suggestedDest = path.join(modsFolder, getRealName(fullPath));
+      const suggestedDest = safeDestFor(fullPath, modsFolder);
       misplaced.push({
         path: fullPath,
         name: getRealName(fullPath),
@@ -918,7 +937,7 @@ function scanMisplaced(modsFolder, trayFolder) {
     }
     // Tray files in Mods folder
     if (TRAY_EXTENSIONS.includes(ext)) {
-      const suggestedDest = path.join(trayFolder, getRealName(fullPath));
+      const suggestedDest = safeDestFor(fullPath, trayFolder);
       misplaced.push({
         path: fullPath,
         name: getRealName(fullPath),
@@ -936,7 +955,7 @@ function scanMisplaced(modsFolder, trayFolder) {
     for (const { fullPath } of trayFiles) {
       const ext = getRealExtension(fullPath);
       if (MOD_EXTENSIONS.includes(ext)) {
-        const suggestedDest = path.join(modsFolder, getRealName(fullPath));
+        const suggestedDest = safeDestFor(fullPath, modsFolder);
         misplaced.push({
           path: fullPath,
           name: getRealName(fullPath),
@@ -1205,16 +1224,23 @@ ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => {
   return scanMisplaced(modsFolder, trayFolder);
 });
 ipcMain.handle('organize:fix', (_, items) => {
-  // SEC-01 / QA-05: validar todos os caminhos antes de mover (equivalente ao organize:fix-one)
+  // SEC-01 / QA-05: validar todos os caminhos antes de mover.
+  // Itens inválidos ou fora das roots são pulados individualmente —
+  // não abortam o lote inteiro (fix do fail-fast).
   if (!Array.isArray(items)) return [];
   const roots = getAllowedRoots();
-  for (const item of items) {
-    if (!item || !item.path || !item.suggestedDest)
-      return [{ success: false, error: 'Item inválido' }];
+  const safeItems = items.filter(item => {
+    if (!item || !item.path || !item.suggestedDest) return false;
+    return isPathSafe(item.path, ...roots) && isPathSafe(item.suggestedDest, ...roots);
+  });
+  // Preservar alinhamento de índices com o array original para o renderer
+  // saber quais itens foram pulados (resultado undefined → não movido)
+  return items.map(item => {
+    if (!item || !item.path || !item.suggestedDest) return { success: false, error: 'Item inválido' };
     if (!isPathSafe(item.path, ...roots) || !isPathSafe(item.suggestedDest, ...roots))
-      return [{ success: false, error: 'Caminho não permitido' }];
-  }
-  return fixMisplaced(items);
+      return { success: false, error: 'Caminho não permitido' };
+    return moveFile(item.path, item.suggestedDest);
+  });
 });
 ipcMain.handle('organize:fix-one', (_, item) => {
   if (!item || !item.path || !item.suggestedDest) return { success: false, error: 'Item inválido' };
