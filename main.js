@@ -714,10 +714,6 @@ function copyModFile(src, modsFolder, trayFolder) {
   let counter = 1;
   const MAX_COPIES = 999;
   while (fs.existsSync(finalDest) && counter <= MAX_COPIES) {
-    // Same size → treat as identical file, skip copy and return existing path
-    try {
-      if (fs.statSync(src).size === fs.statSync(finalDest).size) return finalDest;
-    } catch (_) {}
     const base = path.basename(dest, ext);
     finalDest = path.join(path.dirname(dest), `${base} (${counter})${ext}`);
     counter++;
