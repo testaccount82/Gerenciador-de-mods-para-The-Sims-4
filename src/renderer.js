@@ -917,7 +917,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
         <span class="${badgeClass}" title="${group.files.length} arquivos">${group.files.length}</span>
-        <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}" title="${isExpanded ? 'Recolher' : 'Expandir'}">${isExpanded ? '▲' : '▼'}</button>
+        <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}" data-tooltip="${isExpanded ? 'Recolher arquivos do grupo' : 'Ver arquivos do grupo'}" title="${isExpanded ? 'Recolher' : 'Expandir'}">${isExpanded ? '▲' : '▼'}</button>
         ${thumbHtml}
         <div class="gallery-info">
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>

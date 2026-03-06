@@ -851,7 +851,7 @@ tbody tr.disabled td { opacity: 0.5; }
 /* expand button — grid mode */
 .group-expand-btn {
   position: absolute;
-  bottom: 38px; right: 5px; z-index: 3;
+  bottom: 6px; right: 26px; z-index: 4;
   background: rgba(0,0,0,0.6);
   border: none; border-radius: 50%;
   color: #ccc; font-size: 9px;
@@ -860,6 +860,43 @@ tbody tr.disabled td { opacity: 0.5; }
   cursor: pointer; padding: 0; line-height: 1;
 }
 .group-expand-btn:hover { background: rgba(0,78,180,0.8); color: #fff; }
+
+/* CSS tooltip for the expand button */
+.group-expand-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  right: 50%;
+  transform: translateX(50%);
+  background: var(--surface-3, #2a2a2a);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+.group-expand-btn::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  right: 50%;
+  transform: translateX(50%);
+  border: 5px solid transparent;
+  border-top-color: var(--border-strong);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+.group-expand-btn:hover::after,
+.group-expand-btn:hover::before { opacity: 1; }
 
 /* wrapper that spans full grid width when expanded */
 .group-card-wrapper { display: contents; }
