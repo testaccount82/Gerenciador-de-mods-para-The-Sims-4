@@ -41,7 +41,7 @@ jobs:
         run: |
           $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" }
           if ($portable) {
-            $newName = $portable.Name -replace "^TS4 Mod Manager ", "TS4-Mod-Manager-Portable-"
+            $newName = $portable.Name -replace "^TS4 Mod Manager ", "TS4 Mod Manager Portable "
             Rename-Item -Path $portable.FullName -NewName $newName
             Write-Host "Renomeado: $($portable.Name) -> $newName"
           }
@@ -49,13 +49,13 @@ jobs:
       - name: Upload do instalador
         uses: actions/upload-artifact@v4
         with:
-          name: TS4-Mod-Manager-Instalador-Windows
+          name: TS4 Mod Manager Instalador Windows
           path: dist/*Setup*.exe
           retention-days: 30
 
       - name: Upload do portable
         uses: actions/upload-artifact@v4
         with:
-          name: TS4-Mod-Manager-Portable-Windows
+          name: TS4 Mod Manager Portable Windows
           path: dist/*Portable*.exe
           retention-days: 30

@@ -51,7 +51,7 @@ jobs:
         run: |
           $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" }
           if ($portable) {
-            $newName = $portable.Name -replace "^TS4 Mod Manager ", "TS4-Mod-Manager-Portable-"
+            $newName = $portable.Name -replace "^TS4 Mod Manager ", "TS4 Mod Manager Portable "
             Rename-Item -Path $portable.FullName -NewName $newName
             Write-Host "Renomeado: $($portable.Name) -> $newName"
           }
