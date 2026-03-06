@@ -1,4 +1,4 @@
-name: Build EXE (artefato no Actions)
+name: Criar Artefatos
 
 on:
   workflow_run:
