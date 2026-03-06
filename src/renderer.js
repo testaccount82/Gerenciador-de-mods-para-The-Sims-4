@@ -1054,7 +1054,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const allSel = allPaths.every(p => state.selectedMods.has(p));
   const cached = state.thumbnailCache[thumbKey(group.path)];
   const canHaveThumb = group.type === 'package' || group.type === 'tray';
-  const thumbHtml = (cached && cached !== THUMB_LOADING)
+  const thumbHtml = (canHaveThumb && cached && cached !== THUMB_LOADING)
     ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
     : (cached === null || !canHaveThumb)
       ? `<div class="gallery-thumb-placeholder">${placeholderIcon}</div>`
@@ -1673,7 +1673,11 @@ function setupGalleryEvents(el, mods) {
         : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
       if (!group) return;
       try {
-        for (const f of group.files) await window.api.toggleMod(f.path);
+        const allEnabled = group.files.every(f => f.enabled);
+        // Se todos estão ativos → desativar todos; caso contrário → ativar apenas os inativos
+        for (const f of group.files) {
+          if (allEnabled ? f.enabled : !f.enabled) await window.api.toggleMod(f.path);
+        }
         await loadMods(); renderMods();
       } catch (err) { toast('Erro ao alternar grupo', 'error'); }
     });
