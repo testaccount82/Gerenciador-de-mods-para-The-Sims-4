@@ -961,7 +961,7 @@ function scanScatteredGroups(modsFolder) {
   const modsFiles = walkFolder(modsFolder, modsFolder);
   const prefixMap = new Map(); // prefix → [{path, name, folder, size}]
 
-  for (const { fullPath, relativePath } of modsFiles) {
+  for (const { fullPath } of modsFiles) {
     const ext = getRealExtension(fullPath);
     if (!MOD_EXTENSIONS.includes(ext)) continue;
 
@@ -972,6 +972,7 @@ function scanScatteredGroups(modsFolder) {
     if (idx < 2) continue;
     const prefix = base.slice(0, idx).toLowerCase();
 
+    const relativePath = path.relative(modsFolder, fullPath);
     const folder = path.dirname(relativePath) || '/';
     const size = (() => { try { return fs.statSync(fullPath).size; } catch(_) { return 0; } })();
 
