@@ -29,6 +29,7 @@ const state = {
   galleryPage: 1,
   itemsPerPage: 24,
   thumbnailCache: {},     // path -> base64 | null
+  expandedGroups: new Set(), // group keys currently expanded
 };
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -750,36 +751,72 @@ function renderGallery(mods) {
   </div>`;
 }
 
-function renderTrayGroupCard(group) {
+function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeholderIcon, displayName) {
   const allPaths = group.files.map(f => f.path);
   const allSel = allPaths.every(p => state.selectedMods.has(p));
+  const isExpanded = state.expandedGroups.has(groupKey);
   const cached = state.thumbnailCache[group.path];
-  const canHaveThumb = true;
+  const canHaveThumb = group.type === 'package' || group.type === 'tray';
   const thumbHtml = (cached && cached !== THUMB_LOADING)
     ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
-    : cached === null
-      ? `<div class="gallery-thumb-placeholder">🏠</div>`
+    : (cached === null || !canHaveThumb)
+      ? `<div class="gallery-thumb-placeholder">${placeholderIcon}</div>`
       : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
 
-  // Strip GUID prefix from display name for cleaner label
-  const displayName = group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name;
+  const idAttr = group._isTrayGroup ? 'data-tray-guid' : 'data-mod-prefix';
+  const idVal  = group._isTrayGroup ? group.trayGuid   : group.modPrefix;
+  const checkClass = group._isTrayGroup ? 'card-check-group' : 'card-check-mod-group';
+  const cardClass  = group._isTrayGroup ? 'tray-group' : 'mod-group';
+
+  const childrenHtml = isExpanded ? `
+    <div class="group-children-grid">
+      ${group.files.map(f => {
+        const fSel = state.selectedMods.has(f.path);
+        const fCached = state.thumbnailCache[f.path];
+        const fThumb = (fCached && fCached !== THUMB_LOADING)
+          ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
+          : fCached === null
+            ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type)}</div>`
+            : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div></div>`;
+        const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+        const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+        return `<div class="gallery-card child-card ${fSel ? 'selected' : ''} ${!f.enabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
+          <input type="checkbox" class="card-check" data-path="${escapeHtml(f.path)}" ${fSel ? 'checked' : ''}>
+          <span class="card-type-tag ${fTypeClass}">${fTypeLabel}</span>
+          ${fThumb}
+          <div class="gallery-info">
+            <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+            <div class="gallery-meta"><span>${formatBytes(f.size)}</span>
+              <span class="gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
 
   return `
-    <div class="gallery-card tray-group ${!group.enabled ? 'card-inactive' : ''}"
-         data-tray-guid="${escapeHtml(group.trayGuid)}">
-      <input type="checkbox" class="card-check card-check-group"
-             data-tray-guid="${escapeHtml(group.trayGuid)}" ${allSel ? 'checked' : ''}>
-      <span class="card-type-tag card-tag-tray">tray</span>
-      <span class="tray-group-badge" title="${group.files.length} arquivos neste conjunto">${group.files.length}</span>
-      ${thumbHtml}
-      <div class="gallery-info">
-        <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
-        <div class="gallery-meta">
-          <span>${formatBytes(group.size)}</span>
-          <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+    <div class="group-card-wrapper ${isExpanded ? 'is-expanded' : ''}" ${idAttr}="${escapeHtml(idVal)}">
+      <div class="gallery-card ${cardClass} ${!group.enabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}">
+        <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
+        <span class="card-type-tag ${typeClass}">${typeTag}</span>
+        <span class="${badgeClass}" title="${group.files.length} arquivos">${group.files.length}</span>
+        <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}" title="${isExpanded ? 'Recolher' : 'Expandir'}">${isExpanded ? '▲' : '▼'}</button>
+        ${thumbHtml}
+        <div class="gallery-info">
+          <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
+          <div class="gallery-meta">
+            <span>${formatBytes(group.size)}</span>
+            <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+          </div>
         </div>
       </div>
+      ${childrenHtml}
     </div>`;
+}
+
+function renderTrayGroupCard(group) {
+  const displayName = group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name;
+  return renderGroupCard(group, 'tray:' + group.trayGuid, 'tray', 'card-tag-tray', 'tray-group-badge', '🏠', displayName);
 }
 
 function renderPagination(current, total, itemCount) {
@@ -1006,22 +1043,29 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card click → toggle all files in mod group
-  el.querySelectorAll('.gallery-card.mod-group').forEach(card => {
-    card.addEventListener('click', async e => {
-      if (e.target.classList.contains('card-check')) return;
-      const prefix = card.dataset.modPrefix;
-      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
-      const group = allGrouped.find(g => g._isModGroup && g.modPrefix === prefix);
-      if (!group) return;
-      try {
-        for (const f of group.files) await window.api.toggleMod(f.path);
-        await loadMods(); renderMods();
-      } catch (err) { toast('Erro ao alternar arquivos do conjunto', 'error'); }
+  // Expand button — grid groups (mod & tray)
+  el.querySelectorAll('.group-expand-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const key = btn.dataset.trayGuid ? 'tray:' + btn.dataset.trayGuid : 'mod:' + btn.dataset.modPrefix;
+      if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
+      else state.expandedGroups.add(key);
+      renderMods();
     });
   });
 
-  // Card click → toggle mod (individual)
+  // Card click on group → expand/collapse (not toggle)
+  el.querySelectorAll('.gallery-card.mod-group, .gallery-card.tray-group').forEach(card => {
+    card.addEventListener('click', async e => {
+      if (e.target.classList.contains('card-check') || e.target.classList.contains('group-expand-btn')) return;
+      const key = card.dataset.trayGuid ? 'tray:' + card.dataset.trayGuid : 'mod:' + card.dataset.modPrefix;
+      if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
+      else state.expandedGroups.add(key);
+      renderMods();
+    });
+  });
+
+  // Card click → toggle mod (individual, including children inside expanded groups)
   el.querySelectorAll('.gallery-card:not(.tray-group):not(.mod-group)').forEach(card => {
     card.addEventListener('click', async e => {
       if (e.target.classList.contains('card-check')) return;
@@ -1031,58 +1075,15 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card click → toggle all files in tray group
-  el.querySelectorAll('.gallery-card.tray-group').forEach(card => {
-    card.addEventListener('click', async e => {
-      if (e.target.classList.contains('card-check')) return;
-      const guid = card.dataset.trayGuid;
-      const allGrouped = groupTrayFiles([...state.mods, ...state.trayFiles]);
-      const group = allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid);
-      if (!group) return;
-      try {
-        for (const f of group.files) await window.api.toggleMod(f.path);
-        await loadMods(); renderMods();
-      } catch (err) { toast('Erro ao alternar arquivos do grupo', 'error'); }
-    });
-  });
-
   // Load thumbnails
   loadVisibleThumbnails(el);
 }
 
 function renderModGroupCard(group) {
-  const allPaths = group.files.map(f => f.path);
-  const allSel = allPaths.every(p => state.selectedMods.has(p));
-  const cached = state.thumbnailCache[group.path];
-  const canHaveThumb = group.type === 'package';
-  const thumbHtml = (cached && cached !== THUMB_LOADING)
-    ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
-    : cached === null || !canHaveThumb
-      ? `<div class="gallery-thumb-placeholder">${fileIcon(group.type)}</div>`
-      : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
-
-  const typeLabel = group.type === 'package' ? '.pkg' : group.type === 'script' ? '.ts4' : group.type;
-  const typeClass = group.type === 'package' ? 'card-tag-pkg' : group.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
-
-  // Show prefix as group label (capitalize first letter)
-  const label = group.modPrefix.charAt(0).toUpperCase() + group.modPrefix.slice(1);
-
-  return `
-    <div class="gallery-card mod-group ${!group.enabled ? 'card-inactive' : ''}"
-         data-mod-prefix="${escapeHtml(group.modPrefix)}">
-      <input type="checkbox" class="card-check card-check-mod-group"
-             data-mod-prefix="${escapeHtml(group.modPrefix)}" ${allSel ? 'checked' : ''}>
-      <span class="card-type-tag ${typeClass}">${typeLabel}</span>
-      <span class="tray-group-badge mod-group-badge" title="${group.files.length} arquivos neste conjunto">${group.files.length}</span>
-      ${thumbHtml}
-      <div class="gallery-info">
-        <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</div>
-        <div class="gallery-meta">
-          <span>${formatBytes(group.size)}</span>
-          <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
-        </div>
-      </div>
-    </div>`;
+  const typeTag   = group.type === 'package' ? '.pkg' : '.ts4';
+  const typeClass = group.type === 'package' ? 'card-tag-pkg' : 'card-tag-scr';
+  return renderGroupCard(group, 'mod:' + group.modPrefix, typeTag, typeClass,
+    'tray-group-badge mod-group-badge', fileIcon(group.type), group.name);
 }
 
 async function loadVisibleThumbnails(el) {
@@ -1165,17 +1166,47 @@ function renderModRow(mod) {
     </tr>`;
 }
 
-function renderGroupRow(group, idAttr, idVal, label, badgeEmoji) {
+function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
   const allPaths = group.files.map(f => f.path);
   const allSel = allPaths.every(p => state.selectedMods.has(p));
+  const groupKey = group._isTrayGroup ? 'tray:' + group.trayGuid : 'mod:' + group.modPrefix;
+  const isExpanded = state.expandedGroups.has(groupKey);
+
+  const childRows = isExpanded ? group.files.map(f => {
+    const fSel = state.selectedMods.has(f.path);
+    return `<tr class="child-row ${!f.enabled ? 'disabled' : ''} ${fSel ? 'selected' : ''}" data-path="${escapeHtml(f.path)}">
+      <td style="text-align:center;padding:9px 6px">
+        <input type="checkbox" class="checkbox row-check" data-path="${escapeHtml(f.path)}" ${fSel ? 'checked' : ''}>
+      </td>
+      <td>
+        <div class="cell-name" style="padding-left:20px">
+          <span class="file-icon">${fileIcon(f.type)}</span>
+          <span title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+        </div>
+      </td>
+      <td>${typeBadge(f.type)}</td>
+      <td>${formatBytes(f.size)}</td>
+      <td title="${escapeHtml(f.folder)}">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</td>
+      <td>${statusBadge(f.enabled)}</td>
+      <td>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="btn btn-sm ${f.enabled ? 'btn-secondary' : 'btn-primary'} toggle-mod-btn"
+            data-path="${escapeHtml(f.path)}">${f.enabled ? '⏸' : '▶'}</button>
+          <button class="btn btn-sm btn-danger delete-mod-btn" data-path="${escapeHtml(f.path)}">🗑</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') : '';
+
   return `
-    <tr class="group-row ${!group.enabled ? 'disabled' : ''} ${allSel ? 'selected' : ''}"
-        data-${idAttr}="${escapeHtml(idVal)}">
+    <tr class="group-row ${!group.enabled ? 'disabled' : ''} ${allSel ? 'selected' : ''} ${isExpanded ? 'is-expanded' : ''}"
+        data-${idAttr}="${escapeHtml(idVal)}" style="cursor:pointer">
       <td style="text-align:center;padding:9px 6px">
         <input type="checkbox" class="checkbox row-check-group" data-${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
       </td>
       <td>
         <div class="cell-name">
+          <span class="group-expand-arrow">${isExpanded ? '▾' : '▸'}</span>
           <span class="file-icon">${badgeEmoji}</span>
           <span title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
           <span class="group-row-badge">${group.files.length} arquivos</span>
@@ -1188,21 +1219,18 @@ function renderGroupRow(group, idAttr, idVal, label, badgeEmoji) {
       <td>
         <div style="display:flex;gap:4px;align-items:center">
           <button class="btn btn-sm ${group.enabled ? 'btn-secondary' : 'btn-primary'} toggle-group-btn"
-            data-${idAttr}="${escapeHtml(idVal)}" title="${group.enabled ? 'Desativar conjunto' : 'Ativar conjunto'}">
-            ${group.enabled ? '⏸' : '▶'}
-          </button>
+            data-${idAttr}="${escapeHtml(idVal)}">${group.enabled ? '⏸' : '▶'}</button>
         </div>
       </td>
-    </tr>`;
+    </tr>${childRows}`;
 }
 
 function renderTrayGroupRow(group) {
-  return renderGroupRow(group, 'tray-guid', group.trayGuid, group.name, '🏠');
+  return renderGroupRow(group, 'tray-guid', group.trayGuid, '🏠');
 }
 
 function renderModGroupRow(group) {
-  const label = group.modPrefix.charAt(0).toUpperCase() + group.modPrefix.slice(1);
-  return renderGroupRow(group, 'mod-prefix', group.modPrefix, group.name, '📦');
+  return renderGroupRow(group, 'mod-prefix', group.modPrefix, '📦');
 }
 
 function setupModsEvents(el, mods) {
@@ -1262,6 +1290,19 @@ function setupModsEvents(el, mods) {
       });
       cb.closest('tr').classList.toggle('selected', cb.checked);
       refreshSelBar(el);
+    });
+  });
+
+  // Click on group row header → expand/collapse
+  el.querySelectorAll('tr.group-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('.toggle-group-btn') || e.target.closest('.row-check-group')) return;
+      const guid   = row.dataset.trayGuid;
+      const prefix = row.dataset.modPrefix;
+      const key = guid ? 'tray:' + guid : 'mod:' + prefix;
+      if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
+      else state.expandedGroups.add(key);
+      renderMods();
     });
   });
 
