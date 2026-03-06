@@ -633,7 +633,8 @@ function scanTrayFolder(trayFolder) {
       const mod = buildModObject(fullPath, trayFolder, 'tray');
       if (mod) {
         // Extract GUID from filename: "0x00000002!0x0aa91626bff44d02.trayitem" → "0x0aa91626bff44d02"
-        const guidMatch = path.basename(fullPath).match(/!([0-9a-fx]+)\./i);
+        // Also handles duplicates like "0x...!0xguid (3).trayitem"
+        const guidMatch = path.basename(fullPath).match(/!([0-9a-fx]+)(?:\s|\.|$)/i);
         mod.trayGuid = guidMatch ? guidMatch[1].toLowerCase() : null;
         results.push(mod);
       }
@@ -713,6 +714,10 @@ function copyModFile(src, modsFolder, trayFolder) {
   let counter = 1;
   const MAX_COPIES = 999;
   while (fs.existsSync(finalDest) && counter <= MAX_COPIES) {
+    // Same size → treat as identical file, skip copy and return existing path
+    try {
+      if (fs.statSync(src).size === fs.statSync(finalDest).size) return finalDest;
+    } catch (_) {}
     const base = path.basename(dest, ext);
     finalDest = path.join(path.dirname(dest), `${base} (${counter})${ext}`);
     counter++;
@@ -992,6 +997,7 @@ function scanInvalidFiles(modsFolder, trayFolder) {
     'thumbs.db', 'desktop.ini', '.ds_store', '.localized',
     'folder.jpg', 'folder.png', 'albumart.jpg',
   ]);
+  const IGNORE_EXTENSIONS = new Set(['.cfg', '.ini', '.txt', '.json', '.log']);
 
   const invalid = [];
 
@@ -1005,6 +1011,7 @@ function scanInvalidFiles(modsFolder, trayFolder) {
       // Strip .disabled suffix to find the real extension
       const realExt = getRealExtension(fullPath);   // already handles .disabled
       if (ALL_VALID.has(realExt)) continue;          // recognised → skip
+      if (IGNORE_EXTENSIONS.has(realExt)) continue; // config/support files → skip
 
       const relative = path.relative(baseFolder, path.dirname(fullPath));
       const folder   = relative || '/';

@@ -1998,7 +1998,11 @@ function setupModsEvents(el, mods) {
         : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
       if (!group) return;
       try {
-        for (const f of group.files) await window.api.toggleMod(f.path);
+        const allEnabled = group.files.every(f => f.enabled);
+        // Se todos ativos → desativa todos; caso contrário → ativa apenas os inativos
+        for (const f of group.files) {
+          if (allEnabled ? f.enabled : !f.enabled) await window.api.toggleMod(f.path);
+        }
         await loadMods(); renderMods();
       } catch (err) { toast('Erro ao alternar conjunto', 'error'); }
     });
