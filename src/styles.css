@@ -863,15 +863,28 @@ tbody tr.disabled td { opacity: 0.5; }
 
 /* wrapper that spans full grid width when expanded */
 .group-card-wrapper { display: contents; }
-.group-card-wrapper.is-expanded { display: block; grid-column: 1 / -1; }
+
+/* Expanded wrapper: full-width block with strong accent border and bottom
+   margin so it reads as a self-contained section, not part of the grid flow */
+.group-card-wrapper.is-expanded {
+  display: block;
+  grid-column: 1 / -1;
+  margin-bottom: 10px;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--accent-light);
+  box-shadow: 0 0 0 4px var(--accent-subtle), 0 8px 24px rgba(0,0,0,0.5);
+}
+
 .group-card-wrapper.is-expanded > .gallery-card {
+  border: none;
+  border-bottom: 1px solid var(--accent-subtle2);
   border-bottom-left-radius: 0; border-bottom-right-radius: 0;
-  border-bottom: none;
-  /* FIX BUG 1: horizontal layout prevents disproportionate vertical stretch */
+  /* horizontal layout prevents disproportionate vertical stretch */
   display: flex;
   flex-direction: row;
   align-items: stretch;
   max-height: 120px;
+  background: var(--surface-2);
 }
 /* Constrain thumbnail to fixed width inside expanded header card */
 .group-card-wrapper.is-expanded > .gallery-card .gallery-thumb,
@@ -892,15 +905,25 @@ tbody tr.disabled td { opacity: 0.5; }
   flex-direction: column;
   justify-content: center;
 }
+
+/* Children area: clearly recessed background with a left accent stripe */
 .group-children-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px; padding: 10px;
-  background: #1e1e2e;
-  border: 1px solid #2e2e2e; border-top: none;
-  border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg);
+  border-top: 2px solid var(--accent-subtle2);
+  border-bottom-left-radius: calc(var(--r-md) - 1px);
+  border-bottom-right-radius: calc(var(--r-md) - 1px);
 }
-.child-card { box-shadow: none; }
+
+/* Child cards: same surface as normal cards but with accent left border
+   to reinforce they belong to the expanded group */
+.child-card {
+  box-shadow: none;
+  border-left: 2px solid var(--accent-light) !important;
+}
 
 /* expand arrow — list mode — pushed to the right of the name cell */
 .group-expand-arrow { margin-left: auto; padding-left: 8px; color: #666; font-size: 11px; flex-shrink: 0; }
