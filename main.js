@@ -889,6 +889,83 @@ function fixMisplaced(items) {
   return results;
 }
 
+// ─── Empty Folder Scanner ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if a directory has NO files anywhere inside it
+ * (it may have nested subdirectories, but all are empty too).
+ */
+function hasAnyFile(dir) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch (_) { return false; }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isFile()) return true;
+    if (entry.isDirectory() && hasAnyFile(full)) return true;
+  }
+  return false;
+}
+
+/**
+ * Walks a root folder and collects every subdirectory that is empty
+ * (no files at any depth). The root itself is never included.
+ */
+function scanEmptyFolders(rootFolder) {
+  const empty = [];
+  if (!fs.existsSync(rootFolder)) return empty;
+
+  function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (_) { return; }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      if (!entry.isDirectory()) continue;
+      const full = path.join(dir, entry.name);
+      if (!hasAnyFile(full)) {
+        empty.push({
+          path: full,
+          name: entry.name,
+          relativePath: path.relative(rootFolder, full),
+        });
+      } else {
+        walk(full); // recurse — only look deeper inside non-empty dirs
+      }
+    }
+  }
+
+  walk(rootFolder);
+  return empty;
+}
+
+/**
+ * Deletes a list of empty folder paths.
+ * Uses fs.rmSync with recursive:true only after re-confirming the folder
+ * contains no files, as a safety guard against race conditions.
+ */
+function deleteEmptyFolders(folderPaths) {
+  const results = [];
+  for (const folderPath of folderPaths) {
+    try {
+      if (!fs.existsSync(folderPath)) {
+        results.push({ success: true, path: folderPath }); // already gone
+        continue;
+      }
+      if (hasAnyFile(folderPath)) {
+        results.push({ success: false, path: folderPath, error: 'Pasta não está vazia' });
+        continue;
+      }
+      fs.rmSync(folderPath, { recursive: true });
+      results.push({ success: true, path: folderPath });
+    } catch (e) {
+      results.push({ success: false, path: folderPath, error: e.message });
+    }
+  }
+  return results;
+}
+
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
 
 // Config
@@ -991,6 +1068,24 @@ ipcMain.handle('organize:fix-one', (_, item) => {
     return { success: false, error: 'Caminho não permitido' };
   }
   return moveFile(item.path, item.suggestedDest);
+});
+
+ipcMain.handle('organize:scan-empty-folders', (_, modsFolder, trayFolder) => {
+  const results = [];
+  if (modsFolder && typeof modsFolder === 'string' && fs.existsSync(modsFolder)) {
+    results.push(...scanEmptyFolders(modsFolder));
+  }
+  if (trayFolder && typeof trayFolder === 'string' && fs.existsSync(trayFolder)) {
+    results.push(...scanEmptyFolders(trayFolder));
+  }
+  return results;
+});
+
+ipcMain.handle('organize:delete-empty-folders', (_, folderPaths) => {
+  if (!Array.isArray(folderPaths)) return [];
+  const roots = getAllowedRoots();
+  const safe = folderPaths.filter(p => p && isPathSafe(p, ...roots));
+  return deleteEmptyFolders(safe);
 });
 
 // Dialogs

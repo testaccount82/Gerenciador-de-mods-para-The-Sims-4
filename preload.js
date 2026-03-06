@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('api', {
   scanMisplaced: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan', modsFolder, trayFolder),
   fixMisplaced: (items) => ipcRenderer.invoke('organize:fix', items),
   fixOneMisplaced: (item) => ipcRenderer.invoke('organize:fix-one', item),
+  scanEmptyFolders: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan-empty-folders', modsFolder, trayFolder),
+  deleteEmptyFolders: (folderPaths) => ipcRenderer.invoke('organize:delete-empty-folders', folderPaths),
 
   // Dialogs
   openFolderDialog: () => ipcRenderer.invoke('dialog:open-folder'),

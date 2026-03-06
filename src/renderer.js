@@ -30,6 +30,7 @@ const state = {
   scanning: false,
   conflictScanning: false,
   organizeScanning: false,
+  emptyFolders: [],   // empty folder paths found by the organizer
   // Gallery
   viewMode: 'grid',       // 'list' | 'grid' — FIX BUG 2: was 'list', thumbnails only show in grid mode
   galleryPage: 1,
@@ -1599,7 +1600,7 @@ async function renderOrganizer() {
     <div class="page-header">
       <div>
         <div class="page-title">Organização Automática</div>
-        <div class="page-subtitle">Detecta e corrige arquivos em locais incorretos</div>
+        <div class="page-subtitle">Detecta e corrige arquivos fora do lugar e pastas vazias</div>
       </div>
       <div class="header-actions">
         <button class="btn btn-primary" id="btn-scan-organize">
@@ -1617,7 +1618,8 @@ async function renderOrganizer() {
         <div>
           <strong>.ts4script</strong> — máximo 1 nível de subpasta dentro da pasta Mods.<br>
           <strong>.package</strong> — pode ir até 5 níveis de profundidade.<br>
-          <strong>Arquivos de Tray</strong> (.trayitem, .blueprint, etc.) — devem estar na pasta Tray, não em Mods.
+          <strong>Arquivos de Tray</strong> (.trayitem, .blueprint, etc.) — devem estar na pasta Tray, não em Mods.<br>
+          <strong>Pastas vazias</strong> — subpastas sem nenhum arquivo dentro (incluindo subpastas aninhadas).
         </div>
       </div>
     </div>
@@ -1627,16 +1629,19 @@ async function renderOrganizer() {
 
   el.querySelector('#btn-scan-organize').addEventListener('click', () => runOrganizeScan(el));
 
-  if (state.misplaced.length > 0) renderOrganizeResults(el);
+  if (state.misplaced.length > 0 || state.emptyFolders.length > 0) renderOrganizeResults(el);
 }
 
 async function runOrganizeScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
   const resultEl = el.querySelector('#organize-result');
-  resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização...</div></div>`;
+  resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização e pastas vazias...</div></div>`;
 
   try {
-    state.misplaced = await window.api.scanMisplaced(state.config.modsFolder, state.config.trayFolder);
+    [state.misplaced, state.emptyFolders] = await Promise.all([
+      window.api.scanMisplaced(state.config.modsFolder, state.config.trayFolder),
+      window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder),
+    ]);
     renderOrganizeResults(el);
   } catch (e) {
     resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
@@ -1645,40 +1650,92 @@ async function runOrganizeScan(el) {
 
 function renderOrganizeResults(el) {
   const resultEl = el.querySelector('#organize-result');
-  if (!state.misplaced.length) {
+  const hasMisplaced = state.misplaced.length > 0;
+  const hasEmpty = state.emptyFolders.length > 0;
+
+  if (!hasMisplaced && !hasEmpty) {
     resultEl.innerHTML = `
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
           <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
         </svg>
         <h3>Tudo organizado!</h3>
-        <p>Nenhum arquivo fora do lugar foi encontrado.</p>
+        <p>Nenhum arquivo fora do lugar e nenhuma pasta vazia encontrada.</p>
       </div>`;
     return;
   }
 
-  resultEl.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <span class="section-title">${state.misplaced.length} arquivo(s) fora do lugar</span>
-      <button class="btn btn-primary" id="btn-fix-all">Corrigir Todos</button>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${state.misplaced.map((item, i) => `
-        <div class="misplaced-row" data-index="${i}">
-          <span class="file-icon">${fileIcon('package')}</span>
-          <div class="misplaced-info">
-            <div class="misplaced-name" title="${escapeHtml(item.path)}">${escapeHtml(item.name)}</div>
-            <div class="misplaced-issue">⚠ ${escapeHtml(item.issue)}</div>
-          </div>
-          <span class="misplaced-arrow">→</span>
-          <div class="misplaced-dest" title="${escapeHtml(item.suggestedDest)}">${escapeHtml(item.suggestedDest)}</div>
-          <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(item.size)}</span>
-          <button class="btn btn-sm btn-primary fix-one-btn" data-index="${i}">Corrigir</button>
-        </div>
-      `).join('')}
-    </div>
-  `;
+  let html = '';
 
+  // ── Misplaced files section ──────────────────────────────────────────────
+  if (hasMisplaced) {
+    html += `
+      <div class="organize-section">
+        <div class="organize-section-header">
+          <div>
+            <span class="section-title">Arquivos fora do lugar</span>
+            <span class="organize-section-count">${state.misplaced.length}</span>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btn-fix-all">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+            Corrigir Todos
+          </button>
+        </div>
+        <div class="organize-rows" id="misplaced-list">
+          ${state.misplaced.map((item, i) => `
+            <div class="misplaced-row" data-index="${i}">
+              <span class="file-icon">${fileIcon('package')}</span>
+              <div class="misplaced-info">
+                <div class="misplaced-name" title="${escapeHtml(item.path)}">${escapeHtml(item.name)}</div>
+                <div class="misplaced-issue">⚠ ${escapeHtml(item.issue)}</div>
+              </div>
+              <span class="misplaced-arrow">→</span>
+              <div class="misplaced-dest" title="${escapeHtml(item.suggestedDest)}">${escapeHtml(item.suggestedDest)}</div>
+              <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(item.size)}</span>
+              <button class="btn btn-sm btn-primary fix-one-btn" data-index="${i}">Corrigir</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  // ── Empty folders section ────────────────────────────────────────────────
+  if (hasEmpty) {
+    html += `
+      <div class="organize-section" ${hasMisplaced ? 'style="margin-top:20px"' : ''}>
+        <div class="organize-section-header">
+          <div>
+            <span class="section-title">Pastas vazias</span>
+            <span class="organize-section-count organize-section-count-warn">${state.emptyFolders.length}</span>
+          </div>
+          <button class="btn btn-danger btn-sm" id="btn-delete-all-empty">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+              <path d="M10 11v6"/><path d="M14 11v6"/>
+            </svg>
+            Apagar Todas
+          </button>
+        </div>
+        <div class="organize-rows" id="empty-folders-list">
+          ${state.emptyFolders.map((folder, i) => `
+            <div class="empty-folder-row" data-index="${i}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;color:var(--text-disabled)">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+              <div class="misplaced-info">
+                <div class="misplaced-name" title="${escapeHtml(folder.path)}">${escapeHtml(folder.name)}</div>
+                <div class="misplaced-issue" style="color:var(--text-disabled)">📁 ${escapeHtml(folder.relativePath)}</div>
+              </div>
+              <button class="btn btn-sm btn-danger delete-empty-btn" data-index="${i}">🗑 Apagar</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  resultEl.innerHTML = html;
+
+  // ── Misplaced event handlers ─────────────────────────────────────────────
   el.querySelector('#btn-fix-all')?.addEventListener('click', async () => {
     const results = await window.api.fixMisplaced(state.misplaced);
     const ok = results.filter(r => r.success).length;
@@ -1712,6 +1769,53 @@ function renderOrganizeResults(el) {
       } else {
         toast('Erro ao mover arquivo: ' + (result.error || ''), 'error');
       }
+    });
+  });
+
+  // ── Empty folders event handlers ─────────────────────────────────────────
+  el.querySelector('#btn-delete-all-empty')?.addEventListener('click', () => {
+    const count = state.emptyFolders.length;
+    openModal(
+      'Apagar Todas as Pastas Vazias',
+      `<p>Tem certeza que deseja apagar <strong>${count} pasta(s) vazia(s)</strong>?</p>
+       <p style="color:var(--text-secondary);font-size:12px;margin-top:8px">Esta ação não pode ser desfeita.</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: `Apagar ${count} pasta(s)`, cls: 'btn-danger', action: async () => {
+          const paths = state.emptyFolders.map(f => f.path);
+          const results = await window.api.deleteEmptyFolders(paths);
+          const ok = results.filter(r => r.success).length;
+          const failed = results.length - ok;
+          state.emptyFolders = state.emptyFolders.filter((_, i) => !results[i]?.success);
+          renderOrganizeResults(el);
+          toast(`${ok} pasta(s) apagada(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+        }}
+      ]
+    );
+  });
+
+  el.querySelectorAll('.delete-empty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.index);
+      const folder = state.emptyFolders[idx];
+      openModal(
+        'Apagar Pasta Vazia',
+        `<p>Tem certeza que deseja apagar a pasta:</p>
+         <p style="margin-top:8px;word-break:break-all"><strong>${escapeHtml(folder.path)}</strong></p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: 'Apagar', cls: 'btn-danger', action: async () => {
+            const results = await window.api.deleteEmptyFolders([folder.path]);
+            if (results[0]?.success) {
+              state.emptyFolders.splice(idx, 1);
+              renderOrganizeResults(el);
+              toast('Pasta apagada', 'success');
+            } else {
+              toast('Erro ao apagar pasta: ' + (results[0]?.error || ''), 'error');
+            }
+          }}
+        ]
+      );
     });
   });
 }
