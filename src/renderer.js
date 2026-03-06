@@ -1003,7 +1003,7 @@ function renderGallery(mods) {
 
       return `
         <div class="gallery-card ${sel ? 'selected' : ''} ${!mod.enabled ? 'card-inactive' : ''}"
-             data-path="${escapeHtml(mod.path)}">
+             data-path="${escapeHtml(mod.path)}" draggable="false">
           <input type="checkbox" class="card-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}>
           <span class="card-type-tag ${typeClass}">${typeLabel}</span>
           ${thumbHtml}
@@ -1014,6 +1014,8 @@ function renderGallery(mods) {
               <span class="gallery-status-dot ${mod.enabled ? 'dot-active' : 'dot-inactive'}"></span>
             </div>
           </div>
+          <button class="card-toggle-btn" data-path="${escapeHtml(mod.path)}"
+                  title="${mod.enabled ? 'Desativar mod' : 'Ativar mod'}">${mod.enabled ? '⏸' : '▶'}</button>
         </div>`;
     }).join('')}
   </div>`;
@@ -1038,6 +1040,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   return `
     <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${!group.enabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
+           draggable="false"
            title="Clique para ver os ${group.files.length} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
@@ -1147,6 +1150,8 @@ function setupCommonModsEvents(el) {
     let dragDepth = 0;
     el.addEventListener('dragenter', e => {
       e.preventDefault();
+      // Only show overlay for external file drags from the OS, not internal card drags
+      if (!e.dataTransfer.types.includes('Files')) return;
       if (++dragDepth === 1) dz.classList.add('drop-overlay-show');
     });
     el.addEventListener('dragleave', e => {
@@ -1161,6 +1166,8 @@ function setupCommonModsEvents(el) {
       e.preventDefault();
       dragDepth = 0;
       dz.classList.remove('drop-overlay-show');
+      // Ignore internal DOM drags (card rearranging etc.)
+      if (!e.dataTransfer.types.includes('Files')) return;
 
       let paths = [];
 
@@ -1369,7 +1376,7 @@ function openGroupOverlay(group) {
 
 let _rubberBand = { active: false, startX: 0, startY: 0, rect: null, didSelect: false };
 
-function initRubberBand(container, getCards) {
+function initRubberBand(container, getCards, selectCard) {
   container.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     if (e.target.closest('.gallery-card') || e.target.closest('.gallery-sort-bar') || e.target.closest('.sel-bar')) return;
@@ -1432,12 +1439,16 @@ function initRubberBand(container, getCards) {
         const cT = cr2.top  - bounding.top  + container.scrollTop;
         const cR = cL + cr2.width, cB = cT + cr2.height;
         if (cL < selR && cR > selL && cT < selB && cB > selT) {
-          const p = card.dataset.path;
-          if (p) {
-            state.selectedMods.add(p);
-            card.classList.add('selected');
-            const cb = card.querySelector('.card-check');
-            if (cb) cb.checked = true;
+          if (selectCard) {
+            selectCard(card);
+          } else {
+            const p = card.dataset.path;
+            if (p) {
+              state.selectedMods.add(p);
+              card.classList.add('selected');
+              const cb = card.querySelector('.card-check');
+              if (cb) cb.checked = true;
+            }
           }
         }
       });
@@ -1550,11 +1561,33 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card click → toggle mod (individual cards)
+  // Card click → SELECT/DESELECT (individual cards)
+  // Ctrl/Meta = add/remove from multi-select; plain click = toggle this card's selection
   el.querySelectorAll('.gallery-card:not(.tray-group):not(.mod-group)').forEach(card => {
-    card.addEventListener('click', async e => {
-      if (e.target.classList.contains('card-check')) return;
-      const result = await window.api.toggleMod(card.dataset.path);
+    card.addEventListener('click', e => {
+      if (e.target.classList.contains('card-check') || e.target.closest('.card-toggle-btn')) return;
+      const p = card.dataset.path;
+      if (!p) return;
+      const isSelected = state.selectedMods.has(p);
+      if (e.ctrlKey || e.metaKey) {
+        // Multi-select: toggle just this one
+        isSelected ? state.selectedMods.delete(p) : state.selectedMods.add(p);
+      } else {
+        // Plain click: toggle this card
+        isSelected ? state.selectedMods.delete(p) : state.selectedMods.add(p);
+      }
+      card.classList.toggle('selected', state.selectedMods.has(p));
+      const cb = card.querySelector('.card-check');
+      if (cb) cb.checked = state.selectedMods.has(p);
+      refreshSelBar(el);
+    });
+  });
+
+  // Card toggle button → enable/disable mod (dedicated action button)
+  el.querySelectorAll('.card-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const result = await window.api.toggleMod(btn.dataset.path);
       if (result.success) { await loadMods(); renderMods(); }
       else toast('Erro ao alternar mod', 'error');
     });
@@ -1563,7 +1596,32 @@ function setupGalleryEvents(el, mods) {
   // Rubber band (click-drag) selection on gallery grid
   const grid = el.querySelector('#gallery-grid');
   if (grid) {
-    initRubberBand(grid, () => grid.querySelectorAll('.gallery-card[data-path]'));
+    initRubberBand(grid, () => grid.querySelectorAll('.gallery-card'), card => {
+      // Individual mod card
+      const p = card.dataset.path;
+      if (p) {
+        state.selectedMods.add(p);
+        card.classList.add('selected');
+        const cb = card.querySelector('.card-check');
+        if (cb) cb.checked = true;
+        return;
+      }
+      // Group card (mod-group or tray-group)
+      const prefix = card.dataset.modPrefix;
+      const guid   = card.dataset.trayGuid;
+      if (prefix || guid) {
+        const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+        const group = guid
+          ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid)
+          : allGrouped.find(g => g._isModGroup  && g.modPrefix === prefix);
+        if (group) {
+          group.files.forEach(f => state.selectedMods.add(f.path));
+          card.classList.add('selected');
+          const cb = card.querySelector('.card-check');
+          if (cb) cb.checked = true;
+        }
+      }
+    });
     attachCtxMenu(grid);
   }
 
