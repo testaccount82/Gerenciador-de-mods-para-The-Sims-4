@@ -81,7 +81,7 @@ function createWindow() {
     transparent: false,
     backgroundColor: '#1a1a1a',
     titleBarStyle: 'hidden',
-    icon: path.join(__dirname, 'assets', 'icon.ico'),
+    icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1760,7 +1760,7 @@ ipcMain.handle('thumbnail:clear-cache', () => {
 // App icon (returns PNG base64 for use in renderer titlebar)
 ipcMain.handle('icon:get', () => {
   try {
-    const iconPath = path.join(__dirname, 'assets', 'icon.ico');
+  const iconPath = path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
     const img = nativeImage.createFromPath(iconPath);
     const png = img.toPNG();
     if (!png || png.length === 0) return null;
