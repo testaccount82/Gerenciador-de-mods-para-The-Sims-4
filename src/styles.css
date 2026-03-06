@@ -180,28 +180,61 @@ html, body {
 
 /* ─── Sidebar Scan Indicator ────────────────────────────────────────── */
 #sidebar-scan-indicator {
-  margin: 4px 6px;
-  padding: 7px 10px;
-  background: var(--accent-subtle);
+  margin: 6px 8px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, var(--accent-subtle) 0%, rgba(99,102,241,0.08) 100%);
   border: 1px solid var(--accent-subtle2);
   border-radius: var(--r-md);
-  overflow: hidden;
 }
 #sidebar-scan-indicator.hidden { display: none; }
 
-.scan-indicator-row {
+.scan-indicator-header {
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.scan-indicator-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-light);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 #scan-indicator-text {
-  flex: 1;
   font-size: 11.5px;
-  color: var(--accent-light);
-  white-space: nowrap;
+  color: var(--text-secondary);
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.scan-indicator-bar-bg {
+  height: 3px;
+  background: var(--elevated-2);
+  border-radius: 99px;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.scan-indicator-bar {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  width: 0%;
+  animation: scan-pulse 1.8s ease-in-out infinite;
+  transition: width 0.3s ease;
+}
+
+@keyframes scan-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
 }
 
 #scan-indicator-stop {
@@ -209,15 +242,15 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--accent-subtle2);
   border-radius: var(--r-xs);
   background: transparent;
   color: var(--accent-light);
   cursor: pointer;
   padding: 0;
-  opacity: 0.7;
+  opacity: 0.8;
   transition: opacity var(--transition), background var(--transition);
 }
 #scan-indicator-stop:hover {
@@ -765,17 +798,6 @@ tbody tr.disabled td { opacity: 0.5; }
 }
 
 /* ─── Group Overlay Hint ─────────────────────────────────────────────── */
-.group-overlay-hint {
-  position: absolute;
-  top: 6px;
-  right: 28px;
-  font-size: 14px;
-  color: var(--accent-light);
-  opacity: 0.7;
-  pointer-events: none;
-  font-weight: 700;
-  line-height: 1;
-}
 
 /* ─── Empty State ───────────────────────────────────────────────────── */
 /* ─── Select filter (folder dropdown, items-per-page) ───────────────── */
@@ -1096,6 +1118,54 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 }
 .gallery-card:hover .card-check,
 .gallery-card.selected .card-check { opacity: 1; }
+
+/* checkboxes de grupo (tray-group / mod-group) seguem a mesma lógica */
+.gallery-card .card-check-group,
+.gallery-card .card-check-mod-group {
+  position: absolute;
+  top: 6px; left: 6px;
+  width: 16px; height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition);
+  z-index: 4;
+}
+.gallery-card:hover .card-check-group,
+.gallery-card:hover .card-check-mod-group,
+.gallery-card.selected .card-check-group,
+.gallery-card.selected .card-check-mod-group { opacity: 1; }
+
+/* ─── Context Menu ───────────────────────────────────────────────────── */
+#ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--surface-3, #2a2a3a);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  padding: 4px;
+  min-width: 180px;
+  animation: ctx-in 80ms ease;
+}
+@keyframes ctx-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0); }
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+.ctx-item:hover { background: var(--accent-subtle); color: var(--accent-light); }
+.ctx-item svg   { flex-shrink: 0; opacity: 0.75; }
 
 /* ─── Floating Selection Bar ────────────────────────────────────────── */
 .sel-bar {

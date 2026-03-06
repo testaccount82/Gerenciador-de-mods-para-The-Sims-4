@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   // Auto-organizer
   scanMisplaced: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan', modsFolder, trayFolder),
   fixMisplaced: (items) => ipcRenderer.invoke('organize:fix', items),
+  scanScatteredGroups: (modsFolder) => ipcRenderer.invoke('organize:scan-scattered', modsFolder),
   fixOneMisplaced: (item) => ipcRenderer.invoke('organize:fix-one', item),
   scanEmptyFolders: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan-empty-folders', modsFolder, trayFolder),
   deleteEmptyFolders: (folderPaths) => ipcRenderer.invoke('organize:delete-empty-folders', folderPaths),
@@ -46,6 +47,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Shell
   openInExplorer: (folderPath) => ipcRenderer.invoke('shell:open', folderPath),
+  showItemInFolder: (filePath) => ipcRenderer.invoke('shell:show-item', filePath),
 
   // Filesystem
   pathExists: (folderPath) => ipcRenderer.invoke('fs:exists', folderPath),

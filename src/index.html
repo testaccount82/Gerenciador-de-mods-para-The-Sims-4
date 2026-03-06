@@ -82,12 +82,18 @@
         </button>
       </div>
       <div id="sidebar-scan-indicator" class="hidden">
-        <div class="scan-indicator-row">
-          <div class="spinner" style="width:12px;height:12px;border-width:2px;flex-shrink:0"></div>
-          <span id="scan-indicator-text">Verificando…</span>
+        <div class="scan-indicator-header">
+          <div class="scan-indicator-title">
+            <div class="spinner" style="width:10px;height:10px;border-width:2px;flex-shrink:0"></div>
+            Verificando
+          </div>
           <button id="scan-indicator-stop" title="Parar verificação">
-            <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5"/></svg>
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5"/></svg>
           </button>
+        </div>
+        <div id="scan-indicator-text">Analisando arquivos…</div>
+        <div class="scan-indicator-bar-bg">
+          <div class="scan-indicator-bar" id="scan-indicator-bar"></div>
         </div>
       </div>
       <div id="sidebar-version">v1.0.0</div>

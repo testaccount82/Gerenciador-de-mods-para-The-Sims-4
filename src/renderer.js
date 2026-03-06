@@ -18,6 +18,7 @@ const state = {
   trayFiles: [],
   conflicts: [],
   misplaced: [],
+  scattered: [],   // groups of mods scattered across multiple folders
   currentPage: 'dashboard',
   selectedMods: new Set(),
   searchQuery: '',
@@ -161,15 +162,16 @@ function updateScanIndicator() {
   const text = document.getElementById('scan-indicator-text');
   if (!el || !text) return;
 
-  if (!scanProgress.running) {
+  // Ocultar na aba Conflitos — o progresso aparece lá dentro
+  if (!scanProgress.running || state.currentPage === 'conflicts') {
     el.classList.add('hidden');
     return;
   }
 
   el.classList.remove('hidden');
   text.textContent = scanProgress.remaining > 0
-    ? `Verificando… ${scanProgress.remaining} restantes`
-    : 'Verificando…';
+    ? `Verificando hashes… ${scanProgress.remaining} arquivo(s) restantes`
+    : 'Analisando arquivos…';
 }
 
 function startScanIndicator() {
@@ -194,6 +196,63 @@ function stopScanIndicator() {
   updateScanIndicator();
 }
 
+
+// ─── Context Menu ────────────────────────────────────────────────────────────
+
+let _ctxMenu = null;
+
+function closeCtxMenu() {
+  if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu = null; }
+}
+
+function showCtxMenu(x, y, filePath) {
+  closeCtxMenu();
+
+  const menu = document.createElement('div');
+  menu.id = 'ctx-menu';
+  menu.innerHTML = `
+    <div class="ctx-item" id="ctx-open-folder">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+      </svg>
+      Abrir pasta do arquivo
+    </div>`;
+
+  document.body.appendChild(menu);
+  _ctxMenu = menu;
+
+  // Posicionar sem sair da tela
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const ww = window.innerWidth, wh = window.innerHeight;
+  menu.style.left = (x + mw > ww ? ww - mw - 6 : x) + 'px';
+  menu.style.top  = (y + mh > wh ? wh - mh - 6 : y) + 'px';
+
+  menu.querySelector('#ctx-open-folder').addEventListener('click', () => {
+    window.api.showItemInFolder(filePath);
+    closeCtxMenu();
+  });
+}
+
+// Fechar ao clicar fora ou pressionar Escape
+document.addEventListener('mousedown', e => { if (_ctxMenu && !_ctxMenu.contains(e.target)) closeCtxMenu(); });
+document.addEventListener('keydown',   e => { if (e.key === 'Escape') closeCtxMenu(); });
+
+function attachCtxMenu(container) {
+  // Cards da galeria (individuais e grupos)
+  container.querySelectorAll('.gallery-card[data-path]').forEach(card => {
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      showCtxMenu(e.clientX, e.clientY, card.dataset.path);
+    });
+  });
+  // Linhas da tabela (individuais e child-rows)
+  container.querySelectorAll('tr[data-path]').forEach(row => {
+    row.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      showCtxMenu(e.clientX, e.clientY, row.dataset.path);
+    });
+  });
+}
 
 function initColumnResize(table) {
   const handles = table.querySelectorAll('.col-resize-handle');
@@ -229,6 +288,9 @@ function navigate(page) {
     settings: renderSettings
   };
   if (renderers[page]) renderers[page]();
+
+  // Mostrar/ocultar indicador de sidebar conforme a aba atual
+  updateScanIndicator();
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -371,12 +433,7 @@ function renderDashboardAlerts(el) {
   if (!alertsEl.isConnected) return;
 
   if (alerts.length === 0) {
-    // Only show "no problems" if at least one scan was actually configured to run
-    const cfg = state.config;
-    const didRun = cfg?.autoCheckMisplaced !== false || cfg?.autoCheckDuplicates === true;
-    if (!didRun) { alertsEl.innerHTML = ''; return; }
-    alertsEl.innerHTML = `<div class="notice success" style="font-size:12.5px">✓ Nenhum problema encontrado</div>`;
-    setTimeout(() => { if (alertsEl.isConnected) alertsEl.innerHTML = ''; }, 4000);
+    alertsEl.innerHTML = '';
     return;
   }
 
@@ -913,7 +970,6 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
         <span class="${badgeClass}" title="${group.files.length} arquivos">${group.files.length}</span>
-        <span class="group-overlay-hint" title="Clique para ver itens">⊞</span>
         ${thumbHtml}
         <div class="gallery-info">
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
@@ -1382,6 +1438,7 @@ function setupGalleryEvents(el, mods) {
   const grid = el.querySelector('#gallery-grid');
   if (grid) {
     initRubberBand(grid, () => grid.querySelectorAll('.gallery-card[data-path]'));
+    attachCtxMenu(grid);
   }
 
   // Load thumbnails
@@ -1492,6 +1549,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       </td>
       <td>
         <div class="cell-name" style="padding-left:20px">
+          <span style="color:var(--text-disabled);font-size:12px;margin-right:4px;flex-shrink:0" title="Item aninhado">↳</span>
           <span class="file-icon">${fileIcon(f.type)}</span>
           <span title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
         </div>
@@ -1499,7 +1557,12 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       <td>${typeBadge(f.type)}</td>
       <td>${formatBytes(f.size)}</td>
       <td title="${escapeHtml(f.folder)}">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</td>
-      <td>${statusBadge(f.enabled)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${statusBadge(f.enabled)}
+          <span style="font-size:10px;color:var(--text-disabled);background:var(--elevated-2);padding:1px 5px;border-radius:99px;flex-shrink:0">aninhado</span>
+        </div>
+      </td>
       <td>
         <div style="display:flex;gap:4px;align-items:center">
           <button class="btn btn-sm ${f.enabled ? 'btn-secondary' : 'btn-primary'} toggle-mod-btn"
@@ -1717,6 +1780,7 @@ function setupModsEvents(el, mods) {
   const tableContainer = el.querySelector('#mods-table-container');
   if (tableContainer) {
     initRubberBand(tableContainer, () => tableContainer.querySelectorAll('tr[data-path]'));
+    attachCtxMenu(tableContainer);
   }
 }
 
@@ -1748,11 +1812,9 @@ async function doImport(filePaths) {
 // ─── Conflicts Page ───────────────────────────────────────────────────────────
 
 async function renderConflicts() {
-  // If a scan is running, cancel it before rebuilding the page
-  if (state.conflictScanning) {
-    window.api.cancelConflictScan();
-    state.conflictScanning = false;
-  }
+  // Não cancelar scan em andamento ao navegar — o progresso continua e é exibido aqui
+  // A sidebar é suprimida enquanto esta aba está aberta (via updateScanIndicator)
+  updateScanIndicator();
 
   const el = document.getElementById('page-conflicts');
   el.innerHTML = `
@@ -1782,6 +1844,45 @@ async function renderConflicts() {
   `;
 
   el.querySelector('#btn-scan-conflicts').addEventListener('click', () => runConflictScan(el));
+
+  // Se um scan de conflitos já está em andamento, reconectar o progresso in-page
+  if (state.conflictScanning) {
+    const resultEl = el.querySelector('#conflicts-result');
+    resultEl.innerHTML = `
+      <div class="loading-state" id="conflict-loading">
+        <div class="spinner"></div>
+        <div class="loading-text" id="conflict-loading-text">Escaneando conflitos…</div>
+        <div class="conflict-progress-wrap">
+          <div class="conflict-progress-bar-bg">
+            <div class="conflict-progress-bar" id="conflict-progress-bar" style="width:0%"></div>
+          </div>
+          <span class="conflict-progress-label" id="conflict-progress-label">Aguardando…</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-cancel-scan" style="margin-top:8px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+          </svg>
+          Parar
+        </button>
+      </div>`;
+
+    document.getElementById('btn-cancel-scan')?.addEventListener('click', () => {
+      window.api.cancelConflictScan();
+    });
+
+    // Aguarda o scan terminar e então renderiza resultados
+    (async () => {
+      // Polling simples: espera state.conflictScanning virar false
+      await new Promise(resolve => {
+        const interval = setInterval(() => {
+          if (!state.conflictScanning) { clearInterval(interval); resolve(); }
+        }, 300);
+      });
+      // Só renderiza se ainda estiver na aba conflitos
+      if (state.currentPage === 'conflicts') renderConflictResults(el);
+    })();
+    return;
+  }
 
   if (state.conflicts.length > 0) renderConflictResults(el);
 }
@@ -1985,7 +2086,7 @@ async function renderOrganizer() {
 
   el.querySelector('#btn-scan-organize').addEventListener('click', () => runOrganizeScan(el));
 
-  if (state.misplaced.length > 0 || state.emptyFolders.length > 0) renderOrganizeResults(el);
+  if (state.misplaced.length > 0 || state.emptyFolders.length > 0 || state.scattered.length > 0) renderOrganizeResults(el);
 }
 
 async function runOrganizeScan(el) {
@@ -1994,9 +2095,10 @@ async function runOrganizeScan(el) {
   resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização e pastas vazias...</div></div>`;
 
   try {
-    [state.misplaced, state.emptyFolders] = await Promise.all([
+    [state.misplaced, state.emptyFolders, state.scattered] = await Promise.all([
       window.api.scanMisplaced(state.config.modsFolder, state.config.trayFolder),
       window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder),
+      window.api.scanScatteredGroups(state.config.modsFolder),
     ]);
     renderOrganizeResults(el);
   } catch (e) {
@@ -2008,8 +2110,9 @@ function renderOrganizeResults(el) {
   const resultEl = el.querySelector('#organize-result');
   const hasMisplaced = state.misplaced.length > 0;
   const hasEmpty = state.emptyFolders.length > 0;
+  const hasScattered = state.scattered.length > 0;
 
-  if (!hasMisplaced && !hasEmpty) {
+  if (!hasMisplaced && !hasEmpty && !hasScattered) {
     resultEl.innerHTML = `
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -2055,10 +2158,51 @@ function renderOrganizeResults(el) {
       </div>`;
   }
 
+  // ── Scattered groups section ─────────────────────────────────────────────
+  if (hasScattered) {
+    html += `
+      <div class="organize-section" ${hasMisplaced ? 'style="margin-top:20px"' : ''}>
+        <div class="organize-section-header">
+          <div>
+            <span class="section-title">Grupos dispersos</span>
+            <span class="organize-section-count organize-section-count-warn">${state.scattered.length}</span>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btn-consolidate-all-scattered">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/>
+            </svg>
+            Consolidar Todos
+          </button>
+        </div>
+        <div style="margin-bottom:10px;font-size:12.5px;color:var(--text-secondary)">
+          Grupos de mods com arquivos espalhados em pastas diferentes. Consolidar junta tudo na pasta principal do grupo.
+        </div>
+        <div class="organize-rows" id="scattered-list">
+          ${state.scattered.map((group, i) => `
+            <div class="misplaced-row scattered-group-row" data-index="${i}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;color:var(--accent-light)">
+                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+              </svg>
+              <div class="misplaced-info">
+                <div class="misplaced-name" title="${escapeHtml(group.name)}">${escapeHtml(group.prefix)} <span style="color:var(--text-secondary);font-weight:400">(${group.files.length} arquivos)</span></div>
+                <div class="misplaced-issue" style="color:var(--text-disabled)">
+                  ${group.folders.map(f => escapeHtml(f === '/' ? '(raiz)' : f)).join(' · ')}
+                  <span style="margin-left:6px;color:var(--accent-light)">→ ${escapeHtml(group.targetFolder === '/' ? '(raiz)' : group.targetFolder)}</span>
+                </div>
+              </div>
+              <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(group.totalSize)}</span>
+              <button class="btn btn-sm btn-primary consolidate-one-btn" data-index="${i}">Consolidar</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
   // ── Empty folders section ────────────────────────────────────────────────
   if (hasEmpty) {
     html += `
-      <div class="organize-section" ${hasMisplaced ? 'style="margin-top:20px"' : ''}>
+      <div class="organize-section" ${hasMisplaced || hasScattered ? 'style="margin-top:20px"' : ''}>
         <div class="organize-section-header">
           <div>
             <span class="section-title">Pastas vazias</span>
@@ -2126,6 +2270,64 @@ function renderOrganizeResults(el) {
         toast('Erro ao mover arquivo: ' + (result.error || ''), 'error');
       }
     });
+  });
+
+  // ── Scattered groups event handlers ──────────────────────────────────────
+  async function consolidateGroup(group) {
+    let moved = 0;
+    const toMove = group.files.filter(f => f.folder !== group.targetFolder);
+    for (const f of toMove) {
+      // Determina destino: targetFolderAbs + nome do arquivo
+      const destPath = group.targetFolderAbs + (group.targetFolderAbs.endsWith('\\') || group.targetFolderAbs.endsWith('/') ? '' : '\\') + f.name;
+      const result = await window.api.moveMod(f.path, destPath);
+      if (result.success) moved++;
+    }
+    await loadMods();
+    return moved;
+  }
+
+  el.querySelectorAll('.consolidate-one-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.index);
+      const group = state.scattered[idx];
+      openModal(
+        `Consolidar grupo "${group.prefix}"`,
+        `<p>Mover <strong>${group.files.filter(f => f.folder !== group.targetFolder).length} arquivo(s)</strong> para a pasta <strong>${escapeHtml(group.targetFolder === '/' ? '(raiz)' : group.targetFolder)}</strong>?</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: 'Consolidar', cls: 'btn-primary', action: async () => {
+            const moved = await consolidateGroup(group);
+            if (moved > 0) {
+              state.scattered.splice(idx, 1);
+              renderOrganizeResults(el);
+              toast(`${moved} arquivo(s) consolidados`, 'success');
+            } else {
+              toast('Nenhum arquivo precisava ser movido', 'info');
+            }
+          }}
+        ]
+      );
+    });
+  });
+
+  el.querySelector('#btn-consolidate-all-scattered')?.addEventListener('click', () => {
+    const total = state.scattered.reduce((s, g) => s + g.files.filter(f => f.folder !== g.targetFolder).length, 0);
+    openModal(
+      'Consolidar Todos os Grupos',
+      `<p>Mover <strong>${total} arquivo(s)</strong> para reorganizar <strong>${state.scattered.length} grupo(s)</strong> dispersos?</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: `Consolidar ${state.scattered.length} grupos`, cls: 'btn-primary', action: async () => {
+          let totalMoved = 0;
+          for (const group of state.scattered) {
+            totalMoved += await consolidateGroup(group);
+          }
+          state.scattered = [];
+          renderOrganizeResults(el);
+          toast(`${totalMoved} arquivo(s) consolidados com sucesso`, 'success');
+        }}
+      ]
+    );
   });
 
   // ── Empty folders event handlers ─────────────────────────────────────────

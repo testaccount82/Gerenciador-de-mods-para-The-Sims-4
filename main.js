@@ -952,6 +952,62 @@ function scanMisplaced(modsFolder, trayFolder) {
   return misplaced;
 }
 
+/**
+ * Detecta grupos de mods (mesmo prefixo de nome) cujos arquivos estão
+ * espalhados em pastas diferentes. Retorna grupos onde a consolidação
+ * faria sentido (2+ arquivos, 2+ pastas distintas).
+ */
+function scanScatteredGroups(modsFolder) {
+  const modsFiles = walkFolder(modsFolder, modsFolder);
+  const prefixMap = new Map(); // prefix → [{path, name, folder, size}]
+
+  for (const { fullPath, relativePath } of modsFiles) {
+    const ext = getRealExtension(fullPath);
+    if (!MOD_EXTENSIONS.includes(ext)) continue;
+
+    const rawName = path.basename(fullPath);
+    // Mesmo algoritmo de getModPrefix do renderer
+    const base = rawName.replace(/\.(disabled)$/i, '').replace(/\.[^.]+$/, '');
+    const idx = base.indexOf('_');
+    if (idx < 2) continue;
+    const prefix = base.slice(0, idx).toLowerCase();
+
+    const folder = path.dirname(relativePath) || '/';
+    const size = (() => { try { return fs.statSync(fullPath).size; } catch(_) { return 0; } })();
+
+    if (!prefixMap.has(prefix)) prefixMap.set(prefix, []);
+    prefixMap.get(prefix).push({ path: fullPath, name: rawName, folder, size });
+  }
+
+  const scattered = [];
+  for (const [prefix, files] of prefixMap) {
+    if (files.length < 2) continue;
+    const folders = [...new Set(files.map(f => f.folder))];
+    if (folders.length < 2) continue; // todos na mesma pasta — não é disperso
+
+    // Pasta de destino: a que tem mais arquivos (ou a mais rasa)
+    const folderCount = {};
+    for (const f of files) folderCount[f.folder] = (folderCount[f.folder] || 0) + 1;
+    const targetFolder = Object.entries(folderCount)
+      .sort((a, b) => b[1] - a[1] || a[0].split(/[/\\]/).length - b[0].split(/[/\\]/).length)[0][0];
+    const targetFolderAbs = targetFolder === '/'
+      ? modsFolder
+      : path.join(modsFolder, ...targetFolder.split(/[/\\]/));
+
+    scattered.push({
+      prefix,
+      name: files.find(f => f.name.replace(/\.(disabled)$/i, '').endsWith('.package'))?.name || files[0].name,
+      files,
+      folders,
+      targetFolder,
+      targetFolderAbs,
+      totalSize: files.reduce((s, f) => s + f.size, 0),
+    });
+  }
+
+  return scattered;
+}
+
 function fixMisplaced(items) {
   const results = [];
   for (const item of items) {
@@ -1168,6 +1224,13 @@ ipcMain.handle('organize:fix-one', (_, item) => {
   return moveFile(item.path, item.suggestedDest);
 });
 
+ipcMain.handle('organize:scan-scattered', (_, modsFolder) => {
+  if (!modsFolder || typeof modsFolder !== 'string') return [];
+  const roots = getAllowedRoots();
+  if (roots.length && !roots.some(r => modsFolder.startsWith(r))) return [];
+  return scanScatteredGroups(modsFolder);
+});
+
 ipcMain.handle('organize:scan-empty-folders', (_, modsFolder, trayFolder) => {
   const results = [];
   if (modsFolder && typeof modsFolder === 'string' && fs.existsSync(modsFolder)) {
@@ -1206,6 +1269,11 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
 ipcMain.handle('shell:open', (_, folderPath) => {
   if (!folderPath || typeof folderPath !== 'string') return;
   return shell.openPath(folderPath);
+});
+
+ipcMain.handle('shell:show-item', (_, filePath) => {
+  if (!filePath || typeof filePath !== 'string') return;
+  shell.showItemInFolder(filePath);
 });
 
 // ─── localthumbcache.package fallback ────────────────────────────────────────
