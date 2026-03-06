@@ -1064,9 +1064,11 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const idVal  = group._isTrayGroup ? group.trayGuid   : group.modPrefix;
   const checkClass = group._isTrayGroup ? 'card-check-group' : 'card-check-mod-group';
   const cardClass  = group._isTrayGroup ? 'tray-group' : 'mod-group';
-  const allEnabled = group.files.every(f => f.enabled);
+  const allEnabled  = group.files.every(f => f.enabled);
+  const someEnabled = !allEnabled && group.files.some(f => f.enabled);
   const toggleLabel = allEnabled ? '⏸' : '▶';
   const toggleTitle = allEnabled ? 'Desativar grupo' : 'Ativar grupo';
+  const statusDotClass = allEnabled ? 'dot-active' : someEnabled ? 'dot-partial' : 'dot-inactive';
 
   return `
     <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
@@ -1081,7 +1083,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
           <div class="gallery-meta">
             <span>${formatBytes(group.size)}</span>
-            <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+            <span class="gallery-status-dot ${statusDotClass}"></span>
           </div>
         </div>
         <button class="card-toggle-btn card-toggle-group-btn" ${idAttr}="${escapeHtml(idVal)}"

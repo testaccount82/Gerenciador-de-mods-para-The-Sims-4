@@ -1127,6 +1127,7 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 }
 .dot-active   { background: var(--success); }
 .dot-inactive { background: var(--elevated-2); }
+.dot-partial  { background: var(--warning); }
 
 /* checkbox — shows on hover / selection */
 .gallery-card .card-check {
