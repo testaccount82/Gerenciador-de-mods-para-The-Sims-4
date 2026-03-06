@@ -1136,7 +1136,7 @@ function setupCommonModsEvents(el) {
     el.addEventListener('dragover', e => e.preventDefault());
     el.addEventListener('drop', async e => {
       e.preventDefault(); dragDepth = 0; dz.classList.remove('drop-overlay-show');
-      const files = [...e.dataTransfer.files].map(f => f.path);
+      const files = [...e.dataTransfer.files].map(f => window.api.getPathForFile(f)).filter(Boolean);
       if (files.length) await doImport(files);
     });
     dz.addEventListener('click', importFiles);

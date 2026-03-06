@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // Config
@@ -44,6 +44,9 @@ contextBridge.exposeInMainWorld('api', {
   // Dialogs
   openFolderDialog: () => ipcRenderer.invoke('dialog:open-folder'),
   openFilesDialog: (filters) => ipcRenderer.invoke('dialog:open-files', filters),
+
+  // Resolves a dragged File object to its real filesystem path (Electron sandbox-safe)
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // Shell
   openInExplorer: (folderPath) => ipcRenderer.invoke('shell:open', folderPath),
