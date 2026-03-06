@@ -1495,13 +1495,40 @@ async function renderConflicts() {
 async function runConflictScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
   const resultEl = el.querySelector('#conflicts-result');
-  resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Escaneando conflitos... (pode demorar)</div></div>`;
+
+  // Initial loading state with progress elements
+  resultEl.innerHTML = `
+    <div class="loading-state" id="conflict-loading">
+      <div class="spinner"></div>
+      <div class="loading-text" id="conflict-loading-text">Escaneando conflitos…</div>
+      <div class="conflict-progress-wrap">
+        <div class="conflict-progress-bar-bg">
+          <div class="conflict-progress-bar" id="conflict-progress-bar" style="width:0%"></div>
+        </div>
+        <span class="conflict-progress-label" id="conflict-progress-label">Aguardando…</span>
+      </div>
+    </div>`;
+
+  // Subscribe to progress events from the main process
+  const unsubscribe = window.api.onConflictProgress(({ done, total, phase }) => {
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const bar   = document.getElementById('conflict-progress-bar');
+    const label = document.getElementById('conflict-progress-label');
+    const text  = document.getElementById('conflict-loading-text');
+    if (bar)   bar.style.width = pct + '%';
+    if (label) label.textContent = `${done} de ${total} arquivo${total !== 1 ? 's' : ''}`;
+    if (text)  text.textContent  = phase === 'hashes'
+      ? 'Verificando conteúdo duplicado (MD5)…'
+      : 'Verificando nomes duplicados…';
+  });
 
   try {
     state.conflicts = await window.api.scanConflicts(state.config.modsFolder);
     renderConflictResults(el);
   } catch (e) {
     resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    unsubscribe(); // always clean up the listener
   }
 }
 

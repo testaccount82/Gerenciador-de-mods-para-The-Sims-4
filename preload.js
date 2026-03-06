@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('api', {
   scanConflicts: (modsFolder) => ipcRenderer.invoke('conflicts:scan', modsFolder),
   conflictMoveToTrash: (filePath) => ipcRenderer.invoke('conflicts:move-to-trash', filePath),
   conflictRestoreFromTrash: (trashPath, originalPath) => ipcRenderer.invoke('conflicts:restore-from-trash', trashPath, originalPath),
+  onConflictProgress: (cb) => {
+    ipcRenderer.on('conflicts:progress', (_e, data) => cb(data));
+    return () => ipcRenderer.removeAllListeners('conflicts:progress');
+  },
 
   // Auto-organizer
   scanMisplaced: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan', modsFolder, trayFolder),

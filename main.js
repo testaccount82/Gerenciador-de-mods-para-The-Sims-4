@@ -758,14 +758,23 @@ function extractArchive(archivePath, destDir, sevenZipPath) {
 
 // ─── Conflict Detection ──────────────────────────────────────────────────────
 
-async function scanConflicts(modsFolder) {
+async function scanConflicts(modsFolder, sender) {
   const conflicts = [];
   const allFiles = walkFolder(modsFolder, modsFolder);
   const modFiles = allFiles.filter(({ fullPath }) =>
     MOD_EXTENSIONS.includes(getRealExtension(fullPath))
   );
 
-  // 1. Same name conflicts
+  const total = modFiles.length;
+
+  // Helper to safely send progress (sender may be null in tests)
+  function sendProgress(done, phase) {
+    try { sender?.send('conflicts:progress', { done, total, phase }); } catch (_) {}
+  }
+
+  // Phase 1 — same-name check (instant, no I/O — send a single update)
+  sendProgress(0, 'names');
+
   const nameMap = {};
   for (const { fullPath } of modFiles) {
     const name = getRealName(fullPath).toLowerCase();
@@ -790,9 +799,11 @@ async function scanConflicts(modsFolder) {
     }
   }
 
-  // 2. Hash duplicates (same content, different name)
+  // Phase 2 — hash duplicates (reads every file — send progress per file)
   const hashMap = {};
-  for (const { fullPath } of modFiles) {
+  for (let i = 0; i < modFiles.length; i++) {
+    const { fullPath } = modFiles[i];
+    sendProgress(i + 1, 'hashes');
     try {
       const hash = await getFileHash(fullPath);
       if (!hashMap[hash]) hashMap[hash] = [];
@@ -1034,9 +1045,9 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
 );
 
 // Conflicts
-ipcMain.handle('conflicts:scan', async (_, modsFolder) => {
+ipcMain.handle('conflicts:scan', async (event, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
-  return scanConflicts(modsFolder);
+  return scanConflicts(modsFolder, event.sender);
 });
 ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
