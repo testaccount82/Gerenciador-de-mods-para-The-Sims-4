@@ -1898,8 +1898,27 @@ async function doImport(filePaths) {
     navigate('settings');
     return;
   }
-  toast(`Importando ${filePaths.length} arquivo(s)...`, 'info', 2000);
-  const result = await window.api.importFiles(filePaths, state.config.modsFolder, state.config.trayFolder);
+
+  const SUPPORTED_EXTS = new Set([
+    '.package', '.ts4script',
+    '.trayitem', '.blueprint', '.bpi', '.hhi', '.sgi', '.householdbinary', '.room', '.rmi',
+    '.zip', '.rar', '.7z'
+  ]);
+
+  const supported   = filePaths.filter(p => SUPPORTED_EXTS.has(p.slice(p.lastIndexOf('.')).toLowerCase()));
+  const unsupported = filePaths.length - supported.length;
+
+  if (unsupported > 0 && supported.length === 0) {
+    toast(`Nenhum arquivo suportado. Tipos aceitos: .package, .ts4script, .zip, .rar, .7z e arquivos Tray`, 'warning', 5000);
+    return;
+  }
+
+  if (unsupported > 0) {
+    toast(`${unsupported} arquivo(s) ignorado(s) — tipo não suportado`, 'warning', 4000);
+  }
+
+  toast(`Importando ${supported.length} arquivo(s)...`, 'info', 2000);
+  const result = await window.api.importFiles(supported, state.config.modsFolder, state.config.trayFolder);
   await loadMods();
   if (state.currentPage === 'mods') renderMods();
   if (state.currentPage === 'dashboard') renderDashboard();
@@ -1907,7 +1926,7 @@ async function doImport(filePaths) {
     toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
   }
   if (result.errors.length > 0) {
-    toast(`${result.errors.length} arquivo(s) com erro`, 'error');
+    toast(`${result.errors.length} arquivo(s) com erro ao importar`, 'error');
   }
 }
 
