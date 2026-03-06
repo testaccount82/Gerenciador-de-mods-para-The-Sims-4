@@ -31,13 +31,11 @@ jobs:
         run: Get-ChildItem -Recurse dist\
         shell: pwsh
 
-      - name: Upload do artefato (instalador)
+      - name: Upload do artefato
         uses: actions/upload-artifact@v4
         with:
           name: TS4-Mod-Manager-Windows
-          path: |
-            dist/*.exe
-            dist/*.zip
+          path: dist/*.exe
           retention-days: 30
 
       - name: Criar Release com o EXE
@@ -58,8 +56,6 @@ jobs:
             - Desfazer disponível ao deletar arquivos na página de Conflitos
           draft: false
           prerelease: false
-          files: |
-            dist/*.exe
-            dist/*.zip
+          files: dist/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
