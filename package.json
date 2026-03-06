@@ -35,6 +35,12 @@
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "x64"
@@ -49,7 +55,15 @@
       "src/**/*",
       "assets/**/*",
       "node_modules/**/*"
-    ]
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": [
+        "pt_BR"
+      ],
+      "language": "1046"
+    }
   },
   "electron-builder": "^26.8.1"
 }
