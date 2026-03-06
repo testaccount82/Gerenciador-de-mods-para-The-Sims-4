@@ -1974,11 +1974,25 @@ async function runConflictScan(el) {
     toast('Uma verificação já está em andamento', 'warning', 2500);
     return;
   }
-  state.conflictScanning = true;
+  state.conflictScanning    = true;
+  scanProgress.running      = true;
+  scanProgress.phase        = 'conflicts';
+  scanProgress.cancelled    = false;
+  scanProgress.remaining    = 0;
+  scanProgress.total        = 0;
+  updateScanIndicator();
 
   // Update header button to disabled state while scanning
   const scanBtn = el.querySelector('#btn-scan-conflicts');
   if (scanBtn) { scanBtn.disabled = true; scanBtn.style.opacity = '0.5'; }
+
+  // Wire up sidebar stop button
+  const sidebarStop = document.getElementById('scan-indicator-stop');
+  if (sidebarStop) {
+    sidebarStop.onclick = () => {
+      window.api.cancelConflictScan();
+    };
+  }
 
   const resultEl = el.querySelector('#conflicts-result');
 
@@ -2007,6 +2021,11 @@ async function runConflictScan(el) {
 
   // Subscribe to progress events from the main process
   const unsubscribe = window.api.onConflictProgress(({ done, total, phase }) => {
+    // Update global progress so sidebar indicator stays in sync
+    scanProgress.total     = total;
+    scanProgress.remaining = total - done;
+    updateScanIndicator();
+
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     const bar   = document.getElementById('conflict-progress-bar');
     const label = document.getElementById('conflict-progress-label');
@@ -2039,6 +2058,7 @@ async function runConflictScan(el) {
   } finally {
     unsubscribe();
     state.conflictScanning = false;
+    stopScanIndicator();
     if (scanBtn) { scanBtn.disabled = false; scanBtn.style.opacity = ''; }
   }
 }
