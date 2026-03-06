@@ -1136,8 +1136,11 @@ function setupCommonModsEvents(el) {
     el.addEventListener('dragover', e => e.preventDefault());
     el.addEventListener('drop', async e => {
       e.preventDefault(); dragDepth = 0; dz.classList.remove('drop-overlay-show');
-      const files = [...e.dataTransfer.files].map(f => window.api.getPathForFile(f)).filter(Boolean);
-      if (files.length) await doImport(files);
+
+      // Recursively collect all File objects from dropped items (including folders)
+      const allFiles = await collectDroppedFiles(e.dataTransfer.items);
+      const paths = allFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
+      if (paths.length) await doImport(paths);
     });
     dz.addEventListener('click', importFiles);
   }
@@ -1848,6 +1851,39 @@ function setupModsEvents(el, mods) {
     initRubberBand(tableContainer, () => tableContainer.querySelectorAll('tr[data-path]'));
     attachCtxMenu(tableContainer);
   }
+}
+
+// Recursively collects all File objects from a DataTransferItemList,
+// descending into folders via the FileSystem API (webkitGetAsEntry).
+async function collectDroppedFiles(items) {
+  const files = [];
+
+  function readEntry(entry) {
+    return new Promise(resolve => {
+      if (entry.isFile) {
+        entry.file(f => { files.push(f); resolve(); }, () => resolve());
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const readAll = () => {
+          reader.readEntries(async entries => {
+            if (!entries.length) return resolve();
+            await Promise.all(entries.map(readEntry));
+            readAll(); // readEntries returns max 100 at a time — keep reading
+          }, () => resolve());
+        };
+        readAll();
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  const entries = [...items]
+    .map(item => item.webkitGetAsEntry?.())
+    .filter(Boolean);
+
+  await Promise.all(entries.map(readEntry));
+  return files;
 }
 
 async function importFiles() {
