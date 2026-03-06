@@ -1,0 +1,20 @@
+#!/bin/sh
+
+echo ""
+echo "🔍 Rodando testes antes do push..."
+echo ""
+
+NODE_ENV=test jest --config jest.config.js
+
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ Testes falharam! Push bloqueado."
+  echo "   Corrija os erros acima antes de enviar."
+  echo ""
+  exit 1
+fi
+
+echo ""
+echo "✅ Todos os testes passaram! Enviando..."
+echo ""
+exit 0
