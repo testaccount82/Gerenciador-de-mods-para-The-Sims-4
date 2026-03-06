@@ -149,75 +149,97 @@ function showUndoBar(label) {
 
 // ─── Background Scan (startup) ───────────────────────────────────────────────
 
-// Tracks the number of items still being processed across all active scans.
-// Used to drive the sidebar indicator counter.
-const scanProgress = {
-  remaining: 0,       // files left to hash (conflicts phase)
-  total: 0,           // total files in conflicts phase
-  running: false,     // true while any scan is in progress
-  cancelled: false,   // set to true when user hits Stop
-  phase: null,        // 'organize' | 'conflicts'
+// Two fully independent progress trackers — one per scan type.
+// This allows both scans to run simultaneously without interfering.
+const organizeProgress = {
+  running:   false,
+  cancelled: false,
 };
+
+const conflictProgress = {
+  running:   false,
+  remaining: 0,
+  total:     0,
+  cancelled: false,
+};
+
+// Legacy alias so any stray code using scanProgress.cancelled still works.
+const scanProgress = organizeProgress;
 
 function updateScanIndicator() {
   const elOrg  = document.getElementById('sidebar-scan-indicator-organize');
   const elConf = document.getElementById('sidebar-scan-indicator-conflicts');
   if (!elOrg || !elConf) return;
 
-  if (!scanProgress.running) {
-    elOrg.classList.add('hidden');
-    elConf.classList.add('hidden');
-    return;
-  }
-
-  if (scanProgress.phase === 'organize') {
+  // ── Organizar indicator — hidden when user is already on that page ────────
+  if (organizeProgress.running && state.currentPage !== 'organizer') {
     elOrg.classList.remove('hidden');
-    elConf.classList.add('hidden');
     const text = document.getElementById('scan-indicator-organize-text');
     if (text) text.textContent = 'Verificando arquivos e pastas…';
-  } else if (scanProgress.phase === 'conflicts') {
+  } else {
     elOrg.classList.add('hidden');
-    // Hide conflicts indicator when user is already on conflicts page (progress shown there)
-    if (state.currentPage === 'conflicts') {
-      elConf.classList.add('hidden');
-    } else {
-      elConf.classList.remove('hidden');
-      const text = document.getElementById('scan-indicator-conflicts-text');
-      const bar  = document.getElementById('scan-indicator-conflicts-bar');
-      if (text) text.textContent = scanProgress.remaining > 0
-        ? `${scanProgress.remaining} arquivo(s) restantes`
-        : 'Verificando hashes…';
-      if (bar && scanProgress.total > 0) {
-        const done = scanProgress.total - scanProgress.remaining;
-        bar.style.width = Math.round((done / scanProgress.total) * 100) + '%';
-      }
+  }
+
+  // ── Conflitos indicator — hidden when user is already on that page ────────
+  if (conflictProgress.running && state.currentPage !== 'conflicts') {
+    elConf.classList.remove('hidden');
+    const text = document.getElementById('scan-indicator-conflicts-text');
+    const bar  = document.getElementById('scan-indicator-conflicts-bar');
+    if (text) text.textContent = conflictProgress.remaining > 0
+      ? `${conflictProgress.remaining} arquivo(s) restantes`
+      : 'Verificando hashes…';
+    if (bar && conflictProgress.total > 0) {
+      const done = conflictProgress.total - conflictProgress.remaining;
+      bar.style.width = Math.round((done / conflictProgress.total) * 100) + '%';
     }
+  } else {
+    elConf.classList.add('hidden');
   }
 }
 
-function startScanIndicator(phase) {
-  scanProgress.running   = true;
-  scanProgress.cancelled = false;
-  scanProgress.phase     = phase || 'organize';
+function startOrganizeIndicator() {
+  organizeProgress.running   = true;
+  organizeProgress.cancelled = false;
+  updateScanIndicator();
+}
+
+function stopOrganizeIndicator() {
+  organizeProgress.running = false;
+  updateScanIndicator();
+}
+
+function startConflictIndicator() {
+  conflictProgress.running   = true;
+  conflictProgress.cancelled = false;
+  conflictProgress.remaining = 0;
+  conflictProgress.total     = 0;
   updateScanIndicator();
 
-  // Wire up the stop button (only relevant for conflicts phase)
   const stopBtn = document.getElementById('scan-indicator-stop');
   if (stopBtn) {
     stopBtn.onclick = () => {
-      scanProgress.cancelled = true;
+      conflictProgress.cancelled = true;
       window.api.cancelConflictScan();
-      stopScanIndicator();
+      stopConflictIndicator();
     };
   }
 }
 
-function stopScanIndicator() {
-  scanProgress.running   = false;
-  scanProgress.remaining = 0;
-  scanProgress.total     = 0;
-  scanProgress.phase     = null;
+function stopConflictIndicator() {
+  conflictProgress.running   = false;
+  conflictProgress.remaining = 0;
+  conflictProgress.total     = 0;
   updateScanIndicator();
+}
+
+// Legacy shims — keep callers working during transition
+function startScanIndicator(phase) {
+  if (phase === 'conflicts') startConflictIndicator();
+  else startOrganizeIndicator();
+}
+function stopScanIndicator() {
+  stopOrganizeIndicator();
+  stopConflictIndicator();
 }
 
 
@@ -490,14 +512,13 @@ async function runStartupChecks() {
   // Wait for a full render cycle before starting so the UI is responsive first
   await new Promise(r => setTimeout(r, 300));
 
-  // If another scan was already started (e.g. user opened Conflicts tab quickly), abort
-  if (scanProgress.running || state.conflictScanning) return;
-
-  startScanIndicator('organize');
+  // If another conflicts scan is already running, skip — don't abort organize
+  if (state.conflictScanning) return;
 
   // --- Phase 1: misplaced + empty folders (fast, no file I/O) ---
-  if (checkMisplaced && !scanProgress.cancelled) {
+  if (checkMisplaced && !state.organizeScanning) {
     state.organizeScanning = true;
+    startOrganizeIndicator();
     try {
       const [misplaced, emptyFolders] = await Promise.all([
         window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder),
@@ -507,16 +528,16 @@ async function runStartupChecks() {
       state.emptyFolders = emptyFolders;
     } catch (_) {}
     state.organizeScanning = false;
+    stopOrganizeIndicator();
   }
 
   // --- Phase 2: conflicts/hash (slow — drives the remaining counter) ---
-  if (checkDuplicates && !scanProgress.cancelled) {
-    if (state.conflictScanning) { stopScanIndicator(); return; } // user started manual scan
+  if (checkDuplicates && !state.conflictScanning) {
     state.conflictScanning = true;
-    scanProgress.phase = 'conflicts';
+    startConflictIndicator();
     const unsubscribe = window.api.onConflictProgress(({ done, total }) => {
-      scanProgress.remaining = total - done;
-      scanProgress.total     = total;
+      conflictProgress.remaining = total - done;
+      conflictProgress.total     = total;
       updateScanIndicator();
       // Also update in-page progress if user is on conflicts tab
       if (state.currentPage === 'conflicts') {
@@ -535,9 +556,8 @@ async function runStartupChecks() {
     } catch (_) {}
     unsubscribe();
     state.conflictScanning = false;
+    stopConflictIndicator();
   }
-
-  stopScanIndicator();
 
   // Refresh dashboard alerts if it's the current page
   const dashEl = document.getElementById('page-dashboard');
@@ -1916,14 +1936,14 @@ async function renderConflicts() {
       window.api.cancelConflictScan();
     });
 
-    // Populate initial progress from scanProgress state (background scan already running)
-    if (scanProgress.total > 0) {
-      const done = scanProgress.total - scanProgress.remaining;
-      const pct  = Math.round((done / scanProgress.total) * 100);
+    // Populate initial progress from conflictProgress state (background scan already running)
+    if (conflictProgress.total > 0) {
+      const done = conflictProgress.total - conflictProgress.remaining;
+      const pct  = Math.round((done / conflictProgress.total) * 100);
       const bar   = document.getElementById('conflict-progress-bar');
       const label = document.getElementById('conflict-progress-label');
       if (bar)   bar.style.width   = pct + '%';
-      if (label) label.textContent = `${done} de ${scanProgress.total} arquivo${scanProgress.total !== 1 ? 's' : ''}`;
+      if (label) label.textContent = `${done} de ${conflictProgress.total} arquivo${conflictProgress.total !== 1 ? 's' : ''}`;
     }
 
     // Subscribe to live progress — background scan already calls onConflictProgress
@@ -1940,8 +1960,8 @@ async function renderConflicts() {
     return;
   }
 
-  // Scan em andamento na fase 'organize' (antes de chegar em conflitos)
-  if (scanProgress.running && scanProgress.phase === 'organize') {
+  // Organize scan running — show a waiting state, will auto-refresh when done
+  if (organizeProgress.running) {
     const resultEl = el.querySelector('#conflicts-result');
     resultEl.innerHTML = `
       <div class="loading-state" id="conflict-loading">
@@ -1955,11 +1975,10 @@ async function renderConflicts() {
         </div>
       </div>`;
 
-    // Wait for the scan to finish and then refresh
     (async () => {
       await new Promise(resolve => {
         const interval = setInterval(() => {
-          if (!scanProgress.running) { clearInterval(interval); resolve(); }
+          if (!organizeProgress.running) { clearInterval(interval); resolve(); }
         }, 300);
       });
       if (state.currentPage === 'conflicts') renderConflicts();
@@ -1972,17 +1991,12 @@ async function renderConflicts() {
 
 async function runConflictScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
-  if (state.conflictScanning || scanProgress.running) {
-    toast('Uma verificação já está em andamento', 'warning', 2500);
+  if (state.conflictScanning) {
+    toast('Uma verificação de conflitos já está em andamento', 'warning', 2500);
     return;
   }
-  state.conflictScanning    = true;
-  scanProgress.running      = true;
-  scanProgress.phase        = 'conflicts';
-  scanProgress.cancelled    = false;
-  scanProgress.remaining    = 0;
-  scanProgress.total        = 0;
-  updateScanIndicator();
+  state.conflictScanning = true;
+  startConflictIndicator();
 
   // Update header button to disabled state while scanning
   const scanBtn = el.querySelector('#btn-scan-conflicts');
@@ -2023,9 +2037,8 @@ async function runConflictScan(el) {
 
   // Subscribe to progress events from the main process
   const unsubscribe = window.api.onConflictProgress(({ done, total, phase }) => {
-    // Update global progress so sidebar indicator stays in sync
-    scanProgress.total     = total;
-    scanProgress.remaining = total - done;
+    conflictProgress.total     = total;
+    conflictProgress.remaining = total - done;
     updateScanIndicator();
 
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -2060,7 +2073,7 @@ async function runConflictScan(el) {
   } finally {
     unsubscribe();
     state.conflictScanning = false;
-    stopScanIndicator();
+    stopConflictIndicator();
     if (scanBtn) { scanBtn.disabled = false; scanBtn.style.opacity = ''; }
   }
 }
@@ -2190,7 +2203,7 @@ async function renderOrganizer() {
   el.querySelector('#btn-scan-organize').addEventListener('click', () => runOrganizeScan(el));
 
   // If an organize scan is already running (manual or background), show loading and wait
-  if (state.organizeScanning || (scanProgress.running && scanProgress.phase === 'organize')) {
+  if (state.organizeScanning || organizeProgress.running) {
     const resultEl = el.querySelector('#organize-result');
     resultEl.innerHTML = `
       <div class="loading-state">
@@ -2201,7 +2214,7 @@ async function renderOrganizer() {
     (async () => {
       await new Promise(resolve => {
         const interval = setInterval(() => {
-          if (!state.organizeScanning && !(scanProgress.running && scanProgress.phase === 'organize')) {
+          if (!state.organizeScanning && !organizeProgress.running) {
             clearInterval(interval); resolve();
           }
         }, 300);
@@ -2216,15 +2229,12 @@ async function renderOrganizer() {
 
 async function runOrganizeScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
-  if (state.organizeScanning || (scanProgress.running && scanProgress.phase === 'organize')) {
-    toast('Uma verificação já está em andamento', 'warning', 2500); return;
+  if (state.organizeScanning) {
+    toast('Uma verificação de organização já está em andamento', 'warning', 2500); return;
   }
 
-  state.organizeScanning    = true;
-  scanProgress.running      = true;
-  scanProgress.phase        = 'organize';
-  scanProgress.cancelled    = false;
-  updateScanIndicator();
+  state.organizeScanning = true;
+  startOrganizeIndicator();
 
   const scanBtn = el?.querySelector('#btn-scan-organize');
   if (scanBtn) { scanBtn.disabled = true; scanBtn.style.opacity = '0.5'; }
@@ -2243,7 +2253,7 @@ async function runOrganizeScan(el) {
     if (resultEl) resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
   } finally {
     state.organizeScanning = false;
-    stopScanIndicator();
+    stopOrganizeIndicator();
     if (scanBtn) { scanBtn.disabled = false; scanBtn.style.opacity = ''; }
   }
 }
