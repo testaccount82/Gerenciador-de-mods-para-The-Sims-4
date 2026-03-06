@@ -46,6 +46,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Renomear portable para nome mais descritivo
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" }
+          if ($portable) {
+            $newName = $portable.Name -replace "^TS4 Mod Manager ", "TS4-Mod-Manager-Portable-"
+            Rename-Item -Path $portable.FullName -NewName $newName
+            Write-Host "Renomeado: $($portable.Name) -> $newName"
+          }
+
       - name: Criar Release com o EXE
         uses: softprops/action-gh-release@v2
         with:
