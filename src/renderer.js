@@ -722,7 +722,26 @@ function renderGallery(mods) {
       <p>Tente ajustar os filtros ou importe seus primeiros mods</p>
     </div>`;
 
-  return `<div class="gallery-grid" id="gallery-grid">
+  const cols = [
+    { key: 'name',    label: 'Nome'     },
+    { key: 'type',    label: 'Tipo'     },
+    { key: 'size',    label: 'Tamanho'  },
+    { key: 'enabled', label: 'Status'   },
+  ];
+
+  const sortBarHtml = `
+    <div class="gallery-sort-bar" id="gallery-sort-bar">
+      <span class="gallery-sort-label">Ordenar:</span>
+      ${cols.map(c => {
+        const isActive = state.sortColumn === c.key;
+        const arrow = isActive ? (state.sortDir === 'asc' ? '↑' : '↓') : '';
+        return `<button class="gallery-sort-btn ${isActive ? 'active' : ''}" data-col="${c.key}">
+          ${c.label}${arrow ? `<span class="gallery-sort-arrow">${arrow}</span>` : ''}
+        </button>`;
+      }).join('')}
+    </div>`;
+
+  return `${sortBarHtml}<div class="gallery-grid" id="gallery-grid">
     ${mods.map(mod => {
       if (mod._isTrayGroup) return renderTrayGroupCard(mod);
       if (mod._isModGroup)  return renderModGroupCard(mod);
@@ -998,6 +1017,21 @@ function refreshSelBar(el) {
 
 function setupGalleryEvents(el, mods) {
   setupCommonModsEvents(el);
+
+  // Gallery sort bar
+  el.querySelectorAll('.gallery-sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const col = btn.dataset.col;
+      if (state.sortColumn === col) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortColumn = col;
+        state.sortDir = 'asc';
+      }
+      state.galleryPage = 1;
+      renderMods();
+    });
+  });
 
   // Select all
   el.querySelector('#select-all-grid')?.addEventListener('change', e => {
