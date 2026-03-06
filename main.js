@@ -1187,6 +1187,8 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) => {
   const roots = getAllowedRoots();
   if (!isPathSafe(modsFolder, ...roots) || !isPathSafe(trayFolder, ...roots))
     return { imported: [], errors: [{ error: 'Pasta de destino não permitida' }] };
+  // Nada para importar — retorna cedo após validações (sem arquivos, sem trabalho)
+  if (filePaths.length === 0) return { imported: [], errors: [] };
   return importFiles(filePaths, modsFolder, trayFolder);
 });
 
