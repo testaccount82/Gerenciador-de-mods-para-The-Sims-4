@@ -1376,41 +1376,73 @@ function openGroupOverlay(group) {
 
 let _rubberBand = { active: false, startX: 0, startY: 0, rect: null, didSelect: false };
 
-function initRubberBand(container, getCards, selectCard) {
-  container.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    if (e.target.closest('.gallery-card') || e.target.closest('.gallery-sort-bar') || e.target.closest('.sel-bar')) return;
+/**
+ * @param container       - Element that holds the cards (gallery-grid or table-container)
+ * @param getCards        - () => NodeList/Array of selectable card/row elements
+ * @param selectCard      - Optional (card) => void called when a card enters the selection
+ * @param allowOnCards    - If true, rubber band can start on top of a card (grid mode).
+ *                          A 6px drag threshold prevents accidental activation on plain clicks.
+ */
+function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
+  // The element that actually scrolls — .page in grid mode, the container itself in list mode
+  function getScrollEl() { return container.closest('.page') || container; }
 
-    _rubberBand.active = true;
-    _rubberBand.didSelect = false;
-    const cr = container.getBoundingClientRect();
-    _rubberBand.startX = e.clientX - cr.left + container.scrollLeft;
-    _rubberBand.startY = e.clientY - cr.top  + container.scrollTop;
-
-    // Windows behavior: clear selection when starting a new rubber band unless Ctrl is held
-    if (!e.ctrlKey && !e.metaKey) {
-      state.selectedMods.clear();
-      container.querySelectorAll('.gallery-card.selected, tr.selected').forEach(el => {
-        el.classList.remove('selected');
-        const cb = el.querySelector('.card-check, .row-check');
-        if (cb) cb.checked = false;
-      });
-      refreshSelBar(document.getElementById('page-mods'));
-    }
-
-    if (!_rubberBand.rect) {
+  // Create (or reuse) the rubber band rect, appended to the scroll element so it
+  // stays correctly positioned during scroll.
+  function ensureRect() {
+    if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
       _rubberBand.rect = document.createElement('div');
       _rubberBand.rect.className = 'rubber-band-rect';
-      container.style.position = 'relative';
-      container.appendChild(_rubberBand.rect);
+      const scrollEl = getScrollEl();
+      scrollEl.style.position = 'relative'; // ensure positioned ancestor
+      scrollEl.appendChild(_rubberBand.rect);
     }
-    _rubberBand.rect.style.cssText = `display:block;left:${_rubberBand.startX}px;top:${_rubberBand.startY}px;width:0;height:0`;
+  }
+
+  container.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.gallery-sort-bar') || e.target.closest('.sel-bar')) return;
+    // In list mode, don't start on row cells (clicks handle selection there)
+    if (!allowOnCards && e.target.closest('.gallery-card')) return;
+    // Never start on interactive controls inside cards
+    if (e.target.closest('input, button, a')) return;
+
+    const scrollEl = getScrollEl();
+    const cr = scrollEl.getBoundingClientRect();
+    const startX = e.clientX - cr.left + scrollEl.scrollLeft;
+    const startY = e.clientY - cr.top  + scrollEl.scrollTop;
+
+    let started = false; // becomes true once drag threshold is crossed
+    const THRESHOLD = 6; // px
 
     const onMove = ev => {
-      if (!_rubberBand.active) return;
-      const r = container.getBoundingClientRect();
-      const curX = ev.clientX - r.left + container.scrollLeft;
-      const curY = ev.clientY - r.top  + container.scrollTop;
+      const r = scrollEl.getBoundingClientRect();
+      const curX = ev.clientX - r.left + scrollEl.scrollLeft;
+      const curY = ev.clientY - r.top  + scrollEl.scrollTop;
+
+      // Activate rubber band only after threshold to avoid disrupting plain clicks
+      if (!started) {
+        if (Math.abs(curX - startX) < THRESHOLD && Math.abs(curY - startY) < THRESHOLD) return;
+        started = true;
+        _rubberBand.active = true;
+        _rubberBand.startX = startX;
+        _rubberBand.startY = startY;
+        _rubberBand.didSelect = false;
+
+        // Clear selection when rubber band starts (unless Ctrl/Meta held)
+        if (!e.ctrlKey && !e.metaKey) {
+          state.selectedMods.clear();
+          container.querySelectorAll('.gallery-card.selected, tr.selected').forEach(el => {
+            el.classList.remove('selected');
+            const cb = el.querySelector('.card-check, .row-check');
+            if (cb) cb.checked = false;
+          });
+          refreshSelBar(document.getElementById('page-mods'));
+        }
+
+        ensureRect();
+      }
+
       const x = Math.min(curX, _rubberBand.startX);
       const y = Math.min(curY, _rubberBand.startY);
       const w = Math.abs(curX - _rubberBand.startX);
@@ -1419,24 +1451,24 @@ function initRubberBand(container, getCards, selectCard) {
     };
 
     const onUp = ev => {
-      if (!_rubberBand.active) { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); return; }
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+
+      if (!started || !_rubberBand.active) return;
       _rubberBand.active = false;
       if (_rubberBand.rect) _rubberBand.rect.style.display = 'none';
 
-      const r = container.getBoundingClientRect();
-      const curX = ev.clientX - r.left + container.scrollLeft;
-      const curY = ev.clientY - r.top  + container.scrollTop;
+      const r = scrollEl.getBoundingClientRect();
+      const curX = ev.clientX - r.left + scrollEl.scrollLeft;
+      const curY = ev.clientY - r.top  + scrollEl.scrollTop;
       const selL = Math.min(curX, _rubberBand.startX), selR = Math.max(curX, _rubberBand.startX);
       const selT = Math.min(curY, _rubberBand.startY), selB = Math.max(curY, _rubberBand.startY);
-
-      if (selR - selL < 5 && selB - selT < 5) { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); return; }
 
       const cards = getCards();
       cards.forEach(card => {
         const cr2 = card.getBoundingClientRect();
-        const bounding = container.getBoundingClientRect();
-        const cL = cr2.left - bounding.left + container.scrollLeft;
-        const cT = cr2.top  - bounding.top  + container.scrollTop;
+        const cL = cr2.left - r.left + scrollEl.scrollLeft;
+        const cT = cr2.top  - r.top  + scrollEl.scrollTop;
         const cR = cL + cr2.width, cB = cT + cr2.height;
         if (cL < selR && cR > selL && cT < selB && cB > selT) {
           if (selectCard) {
@@ -1446,7 +1478,7 @@ function initRubberBand(container, getCards, selectCard) {
             if (p) {
               state.selectedMods.add(p);
               card.classList.add('selected');
-              const cb = card.querySelector('.card-check');
+              const cb = card.querySelector('.card-check, .row-check');
               if (cb) cb.checked = true;
             }
           }
@@ -1454,8 +1486,6 @@ function initRubberBand(container, getCards, selectCard) {
       });
       _rubberBand.didSelect = true;
       refreshSelBar(document.getElementById('page-mods'));
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
     };
 
     document.addEventListener('mousemove', onMove);
@@ -1621,7 +1651,7 @@ function setupGalleryEvents(el, mods) {
           if (cb) cb.checked = true;
         }
       }
-    });
+    }, /* allowOnCards = */ true);
     attachCtxMenu(grid);
   }
 

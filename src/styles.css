@@ -802,6 +802,8 @@ tbody tr.disabled td { opacity: 0.5; }
   pointer-events: none;
   z-index: 50;
   border-radius: 2px;
+  /* Ensure rect is never clipped by the card overflow:hidden */
+  will-change: left, top, width, height;
 }
 
 /* ─── Group Overlay Hint ─────────────────────────────────────────────── */
