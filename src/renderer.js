@@ -665,24 +665,17 @@ function renderPagination(current, total, itemCount) {
   return html;
 }
 
-function setupGalleryEvents(el, mods) {
-  // ── View toggle ───────────────────────────────────────────────────────
+// ─── Handlers comuns a grade E lista ─────────────────────────────────────────
+function setupCommonModsEvents(el) {
+  // View toggle
   el.querySelector('#view-list')?.addEventListener('click', () => { state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
   el.querySelector('#view-grid')?.addEventListener('click', () => { state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
 
-  // ── Items per page ────────────────────────────────────────────────────
-  el.querySelector('#items-per-page')?.addEventListener('change', e => {
-    state.itemsPerPage = parseInt(e.target.value); state.galleryPage = 1; renderMods();
-  });
+  // Import & refresh
+  el.querySelector('#btn-import')?.addEventListener('click', importFiles);
+  el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
 
-  // ── Pagination ────────────────────────────────────────────────────────
-  el.querySelectorAll('[data-page]').forEach(btn => {
-    btn.addEventListener('click', () => { state.galleryPage = parseInt(btn.dataset.page); renderMods(); });
-  });
-  el.querySelector('#page-prev')?.addEventListener('click', () => { if (state.galleryPage > 1) { state.galleryPage--; renderMods(); }});
-  el.querySelector('#page-next')?.addEventListener('click', () => { state.galleryPage++; renderMods(); });
-
-  // ── Search ────────────────────────────────────────────────────────────
+  // Search input
   el.querySelector('#search-input')?.addEventListener('input', e => {
     state.searchQuery = e.target.value;
     const pos = e.target.selectionStart;
@@ -696,30 +689,38 @@ function setupGalleryEvents(el, mods) {
     document.getElementById('search-input')?.focus();
   });
 
-  // ── Filter chips — status ─────────────────────────────────────────────
+  // Status chips
   el.querySelectorAll('[data-fs]').forEach(btn => {
     btn.addEventListener('click', () => { state.filterStatus = btn.dataset.fs; state.galleryPage = 1; renderMods(); });
   });
 
-  // ── Filter chips — type ───────────────────────────────────────────────
+  // Type chips
   el.querySelectorAll('[data-ft]').forEach(btn => {
     btn.addEventListener('click', () => { state.filterType = btn.dataset.ft; state.galleryPage = 1; renderMods(); });
   });
 
-  // ── Folder filter ─────────────────────────────────────────────────────
+  // Folder select
   el.querySelector('#filter-folder')?.addEventListener('change', e => { state.filterFolder = e.target.value; state.galleryPage = 1; renderMods(); });
 
-  // ── Clear all filters ─────────────────────────────────────────────────
+  // Clear all filters
   el.querySelector('#clear-filters')?.addEventListener('click', () => {
     state.searchQuery = ''; state.filterStatus = 'all'; state.filterType = 'all';
     state.filterFolder = 'all'; state.galleryPage = 1; renderMods();
   });
 
-  // ── Import & refresh ──────────────────────────────────────────────────
-  el.querySelector('#btn-import')?.addEventListener('click', importFiles);
-  el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
+  // Items per page
+  el.querySelector('#items-per-page')?.addEventListener('change', e => {
+    state.itemsPerPage = parseInt(e.target.value); state.galleryPage = 1; renderMods();
+  });
 
-  // ── Drag-and-drop overlay ─────────────────────────────────────────────
+  // Pagination
+  el.querySelectorAll('[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => { state.galleryPage = parseInt(btn.dataset.page); renderMods(); });
+  });
+  el.querySelector('#page-prev')?.addEventListener('click', () => { if (state.galleryPage > 1) { state.galleryPage--; renderMods(); } });
+  el.querySelector('#page-next')?.addEventListener('click', () => { state.galleryPage++; renderMods(); });
+
+  // Drag-and-drop overlay
   const dz = el.querySelector('#drop-zone');
   if (dz) {
     let dragDepth = 0;
@@ -734,49 +735,17 @@ function setupGalleryEvents(el, mods) {
     dz.addEventListener('click', importFiles);
   }
 
-  // ── Select all ────────────────────────────────────────────────────────
-  el.querySelector('#select-all-grid')?.addEventListener('change', e => {
-    state.selectedMods.clear();
-    if (e.target.checked) mods.forEach(m => state.selectedMods.add(m.path));
-    el.querySelectorAll('.card-check').forEach(c => {
-      c.checked = e.target.checked;
-      c.closest('.gallery-card').classList.toggle('selected', e.target.checked);
-    });
-    refreshSelBar(el);
-  });
-
-  // ── Card checkbox ─────────────────────────────────────────────────────
-  el.querySelectorAll('.card-check').forEach(cb => {
-    cb.addEventListener('change', e => {
-      e.stopPropagation();
-      const p = cb.dataset.path;
-      cb.checked ? state.selectedMods.add(p) : state.selectedMods.delete(p);
-      cb.closest('.gallery-card').classList.toggle('selected', cb.checked);
-      refreshSelBar(el);
-    });
-  });
-
-  // ── Card click → toggle mod ───────────────────────────────────────────
-  el.querySelectorAll('.gallery-card').forEach(card => {
-    card.addEventListener('click', async e => {
-      if (e.target.classList.contains('card-check')) return;
-      const result = await window.api.toggleMod(card.dataset.path);
-      if (result.success) { await loadMods(); renderMods(); }
-      else toast('Erro ao alternar mod', 'error');
-    });
-  });
-
-  // ── Load thumbnails ───────────────────────────────────────────────────
-  loadVisibleThumbnails(el);
-
-  // ── Deselect button (inside sel-bar) ──────────────────────────────────
+  // Sel-bar deselect
   el.querySelector('#btn-deselect')?.addEventListener('click', () => {
     state.selectedMods.clear();
-    el.querySelectorAll('.card-check').forEach(c => { c.checked = false; c.closest('.gallery-card').classList.remove('selected'); });
+    el.querySelectorAll('.card-check, .row-check').forEach(c => {
+      c.checked = false;
+      c.closest('.gallery-card, tr')?.classList.remove('selected');
+    });
     refreshSelBar(el);
   });
 
-  // ── Batch enable ──────────────────────────────────────────────────────
+  // Batch enable
   el.querySelector('#btn-enable-all-sel')?.addEventListener('click', async () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
@@ -791,7 +760,7 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // ── Batch disable ─────────────────────────────────────────────────────
+  // Batch disable
   el.querySelector('#btn-disable-all-sel')?.addEventListener('click', async () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
@@ -806,7 +775,7 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // ── Batch delete ──────────────────────────────────────────────────────
+  // Batch delete
   el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
@@ -832,6 +801,45 @@ function refreshSelBar(el) {
   bar.classList.toggle('sel-bar-show', n > 0);
   const cEl = bar.querySelector('#sel-bar-count');
   if (cEl) cEl.textContent = `${n} selecionado${n !== 1 ? 's' : ''}`;
+}
+
+function setupGalleryEvents(el, mods) {
+  setupCommonModsEvents(el);
+
+  // Select all
+  el.querySelector('#select-all-grid')?.addEventListener('change', e => {
+    state.selectedMods.clear();
+    if (e.target.checked) mods.forEach(m => state.selectedMods.add(m.path));
+    el.querySelectorAll('.card-check').forEach(c => {
+      c.checked = e.target.checked;
+      c.closest('.gallery-card').classList.toggle('selected', e.target.checked);
+    });
+    refreshSelBar(el);
+  });
+
+  // Card checkbox
+  el.querySelectorAll('.card-check').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      const p = cb.dataset.path;
+      cb.checked ? state.selectedMods.add(p) : state.selectedMods.delete(p);
+      cb.closest('.gallery-card').classList.toggle('selected', cb.checked);
+      refreshSelBar(el);
+    });
+  });
+
+  // Card click → toggle mod
+  el.querySelectorAll('.gallery-card').forEach(card => {
+    card.addEventListener('click', async e => {
+      if (e.target.classList.contains('card-check')) return;
+      const result = await window.api.toggleMod(card.dataset.path);
+      if (result.success) { await loadMods(); renderMods(); }
+      else toast('Erro ao alternar mod', 'error');
+    });
+  });
+
+  // Load thumbnails
+  loadVisibleThumbnails(el);
 }
 
 async function loadVisibleThumbnails(el) {
@@ -907,9 +915,7 @@ function renderModRow(mod) {
 }
 
 function setupModsEvents(el, mods) {
-  // View toggle
-  el.querySelector('#view-list')?.addEventListener('click', () => { state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
-  el.querySelector('#view-grid')?.addEventListener('click', () => { state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
+  setupCommonModsEvents(el);
 
   // Sorting
   el.querySelectorAll('[data-sort]').forEach(th => {
@@ -937,6 +943,7 @@ function setupModsEvents(el, mods) {
       if (selectAll.checked) mods.forEach(m => state.selectedMods.add(m.path));
       el.querySelectorAll('.row-check').forEach(c => c.checked = selectAll.checked);
       el.querySelectorAll('tbody tr').forEach(r => r.classList.toggle('selected', selectAll.checked));
+      refreshSelBar(el);
     });
   }
 
@@ -947,20 +954,16 @@ function setupModsEvents(el, mods) {
       if (cb.checked) state.selectedMods.add(p);
       else state.selectedMods.delete(p);
       cb.closest('tr').classList.toggle('selected', cb.checked);
+      refreshSelBar(el);
     });
   });
 
   // Toggle individual mod
   el.querySelectorAll('.toggle-mod-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const filePath = btn.dataset.path;
-      const result = await window.api.toggleMod(filePath);
-      if (result.success) {
-        await loadMods();
-        renderMods();
-      } else {
-        toast('Erro ao alternar mod: ' + result.error, 'error');
-      }
+      const result = await window.api.toggleMod(btn.dataset.path);
+      if (result.success) { await loadMods(); renderMods(); }
+      else toast('Erro ao alternar mod: ' + result.error, 'error');
     });
   });
 
@@ -970,107 +973,18 @@ function setupModsEvents(el, mods) {
       const filePath = btn.dataset.path;
       const name = mods.find(m => m.path === filePath)?.name || filePath;
       openModal('Confirmar Exclusão',
-        `<p>Tem certeza que deseja deletar <strong>${escapeHtml(name)}</strong>? Esta ação não pode ser desfeita pelo Desfazer.</p>`,
+        `<p>Tem certeza que deseja deletar <strong>${escapeHtml(name)}</strong>?</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Deletar', cls: 'btn-danger', action: async () => {
             const results = await window.api.deleteMods([filePath]);
-            if (results[0].success) {
-              await loadMods(); renderMods();
-              toast('Mod deletado', 'success');
-            } else {
-              toast('Erro ao deletar: ' + results[0].error, 'error');
-            }
+            if (results[0].success) { await loadMods(); renderMods(); toast('Mod deletado', 'success'); }
+            else toast('Erro ao deletar: ' + results[0].error, 'error');
           }}
         ]
       );
     });
   });
-
-  // Batch enable
-  el.querySelector('#btn-enable-all-sel')?.addEventListener('click', async () => {
-    const sel = [...state.selectedMods];
-    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
-    const targets = sel.filter(p => {
-      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
-      return mod && !mod.enabled;
-    });
-    if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
-    for (const p of targets) await window.api.toggleMod(p);
-    await loadMods(); state.selectedMods.clear(); renderMods();
-    toast(`${targets.length} mod(s) ativados`, 'success');
-    pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
-      for (const p of targets) await window.api.toggleMod(p); // re-disables
-      await loadMods(); renderMods();
-    });
-  });
-
-  // Batch disable
-  el.querySelector('#btn-disable-all-sel')?.addEventListener('click', async () => {
-    const sel = [...state.selectedMods];
-    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
-    const targets = sel.filter(p => {
-      const mod = [...state.mods, ...state.trayFiles].find(m => m.path === p);
-      return mod && mod.enabled;
-    });
-    const oldStates = targets.map(p => ({ path: p }));
-    for (const p of targets) await window.api.toggleMod(p);
-    await loadMods(); state.selectedMods.clear(); renderMods();
-    toast(`${targets.length} mod(s) desativados`, 'success');
-    pushUndo(`Desativar ${targets.length} mod(s)`, async () => {
-      for (const p of oldStates.map(o => o.path + '.disabled')) await window.api.toggleMod(p);
-      await loadMods(); renderMods();
-    });
-  });
-
-  // Batch delete
-  el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
-    const sel = [...state.selectedMods];
-    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
-    openModal('Confirmar Exclusão em Lote',
-      `<p>Tem certeza que deseja deletar <strong>${sel.length}</strong> mod(s) selecionado(s)?</p>`,
-      [
-        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-        { label: `Deletar ${sel.length}`, cls: 'btn-danger', action: async () => {
-          const results = await window.api.deleteMods(sel);
-          const failed = results.filter(r => !r.success).length;
-          await loadMods(); state.selectedMods.clear(); renderMods();
-          toast(`${results.length - failed} deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
-        }}
-      ]
-    );
-  });
-
-  // Search
-  el.querySelector('#search-input')?.addEventListener('input', e => {
-    state.searchQuery = e.target.value;
-    const cursorPos = e.target.selectionStart;
-    renderMods();
-    const newInput = document.getElementById('search-input');
-    if (newInput) { newInput.focus(); newInput.setSelectionRange(cursorPos, cursorPos); }
-  });
-
-  // Filters
-  el.querySelector('#filter-status')?.addEventListener('change', e => { state.filterStatus = e.target.value; renderMods(); });
-  el.querySelector('#filter-type')?.addEventListener('change', e => { state.filterType = e.target.value; renderMods(); });
-  el.querySelector('#filter-folder')?.addEventListener('change', e => { state.filterFolder = e.target.value; renderMods(); });
-
-  // Import button
-  el.querySelector('#btn-import')?.addEventListener('click', importFiles);
-  el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
-
-  // Drop zone
-  const dz = el.querySelector('#drop-zone');
-  if (dz) {
-    dz.addEventListener('click', importFiles);
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
-    dz.addEventListener('drop', async e => {
-      e.preventDefault(); dz.classList.remove('drag-over');
-      const files = [...e.dataTransfer.files].map(f => f.path);
-      if (files.length) await doImport(files);
-    });
-  }
 }
 
 async function importFiles() {
