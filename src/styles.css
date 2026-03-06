@@ -772,6 +772,30 @@ tbody tr.disabled td { opacity: 0.5; }
 .group-card-wrapper.is-expanded > .gallery-card {
   border-bottom-left-radius: 0; border-bottom-right-radius: 0;
   border-bottom: none;
+  /* FIX BUG 1: horizontal layout prevents disproportionate vertical stretch */
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  max-height: 120px;
+}
+/* Constrain thumbnail to fixed width inside expanded header card */
+.group-card-wrapper.is-expanded > .gallery-card .gallery-thumb,
+.group-card-wrapper.is-expanded > .gallery-card .gallery-thumb-placeholder,
+.group-card-wrapper.is-expanded > .gallery-card .gallery-thumb-loading {
+  width: 90px;
+  flex-shrink: 0;
+  aspect-ratio: unset;
+  height: 100%;
+}
+/* Gallery-info fills the rest horizontally */
+.group-card-wrapper.is-expanded > .gallery-card .gallery-info {
+  flex: 1;
+  min-width: 0;
+  border-top: none;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .group-children-grid {
   display: grid;
@@ -783,8 +807,8 @@ tbody tr.disabled td { opacity: 0.5; }
 }
 .child-card { box-shadow: none; }
 
-/* expand arrow — list mode */
-.group-expand-arrow { margin-right: 4px; color: #666; font-size: 11px; }
+/* expand arrow — list mode — pushed to the right of the name cell */
+.group-expand-arrow { margin-left: auto; padding-left: 8px; color: #666; font-size: 11px; flex-shrink: 0; }
 tr.group-row.is-expanded .group-expand-arrow { color: #4da6ff; }
 tr.child-row td { background: #1a1a2a; padding-left: 0; }
 tr.child-row:hover td { background: #20203a; }

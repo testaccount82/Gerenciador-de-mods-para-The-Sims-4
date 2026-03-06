@@ -6,6 +6,12 @@
 // Using Symbol ensures it can never equal undefined (key-not-present), null (no thumb), or a base64 string.
 const THUMB_LOADING = Symbol('loading');
 
+// Normalize the cache key by stripping the ".disabled" suffix so that toggling
+// a mod (which renames the file) doesn't bust the thumbnail cache.
+function thumbKey(path) {
+  return path ? path.replace(/\.disabled$/i, '') : path;
+}
+
 const state = {
   config: null,
   mods: [],
@@ -722,13 +728,13 @@ function renderGallery(mods) {
       if (mod._isModGroup)  return renderModGroupCard(mod);
 
       const sel = state.selectedMods.has(mod.path);
-      const cached = state.thumbnailCache[mod.path];
+      const cached = state.thumbnailCache[thumbKey(mod.path)];
       const canHaveThumb = mod.type === 'package' || mod.type === 'tray';
       const thumbHtml = (cached && cached !== THUMB_LOADING)
         ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
         : (cached === null || !canHaveThumb)
           ? `<div class="gallery-thumb-placeholder">${fileIcon(mod.type)}</div>`
-          : `<div class="gallery-thumb-loading" data-load="${escapeHtml(mod.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+          : `<div class="gallery-thumb-loading" data-load="${escapeHtml(mod.path)}" data-cache-key="${escapeHtml(thumbKey(mod.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
 
       const typeLabel = mod.type === 'package' ? '.pkg' : mod.type === 'script' ? '.ts4' : 'tray';
       const typeClass = mod.type === 'package' ? 'card-tag-pkg' : mod.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
@@ -755,13 +761,13 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const allPaths = group.files.map(f => f.path);
   const allSel = allPaths.every(p => state.selectedMods.has(p));
   const isExpanded = state.expandedGroups.has(groupKey);
-  const cached = state.thumbnailCache[group.path];
+  const cached = state.thumbnailCache[thumbKey(group.path)];
   const canHaveThumb = group.type === 'package' || group.type === 'tray';
   const thumbHtml = (cached && cached !== THUMB_LOADING)
     ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
     : (cached === null || !canHaveThumb)
       ? `<div class="gallery-thumb-placeholder">${placeholderIcon}</div>`
-      : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+      : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}" data-cache-key="${escapeHtml(thumbKey(group.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
 
   const idAttr = group._isTrayGroup ? 'data-tray-guid' : 'data-mod-prefix';
   const idVal  = group._isTrayGroup ? group.trayGuid   : group.modPrefix;
@@ -772,12 +778,12 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
     <div class="group-children-grid">
       ${group.files.map(f => {
         const fSel = state.selectedMods.has(f.path);
-        const fCached = state.thumbnailCache[f.path];
+        const fCached = state.thumbnailCache[thumbKey(f.path)];
         const fThumb = (fCached && fCached !== THUMB_LOADING)
           ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
           : fCached === null
             ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type)}</div>`
-            : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div></div>`;
+            : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div></div>`;
         const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
         const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
         return `<div class="gallery-card child-card ${fSel ? 'selected' : ''} ${!f.enabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
@@ -969,8 +975,12 @@ function setupCommonModsEvents(el) {
         { label: `Deletar ${sel.length}`, cls: 'btn-danger', action: async () => {
           const results = await window.api.deleteMods(sel);
           const failed = results.filter(r => !r.success).length;
+          const deleted = results.length - failed;
           await loadMods(); state.selectedMods.clear(); renderMods();
-          toast(`${results.length - failed} deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+          toast(`${deleted} deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+          if (deleted > 0) pushUndo(`Deletar ${deleted} mod(s)`, async () => {
+            toast('Não é possível restaurar arquivos excluídos permanentemente', 'warning', 4000);
+          });
         }}
       ]
     );
@@ -1048,6 +1058,8 @@ function setupGalleryEvents(el, mods) {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const key = btn.dataset.trayGuid ? 'tray:' + btn.dataset.trayGuid : 'mod:' + btn.dataset.modPrefix;
+      const scrollTop = document.getElementById('mods-table-container')?.scrollTop
+                     || el.querySelector('.gallery-grid')?.parentElement?.scrollTop || 0;
       if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
       else state.expandedGroups.add(key);
       renderMods();
@@ -1093,20 +1105,23 @@ async function loadVisibleThumbnails(el) {
   // atomically before any await — this prevents duplicate IPC calls across
   // concurrent loadVisibleThumbnails instances that can be triggered by rapid
   // renderMods() calls (filter changes, searches, mod toggles, etc.).
+  // Uses data-cache-key (normalized, .disabled-stripped) as the cache key so
+  // that toggling a mod doesn't bust the thumbnail cache.
   const toLoad = [];
   for (const loader of loaders) {
     const filePath = loader.dataset.load;
-    if (state.thumbnailCache[filePath] !== undefined) continue;
-    state.thumbnailCache[filePath] = THUMB_LOADING;
-    toLoad.push(filePath);
+    const cacheKey = loader.dataset.cacheKey || thumbKey(filePath);
+    if (state.thumbnailCache[cacheKey] !== undefined) continue;
+    state.thumbnailCache[cacheKey] = THUMB_LOADING;
+    toLoad.push({ filePath, cacheKey });
   }
 
   // Load all thumbnails in PARALLEL so that a slow file doesn't block the
   // rest, and so that a new renderMods() call mid-loop doesn't leave items
   // permanently stuck as THUMB_LOADING without anyone awaiting their result.
-  await Promise.all(toLoad.map(async (filePath) => {
+  await Promise.all(toLoad.map(async ({ filePath, cacheKey }) => {
     const thumb = await window.api.getThumbnail(filePath);
-    state.thumbnailCache[filePath] = thumb ?? null;
+    state.thumbnailCache[cacheKey] = thumb ?? null;
 
     // Update DOM in place without a full re-render
     const stillThere = el.querySelector(`[data-load="${CSS.escape(filePath)}"]`);
@@ -1206,10 +1221,10 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       </td>
       <td>
         <div class="cell-name">
-          <span class="group-expand-arrow">${isExpanded ? '▾' : '▸'}</span>
           <span class="file-icon">${badgeEmoji}</span>
           <span title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
           <span class="group-row-badge">${group.files.length} arquivos</span>
+          <span class="group-expand-arrow">${isExpanded ? '▾' : '▸'}</span>
         </div>
       </td>
       <td>${typeBadge(group.type)}</td>
@@ -1220,6 +1235,8 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
         <div style="display:flex;gap:4px;align-items:center">
           <button class="btn btn-sm ${group.enabled ? 'btn-secondary' : 'btn-primary'} toggle-group-btn"
             data-${idAttr}="${escapeHtml(idVal)}">${group.enabled ? '⏸' : '▶'}</button>
+          <button class="btn btn-sm btn-danger delete-group-btn"
+            data-${idAttr}="${escapeHtml(idVal)}" title="Deletar grupo">🗑</button>
         </div>
       </td>
     </tr>${childRows}`;
@@ -1296,13 +1313,18 @@ function setupModsEvents(el, mods) {
   // Click on group row header → expand/collapse
   el.querySelectorAll('tr.group-row').forEach(row => {
     row.addEventListener('click', e => {
-      if (e.target.closest('.toggle-group-btn') || e.target.closest('.row-check-group')) return;
+      if (e.target.closest('.toggle-group-btn') || e.target.closest('.row-check-group') || e.target.closest('.delete-group-btn')) return;
       const guid   = row.dataset.trayGuid;
       const prefix = row.dataset.modPrefix;
       const key = guid ? 'tray:' + guid : 'mod:' + prefix;
+      const scrollTop = document.getElementById('mods-table-container')?.scrollTop || 0;
       if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
       else state.expandedGroups.add(key);
       renderMods();
+      requestAnimationFrame(() => {
+        const container = document.getElementById('mods-table-container');
+        if (container) container.scrollTop = scrollTop;
+      });
     });
   });
 
@@ -1343,6 +1365,31 @@ function setupModsEvents(el, mods) {
             const results = await window.api.deleteMods([filePath]);
             if (results[0].success) { await loadMods(); renderMods(); toast('Mod deletado', 'success'); }
             else toast('Erro ao deletar: ' + results[0].error, 'error');
+          }}
+        ]
+      );
+    });
+  });
+
+  // Delete group (all files in a tray/mod-prefix group at once)
+  el.querySelectorAll('.delete-group-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = btn.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === btn.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
+      if (!group) return;
+      const paths = group.files.map(f => f.path);
+      openModal('Confirmar Exclusão do Grupo',
+        `<p>Tem certeza que deseja deletar <strong>${group.files.length} arquivo(s)</strong> do grupo <strong>${escapeHtml(group.name)}</strong>?</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: `Deletar ${group.files.length} arquivo(s)`, cls: 'btn-danger', action: async () => {
+            const results = await window.api.deleteMods(paths);
+            const failed = results.filter(r => !r.success).length;
+            await loadMods(); renderMods();
+            toast(`${results.length - failed} arquivo(s) deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           }}
         ]
       );
