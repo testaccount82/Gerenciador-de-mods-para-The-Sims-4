@@ -397,11 +397,14 @@ function renderMods() {
   const hasFilter    = state.searchQuery || state.filterStatus !== 'all'
                      || state.filterType !== 'all' || state.filterFolder !== 'all';
 
+  // Group tray files by GUID before pagination
+  const allGrouped = groupTrayFiles(allFiltered);
+
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(allFiltered.length / state.itemsPerPage));
+  const totalPages = Math.max(1, Math.ceil(allGrouped.length / state.itemsPerPage));
   if (state.galleryPage > totalPages) state.galleryPage = totalPages;
   const start = (state.galleryPage - 1) * state.itemsPerPage;
-  const mods = allFiltered.slice(start, start + state.itemsPerPage);
+  const mods = allGrouped.slice(start, start + state.itemsPerPage);
 
   const isGrid = state.viewMode === 'grid';
 
@@ -593,6 +596,56 @@ function renderTable(mods) {
     </div>`;
 }
 
+
+// ─── Tray Grouping ───────────────────────────────────────────────────────────
+
+/**
+ * Groups tray files by their GUID (the hex ID after "!" in the filename).
+ * Files without a GUID, or non-tray files, are returned as-is.
+ * Returns a mixed array of individual mod objects and tray group objects.
+ */
+function groupTrayFiles(mods) {
+  const groups = new Map();   // guid → [mod, ...]
+  const result = [];
+
+  for (const mod of mods) {
+    if (mod.type === 'tray' && mod.trayGuid) {
+      if (!groups.has(mod.trayGuid)) groups.set(mod.trayGuid, []);
+      groups.get(mod.trayGuid).push(mod);
+    } else {
+      result.push(mod);
+    }
+  }
+
+  for (const [guid, files] of groups) {
+    // Use the .trayitem file as the representative for name/thumbnail
+    const primary = files.find(f => f.name.toLowerCase().endsWith('.trayitem'))
+                 || files.find(f => f.name.toLowerCase().endsWith('.blueprint'))
+                 || files[0];
+
+    const totalSize = files.reduce((s, f) => s + f.size, 0);
+    const allEnabled = files.every(f => f.enabled);
+    const anyEnabled = files.some(f => f.enabled);
+
+    result.push({
+      _isTrayGroup: true,
+      trayGuid: guid,
+      files,
+      // Use primary file for display
+      path: primary.path,
+      name: primary.name,
+      size: totalSize,
+      enabled: allEnabled,
+      anyEnabled,
+      type: 'tray',
+      folder: primary.folder,
+      lastModified: primary.lastModified,
+    });
+  }
+
+  return result;
+}
+
 function renderGallery(mods) {
   if (mods.length === 0) return `
     <div class="empty-state">
@@ -606,14 +659,10 @@ function renderGallery(mods) {
 
   return `<div class="gallery-grid" id="gallery-grid">
     ${mods.map(mod => {
+      if (mod._isTrayGroup) return renderTrayGroupCard(mod);
+
       const sel = state.selectedMods.has(mod.path);
       const cached = state.thumbnailCache[mod.path];
-      // cached === undefined        → not yet checked (show spinner)
-      // cached === THUMB_LOADING    → in-progress (show spinner, skip re-request)
-      // cached === null             → checked, no thumbnail found (show placeholder)
-      // cached === string (base64)  → thumbnail ready (show image)
-      // FIX BUG 3: Include 'tray' type in spinner logic so house thumbnails are loaded.
-      // Previously only 'package' files got the spinner; tray files always showed placeholder.
       const canHaveThumb = mod.type === 'package' || mod.type === 'tray';
       const thumbHtml = (cached && cached !== THUMB_LOADING)
         ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
@@ -640,6 +689,38 @@ function renderGallery(mods) {
         </div>`;
     }).join('')}
   </div>`;
+}
+
+function renderTrayGroupCard(group) {
+  const allPaths = group.files.map(f => f.path);
+  const allSel = allPaths.every(p => state.selectedMods.has(p));
+  const cached = state.thumbnailCache[group.path];
+  const canHaveThumb = true;
+  const thumbHtml = (cached && cached !== THUMB_LOADING)
+    ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
+    : cached === null
+      ? `<div class="gallery-thumb-placeholder">🏠</div>`
+      : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+
+  // Strip GUID prefix from display name for cleaner label
+  const displayName = group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name;
+
+  return `
+    <div class="gallery-card tray-group ${!group.enabled ? 'card-inactive' : ''}"
+         data-tray-guid="${escapeHtml(group.trayGuid)}">
+      <input type="checkbox" class="card-check card-check-group"
+             data-tray-guid="${escapeHtml(group.trayGuid)}" ${allSel ? 'checked' : ''}>
+      <span class="card-type-tag card-tag-tray">tray</span>
+      <span class="tray-group-badge" title="${group.files.length} arquivos neste conjunto">${group.files.length}</span>
+      ${thumbHtml}
+      <div class="gallery-info">
+        <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
+        <div class="gallery-meta">
+          <span>${formatBytes(group.size)}</span>
+          <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+        </div>
+      </div>
+    </div>`;
 }
 
 function renderPagination(current, total, itemCount) {
@@ -823,8 +904,8 @@ function setupGalleryEvents(el, mods) {
     refreshSelBar(el);
   });
 
-  // Card checkbox
-  el.querySelectorAll('.card-check').forEach(cb => {
+  // Card checkbox — individual files
+  el.querySelectorAll('.card-check:not(.card-check-group)').forEach(cb => {
     cb.addEventListener('change', e => {
       e.stopPropagation();
       const p = cb.dataset.path;
@@ -834,13 +915,44 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card click → toggle mod
-  el.querySelectorAll('.gallery-card').forEach(card => {
+  // Card checkbox — tray groups (selects/deselects all files in group)
+  el.querySelectorAll('.card-check-group').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      const guid = cb.dataset.trayGuid;
+      const allGrouped = groupTrayFiles([...state.mods, ...state.trayFiles]);
+      const group = allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid);
+      if (!group) return;
+      group.files.forEach(f => {
+        cb.checked ? state.selectedMods.add(f.path) : state.selectedMods.delete(f.path);
+      });
+      cb.closest('.gallery-card').classList.toggle('selected', cb.checked);
+      refreshSelBar(el);
+    });
+  });
+
+  // Card click → toggle mod (individual)
+  el.querySelectorAll('.gallery-card:not(.tray-group)').forEach(card => {
     card.addEventListener('click', async e => {
       if (e.target.classList.contains('card-check')) return;
       const result = await window.api.toggleMod(card.dataset.path);
       if (result.success) { await loadMods(); renderMods(); }
       else toast('Erro ao alternar mod', 'error');
+    });
+  });
+
+  // Card click → toggle all files in tray group
+  el.querySelectorAll('.gallery-card.tray-group').forEach(card => {
+    card.addEventListener('click', async e => {
+      if (e.target.classList.contains('card-check')) return;
+      const guid = card.dataset.trayGuid;
+      const allGrouped = groupTrayFiles([...state.mods, ...state.trayFiles]);
+      const group = allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid);
+      if (!group) return;
+      try {
+        for (const f of group.files) await window.api.toggleMod(f.path);
+        await loadMods(); renderMods();
+      } catch (err) { toast('Erro ao alternar arquivos do grupo', 'error'); }
     });
   });
 

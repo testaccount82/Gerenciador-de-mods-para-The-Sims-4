@@ -585,7 +585,12 @@ function scanTrayFolder(trayFolder) {
     const ext = getRealExtension(fullPath);
     if (TRAY_EXTENSIONS.includes(ext)) {
       const mod = buildModObject(fullPath, trayFolder, 'tray');
-      if (mod) results.push(mod);
+      if (mod) {
+        // Extract GUID from filename: "0x00000002!0x0aa91626bff44d02.trayitem" → "0x0aa91626bff44d02"
+        const guidMatch = path.basename(fullPath).match(/!([0-9a-fx]+)\./i);
+        mod.trayGuid = guidMatch ? guidMatch[1].toLowerCase() : null;
+        results.push(mod);
+      }
     } else if (MOD_EXTENSIONS.includes(ext)) {
       const mod = buildModObject(fullPath, trayFolder, 'mods-in-tray'); // misplaced
       if (mod) results.push(mod);
