@@ -313,6 +313,15 @@ html, body {
 
 .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
+/* ── Header alignment fix: page-header min-height ensures consistent vertical baseline */
+.page-header { min-height: 48px; }
+
+/* ── Grid mode: sort bar and gallery grid share same left margin */
+.gallery-sort-bar { padding-left: 0; padding-right: 0; }
+
+/* ── List mode: force table to always stretch to container width */
+#mods-table { min-width: 100%; }
+
 /* ─── Cards ─────────────────────────────────────────────────────────── */
 .card {
   background: var(--surface);
@@ -613,6 +622,7 @@ html, body {
 }
 .chip-dot-green { background: var(--success); }
 .chip-dot-dim   { background: var(--elevated-2); }
+.chip-dot-partial { background: #f0ad4e; }
 
 /* count pill inside type chips */
 .chip-pill {
@@ -802,6 +812,7 @@ tbody tr.disabled td { opacity: 0.5; }
   font-size: 12px;
   color: var(--text-secondary);
   pointer-events: none;
+  flex-wrap: wrap;
 }
 .drag-hint svg { flex-shrink: 0; opacity: 0.7; }
 
@@ -1210,6 +1221,8 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 }
 .ctx-item:hover { background: var(--accent-subtle); color: var(--accent-light); }
 .ctx-item svg   { flex-shrink: 0; opacity: 0.75; }
+.ctx-item-danger { color: var(--danger) !important; }
+.ctx-item-danger:hover { background: rgba(248,81,73,0.12) !important; color: #ff6b6b !important; }
 
 /* ─── Floating Selection Bar ────────────────────────────────────────── */
 .sel-bar {
@@ -1695,3 +1708,19 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   padding: 0 8px;
   white-space: nowrap;
 }
+
+/* ─── Manual Page ────────────────────────────────────────────────────── */
+#page-manual code {
+  display: inline-block;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: 'Consolas', 'Cascadia Code', monospace;
+  font-size: 12px;
+  color: var(--accent-light);
+}
+
+/* ─── History Page ───────────────────────────────────────────────────── */
+#history-table td { vertical-align: middle; }
+#history-table tbody tr:hover { background: var(--elevated); }

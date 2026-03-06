@@ -28,6 +28,7 @@ const state = {
   sortColumn: 'name',
   sortDir: 'asc',
   undoStack: [],
+  actionLog: [],   // histórico de ações do usuário
   scanning: false,
   conflictScanning: false,
   organizeScanning: false,
@@ -145,6 +146,33 @@ function showUndoBar(label) {
     state.undoStack.pop();
     bar.classList.add('hidden');
   });
+}
+
+// ─── Action Log ──────────────────────────────────────────────────────────────
+
+const ACTION_ICONS = {
+  toggle_on:   '▶',
+  toggle_off:  '⏸',
+  delete:      '🗑',
+  import:      '📥',
+  move:        '📁',
+  consolidate: '📦',
+  restore:     '↩',
+  scan:        '🔍',
+  fs_change:   '🔄',
+};
+
+function logAction(type, details = {}) {
+  const entry = {
+    id: Date.now() + Math.random(),
+    type,
+    details,
+    timestamp: new Date(),
+  };
+  state.actionLog.unshift(entry);
+  if (state.actionLog.length > 500) state.actionLog.length = 500; // cap
+  // Refresh history page if open
+  if (state.currentPage === 'history') renderHistory();
 }
 
 // ─── Column Resize ───────────────────────────────────────────────────────────
@@ -265,8 +293,12 @@ function closeCtxMenu() {
   if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu = null; }
 }
 
-function showCtxMenu(x, y, filePath) {
+function showCtxMenu(x, y, filePath, options = {}) {
   closeCtxMenu();
+
+  const svgTrash = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+  </svg>`;
 
   const menu = document.createElement('div');
   menu.id = 'ctx-menu';
@@ -276,7 +308,8 @@ function showCtxMenu(x, y, filePath) {
         <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
       </svg>
       Abrir pasta do arquivo
-    </div>`;
+    </div>
+    ${options.onDelete ? `<div class="ctx-item ctx-item-danger" id="ctx-delete">${svgTrash} Excluir arquivo</div>` : ''}`;
 
   document.body.appendChild(menu);
   _ctxMenu = menu;
@@ -291,6 +324,13 @@ function showCtxMenu(x, y, filePath) {
     window.api.showItemInFolder(filePath);
     closeCtxMenu();
   });
+
+  if (options.onDelete) {
+    menu.querySelector('#ctx-delete').addEventListener('click', () => {
+      closeCtxMenu();
+      options.onDelete(filePath);
+    });
+  }
 }
 
 // Fechar ao clicar fora ou pressionar Escape
@@ -345,6 +385,8 @@ function navigate(page) {
     mods: renderMods,
     conflicts: renderConflicts,
     organizer: renderOrganizer,
+    manual: renderManual,
+    history: renderHistory,
     settings: renderSettings
   };
   if (renderers[page]) renderers[page]();
@@ -613,7 +655,7 @@ function getFilteredMods() {
     const q = state.searchQuery.toLowerCase();
     mods = mods.filter(m => m.name.toLowerCase().includes(q));
   }
-  if (state.filterStatus !== 'all') {
+  if (state.filterStatus !== 'all' && state.filterStatus !== 'partial') {
     const want = state.filterStatus === 'active';
     mods = mods.filter(m => m.enabled === want);
   }
@@ -657,7 +699,19 @@ function renderMods() {
                      || state.filterType !== 'all' || state.filterFolder !== 'all';
 
   // Group tray files by GUID, then group mods by prefix before pagination
-  const allGrouped = groupModsByPrefix(groupTrayFiles(allFiltered));
+  let allGrouped = groupModsByPrefix(groupTrayFiles(allFiltered));
+
+  // Apply partial filter after grouping (partial = some enabled, not all)
+  if (state.filterStatus === 'partial') {
+    allGrouped = allGrouped.filter(m => {
+      if (m._isTrayGroup || m._isModGroup) {
+        const allEnabled = m.files.every(f => f.enabled);
+        const anyEnabled = m.files.some(f => f.enabled);
+        return anyEnabled && !allEnabled;
+      }
+      return false;
+    });
+  }
 
   // Pagination — itemsPerPage=Infinity means "show all" (single page)
   const effectivePerPage = isFinite(state.itemsPerPage) ? state.itemsPerPage : allGrouped.length || 1;
@@ -671,7 +725,7 @@ function renderMods() {
   const subtitle = total === 0
     ? 'Nenhum mod encontrado'
     : hasFilter
-      ? `${allFiltered.length} de ${total} · ${activeCount} ativos`
+      ? `${allGrouped.length} de ${total} · ${activeCount} ativos`
       : `${total} mods · ${activeCount} ativos`;
 
   el.innerHTML = `
@@ -703,6 +757,13 @@ function renderMods() {
           </svg>
           Atualizar
         </button>
+        ${!isGrid ? `
+        <button class="btn btn-secondary" id="btn-consolidate-list" title="Consolidar grupos com arquivos em pastas diferentes">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/>
+          </svg>
+          Consolidar
+        </button>` : ''}
         <button class="btn btn-primary" id="btn-import">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -733,6 +794,10 @@ function renderMods() {
         </button>
         <button class="chip ${state.filterStatus === 'inactive' ? 'chip-on' : ''}" data-fs="inactive">
           <span class="chip-dot chip-dot-dim"></span>Inativos
+        </button>
+        <button class="chip ${state.filterStatus === 'partial' ? 'chip-on' : ''}" data-fs="partial"
+          title="Grupos onde apenas alguns arquivos estão ativos">
+          <span class="chip-dot chip-dot-partial"></span>Parciais
         </button>
       </div>
 
@@ -783,7 +848,7 @@ function renderMods() {
         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
         <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
       </svg>
-      <span>Arraste arquivos (.package, .ts4script, .zip, .rar, .7z, Tray) para importar</span>
+      <span>Arraste arquivos (.package, .ts4script, .trayitem, .blueprint, .bpi, .hhi, .sgi, .householdbinary, .room, .rmi, .zip, .rar, .7z) para importar</span>
     </div>
 
     <!-- ── Drag overlay (hidden until drag enters) ─────────────────── -->
@@ -1075,7 +1140,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
     <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${!group.enabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
            draggable="false"
-           title="Clique para ver os ${group.files.length} itens do grupo">
+           title="Clique para selecionar · Clique direito para gerenciar os ${group.files.length} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
         <span class="${badgeClass}" title="${group.files.length} arquivos">${group.files.length}</span>
@@ -1132,6 +1197,37 @@ function setupCommonModsEvents(el) {
   // Import & refresh
   el.querySelector('#btn-import')?.addEventListener('click', importFiles);
   el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
+
+  // Consolidar grupos (list mode only)
+  el.querySelector('#btn-consolidate-list')?.addEventListener('click', async () => {
+    if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
+    const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+    const scattered = allGrouped.filter(g => (g._isTrayGroup || g._isModGroup) && new Set(g.files.map(f => f.folder)).size > 1);
+    if (!scattered.length) { toast('Nenhum grupo com arquivos dispersos encontrado', 'info'); return; }
+    const totalFiles = scattered.reduce((s, g) => s + g.files.filter(f => f.folder !== g.files[0].folder).length, 0);
+    openModal(
+      'Consolidar Grupos Dispersos',
+      `<p>Mover <strong>${totalFiles} arquivo(s)</strong> para reorganizar <strong>${scattered.length} grupo(s)</strong> com arquivos em pastas diferentes?</p>
+       <p style="font-size:12.5px;color:var(--text-secondary);margin-top:8px">Cada grupo será consolidado na pasta do seu arquivo principal.</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: `Consolidar ${scattered.length} grupo(s)`, cls: 'btn-primary', action: async () => {
+          let totalMoved = 0;
+          for (const group of scattered) {
+            const primaryFolder = group.files[0].folder;
+            for (const f of group.files.filter(fi => fi.folder !== primaryFolder)) {
+              const dest = (state.config.modsFolder + (primaryFolder === '/' ? '' : '\\' + primaryFolder) + '\\' + f.name);
+              const r = await window.api.moveMod(f.path, dest);
+              if (r.success) totalMoved++;
+            }
+          }
+          await loadMods(); renderMods();
+          toast(`${totalMoved} arquivo(s) consolidados`, 'success');
+          logAction('consolidate', { count: totalMoved, groups: scattered.length });
+        }}
+      ]
+    );
+  });
 
   // Search input
   el.querySelector('#search-input')?.addEventListener('input', e => {
@@ -1366,11 +1462,39 @@ function openGroupOverlay(group) {
     { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
   ]);
 
-  // Right-click context menu on group modal rows
+  // Right-click context menu on group modal rows — includes "Excluir" option
   document.querySelectorAll('.group-overlay-row').forEach(row => {
     row.addEventListener('contextmenu', e => {
       e.preventDefault();
-      showCtxMenu(e.clientX, e.clientY, row.dataset.path);
+      const fp = row.dataset.path;
+      showCtxMenu(e.clientX, e.clientY, fp, {
+        onDelete: async (filePath) => {
+          const allMods = [...state.mods, ...state.trayFiles];
+          const f = allMods.find(m => m.path === filePath);
+          const name = f?.name || filePath.split('\\').pop();
+          openModal('Confirmar Exclusão',
+            `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+            [
+              { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+              { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+                const results = await window.api.trashModsBatch([filePath]);
+                if (results[0]?.success) {
+                  const { trashPath, originalPath } = results[0];
+                  closeModal();
+                  await loadMods(); renderMods();
+                  toast(`"${name}" movido para a lixeira`, 'success');
+                  logAction('delete', { name, type: 'single' });
+                  pushUndo(`Excluir ${name}`, async () => {
+                    await window.api.restoreModFromTrash(trashPath, originalPath);
+                    await loadMods(); renderMods();
+                    toast('Mod restaurado', 'success');
+                  });
+                } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+              }}
+            ]
+          );
+        }
+      });
     });
   });
 
@@ -1619,11 +1743,30 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card click on group → open overlay with nested items
+  // Card click on group → LEFT CLICK = select/deselect, RIGHT CLICK = open overlay
   el.querySelectorAll('.gallery-card.mod-group, .gallery-card.tray-group').forEach(card => {
+    // Left click → select
     card.addEventListener('click', e => {
       if (e.target.classList.contains('card-check') || e.target.classList.contains('card-check-group') || e.target.classList.contains('card-check-mod-group')) return;
       if (e.target.closest('.card-toggle-group-btn')) return;
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const guid   = card.dataset.trayGuid;
+      const prefix = card.dataset.modPrefix;
+      const group = guid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === prefix);
+      if (!group) return;
+      const allPaths = group.files.map(f => f.path);
+      const allSel = allPaths.every(p => state.selectedMods.has(p));
+      allPaths.forEach(p => { allSel ? state.selectedMods.delete(p) : state.selectedMods.add(p); });
+      card.classList.toggle('selected', !allSel);
+      const cb = card.querySelector('.card-check, .card-check-group, .card-check-mod-group');
+      if (cb) cb.checked = !allSel;
+      refreshSelBar(el);
+    });
+    // Right click → open group management overlay
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault();
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
       const guid   = card.dataset.trayGuid;
       const prefix = card.dataset.modPrefix;
@@ -1661,8 +1804,19 @@ function setupGalleryEvents(el, mods) {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       const result = await window.api.toggleMod(btn.dataset.path);
-      if (result.success) { await loadMods(); renderMods(); }
-      else toast('Erro ao alternar mod', 'error');
+      if (result.success) {
+        await loadMods(); renderMods();
+        const allMods = [...state.mods, ...state.trayFiles];
+        const mod = allMods.find(m => m.path === result.newPath);
+        const nowEnabled = mod?.enabled ?? false;
+        const label = nowEnabled ? 'Ativar' : 'Desativar';
+        const modName = mod?.name || result.newPath.split('\\').pop();
+        logAction(nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
+        pushUndo(`${label} ${modName}`, async () => {
+          await window.api.toggleMod(result.newPath);
+          await loadMods(); renderMods();
+        });
+      } else toast('Erro ao alternar mod', 'error');
     });
   });
 
@@ -1677,11 +1831,21 @@ function setupGalleryEvents(el, mods) {
       if (!group) return;
       try {
         const allEnabled = group.files.every(f => f.enabled);
-        // Se todos estão ativos → desativar todos; caso contrário → ativar apenas os inativos
+        const prevPaths = group.files
+          .filter(f => allEnabled ? f.enabled : !f.enabled)
+          .map(f => f.path);
+        const results = [];
         for (const f of group.files) {
-          if (allEnabled ? f.enabled : !f.enabled) await window.api.toggleMod(f.path);
+          if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));
         }
         await loadMods(); renderMods();
+        const action = allEnabled ? 'toggle_off' : 'toggle_on';
+        logAction(action, { name: group.name, count: prevPaths.length, type: 'group' });
+        const newPaths = results.filter(r => r.success).map(r => r.newPath);
+        pushUndo(`${allEnabled ? 'Desativar' : 'Ativar'} grupo ${group.name}`, async () => {
+          for (const p of newPaths) await window.api.toggleMod(p);
+          await loadMods(); renderMods();
+        });
       } catch (err) { toast('Erro ao alternar grupo', 'error'); }
     });
   });
@@ -1890,7 +2054,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
           <button class="btn btn-sm ${group.enabled ? 'btn-secondary' : 'btn-primary'} toggle-group-btn"
             data-${idAttr}="${escapeHtml(idVal)}">${group.enabled ? '⏸' : '▶'}</button>
           <button class="btn btn-sm btn-danger delete-group-btn"
-            data-${idAttr}="${escapeHtml(idVal)}" title="Apagar os ${group.files.length} arquivo(s) do grupo">
+            data-${idAttr}="${escapeHtml(idVal)}" title="Apagar todos os arquivos do grupo">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
               <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
             </svg>
@@ -1999,11 +2163,17 @@ function setupModsEvents(el, mods) {
       if (!group) return;
       try {
         const allEnabled = group.files.every(f => f.enabled);
-        // Se todos ativos → desativa todos; caso contrário → ativa apenas os inativos
+        const results = [];
         for (const f of group.files) {
-          if (allEnabled ? f.enabled : !f.enabled) await window.api.toggleMod(f.path);
+          if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));
         }
         await loadMods(); renderMods();
+        logAction(allEnabled ? 'toggle_off' : 'toggle_on', { name: group.name, type: 'group' });
+        const newPaths = results.filter(r => r.success).map(r => r.newPath);
+        pushUndo(`${allEnabled ? 'Desativar' : 'Ativar'} grupo ${group.name}`, async () => {
+          for (const p of newPaths) await window.api.toggleMod(p);
+          await loadMods(); renderMods();
+        });
       } catch (err) { toast('Erro ao alternar conjunto', 'error'); }
     });
   });
@@ -2012,8 +2182,18 @@ function setupModsEvents(el, mods) {
   el.querySelectorAll('.toggle-mod-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const result = await window.api.toggleMod(btn.dataset.path);
-      if (result.success) { await loadMods(); renderMods(); }
-      else toast('Erro ao alternar mod: ' + result.error, 'error');
+      if (result.success) {
+        await loadMods(); renderMods();
+        const allMods = [...state.mods, ...state.trayFiles];
+        const mod = allMods.find(m => m.path === result.newPath);
+        const nowEnabled = mod?.enabled ?? false;
+        const modName = mod?.name || result.newPath.split('\\').pop();
+        logAction(nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
+        pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`, async () => {
+          await window.api.toggleMod(result.newPath);
+          await loadMods(); renderMods();
+        });
+      } else toast('Erro ao alternar mod: ' + result.error, 'error');
     });
   });
 
@@ -2056,23 +2236,27 @@ function setupModsEvents(el, mods) {
         ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === btn.dataset.trayGuid)
         : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
       if (!group) return;
+      // Derive paths from the re-fetched full group (all mods, regardless of filter)
       const paths = group.files.map(f => f.path);
+      const fileCount = paths.length; // authoritative count — matches what will be deleted
       openModal('Confirmar Exclusão do Grupo',
-        `<p>Tem certeza que deseja mover <strong>${group.files.length} arquivo(s)</strong> do grupo <strong>${escapeHtml(group.name)}</strong> para a lixeira?</p>`,
+        `<p>Tem certeza que deseja mover <strong>${fileCount} arquivo(s)</strong> do grupo <strong>${escapeHtml(group.name)}</strong> para a lixeira?</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-          { label: `Mover ${group.files.length} para lixeira`, cls: 'btn-danger', action: async () => {
+          { label: `Mover ${fileCount} para lixeira`, cls: 'btn-danger', action: async () => {
             const results = await window.api.trashModsBatch(paths);
             const failed  = results.filter(r => !r.success).length;
             const deleted = results.length - failed;
             await loadMods(); renderMods();
             toast(`${deleted} arquivo(s) movidos para lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+            logAction('delete', { count: deleted, name: group.name, type: 'group' });
             if (deleted > 0) {
               const trashed = results.filter(r => r.success);
               pushUndo(`Excluir grupo ${group.name}`, async () => {
                 for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
                 await loadMods(); renderMods();
                 toast(`${trashed.length} arquivo(s) restaurados`, 'success');
+                logAction('restore', { count: trashed.length, name: group.name });
               });
             }
           }}
@@ -2152,6 +2336,7 @@ async function doImport(filePaths) {
   if (state.currentPage === 'dashboard') renderDashboard();
   if (result.imported.length > 0) {
     toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
+    logAction('import', { count: result.imported.length });
   }
   if (result.errors.length > 0) {
     toast(`${result.errors.length} arquivo(s) com erro ao importar`, 'error');
@@ -2447,7 +2632,9 @@ function renderConflictCard(conflict, idx) {
             </div>
             <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
             ${statusBadge(f.enabled)}
-            <button class="btn btn-sm btn-danger conflict-delete-btn" data-path="${escapeHtml(f.path)}" data-conflict="${idx}">🗑 Deletar</button>
+            <button class="btn btn-sm btn-danger conflict-delete-btn" data-path="${escapeHtml(f.path)}" data-conflict="${idx}" title="Excluir arquivo">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+            </button>
           </div>
         `).join('')}
       </div>
@@ -2674,7 +2861,9 @@ function renderOrganizeResults(el) {
                 <div class="misplaced-name" title="${escapeHtml(folder.path)}">${escapeHtml(folder.name)}</div>
                 <div class="misplaced-issue" style="color:var(--text-disabled)">📁 ${escapeHtml(folder.relativePath)}</div>
               </div>
-              <button class="btn btn-sm btn-danger delete-empty-btn" data-index="${i}">🗑 Apagar</button>
+              <button class="btn btn-sm btn-danger delete-empty-btn" data-index="${i}" title="Apagar pasta vazia">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+              </button>
             </div>
           `).join('')}
         </div>
@@ -2725,7 +2914,9 @@ function renderOrganizeResults(el) {
               </div>
               <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(item.size)}</span>
               <button class="btn btn-sm btn-subtle show-invalid-in-explorer-btn" data-index="${i}" title="Mostrar no Explorer">📂</button>
-              <button class="btn btn-sm btn-danger delete-invalid-btn" data-index="${i}">🗑 Lixeira</button>
+              <button class="btn btn-sm btn-danger delete-invalid-btn" data-index="${i}" title="Mover para lixeira">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+              </button>
             </div>`;
           }).join('')}
         </div>
@@ -2961,6 +3152,190 @@ function renderOrganizeResults(el) {
   });
 }
 
+// ─── Manual Page ──────────────────────────────────────────────────────────────
+
+function renderManual() {
+  const el = document.getElementById('page-manual');
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Manual</div>
+        <div class="page-subtitle">Guia dos recursos não intuitivos do gerenciador</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🖱️ Modo Grade — Interações com o Mouse</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        <strong style="color:var(--text-primary)">Cards individuais</strong><br>
+        · <strong>Clique esquerdo</strong> — seleciona/deseleciona o card<br>
+        · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta)<br>
+        · <strong>Botão ▶ / ⏸</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br><br>
+        <strong style="color:var(--text-primary)">Cards de grupo</strong><br>
+        · <strong>Clique esquerdo</strong> — seleciona/deseleciona todos os arquivos do grupo<br>
+        · <strong>Clique direito</strong> — abre a janela de gerenciamento do grupo (visualizar, alternar e excluir arquivos individuais)<br>
+        · <strong>Botão ▶ / ⏸</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
+        · <strong>Arrastar sobre a grade</strong> — seleção por área (rubber band selection)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⏮️ Sistema de Desfazer (Undo)</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        A barra de desfazer aparece na parte inferior da tela após ações reversíveis:<br>
+        · Ativar / desativar mods (inclusive via botões Play ▶ e Pause ⏸)<br>
+        · Exclusão de arquivos (mods individuais e grupos)<br>
+        · Organização automática (mover arquivos)<br><br>
+        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter a última ação, ou em <strong>✕</strong> para dispensar.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📦 Grupos de Mods</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome (tudo antes do primeiro <code>_</code>).<br><br>
+        <strong style="color:var(--text-primary)">Exemplo:</strong><br>
+        · <code>TURBO_careers.package</code><br>
+        · <code>TURBO_careers_EP01.package</code><br>
+        → Agrupados sob o grupo <em>turbo</em><br><br>
+        Arquivos de Tray são agrupados pelo GUID (código hexadecimal após o <code>!</code> no nome).<br><br>
+        <strong style="color:var(--text-primary)">Janela de gerenciamento do grupo</strong> (clique direito no card ou em "Ver detalhes"):<br>
+        · Ativa/desativa arquivos individualmente com um clique<br>
+        · Oferece opção de <strong>Consolidar</strong> se os arquivos estiverem em pastas diferentes<br>
+        · Menu de contexto (botão direito) em cada linha do grupo para excluir arquivos individualmente
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔄 Sincronização em Tempo Real</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        O gerenciador detecta alterações externas nos arquivos (edições feitas por outro programa ou pelo Windows Explorer):<br>
+        · Ao volcar o foco para a janela após estar em segundo plano<br>
+        · Periodicamente a cada 30 segundos enquanto a aba Mods estiver aberta<br><br>
+        Quando uma mudança é detectada, a lista é recarregada automaticamente. Ações que causaram o reload ficam registradas na aba <strong>Histórico</strong>.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📁 Consolidar Grupos Dispersos</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        Um grupo "disperso" é aquele cujos arquivos estão distribuídos em pastas diferentes dentro da pasta Mods.<br><br>
+        <strong style="color:var(--text-primary)">Formas de consolidar:</strong><br>
+        · <strong>Modo Lista →</strong> botão <em>Consolidar</em> no cabeçalho de ações<br>
+        · <strong>Janela do grupo →</strong> botão <em>Consolidar</em> na barra de aviso interna<br>
+        · <strong>Aba Organizar →</strong> seção "Grupos dispersos"<br><br>
+        A consolidação move os arquivos para a pasta do arquivo principal do grupo. Esta ação suporta Desfazer.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔍 Filtros Avançados</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        <strong style="color:var(--text-primary)">Filtro "Parciais"</strong> — exibe somente grupos onde alguns arquivos estão ativos e outros inativos. Útil para identificar grupos com configuração inconsistente.<br><br>
+        <strong style="color:var(--text-primary)">Filtro de pasta</strong> — filtra mods por subpasta dentro da pasta Mods.<br><br>
+        <strong style="color:var(--text-primary)">Formatos suportados na importação:</strong><br>
+        <code>.package</code> · <code>.ts4script</code> · <code>.trayitem</code> · <code>.blueprint</code> · <code>.bpi</code> · <code>.hhi</code> · <code>.sgi</code> · <code>.householdbinary</code> · <code>.room</code> · <code>.rmi</code> · <code>.zip</code> · <code>.rar</code> · <code>.7z</code>
+      </div>
+    </div>
+  `;
+}
+
+// ─── History Page ─────────────────────────────────────────────────────────────
+
+function renderHistory() {
+  const el = document.getElementById('page-history');
+
+  const formatTime = (date) => {
+    const d = new Date(date);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} — ${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+  };
+
+  const typeLabel = {
+    toggle_on:   'Ativado',
+    toggle_off:  'Desativado',
+    delete:      'Excluído',
+    import:      'Importado',
+    move:        'Movido',
+    consolidate: 'Consolidado',
+    restore:     'Restaurado',
+    scan:        'Verificação',
+    fs_change:   'Alteração externa',
+  };
+  const typeColor = {
+    toggle_on:   'var(--success)',
+    toggle_off:  'var(--text-secondary)',
+    delete:      'var(--danger)',
+    import:      'var(--accent)',
+    move:        'var(--accent-light)',
+    consolidate: 'var(--accent-light)',
+    restore:     'var(--warning)',
+    scan:        'var(--text-disabled)',
+    fs_change:   'var(--warning)',
+  };
+
+  const rows = state.actionLog.length === 0
+    ? `<div class="empty-state" style="padding:40px 0">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <h3>Nenhuma ação registrada</h3>
+        <p>As ações realizadas nesta sessão aparecerão aqui</p>
+      </div>`
+    : `<div class="table-container">
+        <table id="history-table">
+          <thead>
+            <tr>
+              <th style="width:160px"><div class="th-content">Horário</div></th>
+              <th style="width:120px"><div class="th-content">Ação</div></th>
+              <th><div class="th-content">Detalhes</div></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.actionLog.map(entry => {
+              const icon  = ACTION_ICONS[entry.type] || '•';
+              const label = typeLabel[entry.type] || entry.type;
+              const color = typeColor[entry.type] || 'var(--text-primary)';
+              let detail  = '';
+              if (entry.details.name)  detail += escapeHtml(entry.details.name);
+              if (entry.details.count !== undefined && entry.details.count !== 1) detail += ` (${entry.details.count} arquivo${entry.details.count !== 1 ? 's' : ''})`;
+              if (entry.details.type === 'group') detail += ' <span class="badge badge-partial">grupo</span>';
+              return `
+                <tr>
+                  <td style="font-size:12px;color:var(--text-disabled);white-space:nowrap">${formatTime(entry.timestamp)}</td>
+                  <td>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:${color}">
+                      <span>${icon}</span>${escapeHtml(label)}
+                    </span>
+                  </td>
+                  <td style="font-size:13px;color:var(--text-primary)">${detail}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Histórico</div>
+        <div class="page-subtitle">${state.actionLog.length} ação(ões) nesta sessão</div>
+      </div>
+      <div class="header-actions">
+        ${state.actionLog.length > 0 ? `
+        <button class="btn btn-secondary btn-sm" id="btn-clear-history">Limpar histórico</button>` : ''}
+      </div>
+    </div>
+    ${rows}
+  `;
+
+  el.querySelector('#btn-clear-history')?.addEventListener('click', () => {
+    state.actionLog = [];
+    renderHistory();
+    toast('Histórico limpo', 'info', 1500);
+  });
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
 function renderSettings() {
@@ -3166,6 +3541,31 @@ async function init() {
 
   // Start background checks (non-blocking — runs after first render, only once per session)
   setTimeout(runStartupChecks, 300);
+
+  // ── Real-time sync: reload when window regains focus (external changes) ──────
+  window.addEventListener('focus', async () => {
+    if (!state.config?.modsFolder) return;
+    const prevCount = state.mods.length + state.trayFiles.length;
+    await loadMods();
+    const newCount = state.mods.length + state.trayFiles.length;
+    if (newCount !== prevCount) {
+      logAction('fs_change', { detail: `${Math.abs(newCount - prevCount)} arquivo(s) ${newCount > prevCount ? 'adicionado(s)' : 'removido(s)'}` });
+      if (state.currentPage === 'mods') renderMods();
+      if (state.currentPage === 'dashboard') renderDashboard();
+    }
+  });
+
+  // ── Real-time sync: periodic poll every 30s while Mods tab is open ───────────
+  setInterval(async () => {
+    if (state.currentPage !== 'mods' || !state.config?.modsFolder) return;
+    const prevCount = state.mods.length + state.trayFiles.length;
+    await loadMods();
+    const newCount = state.mods.length + state.trayFiles.length;
+    if (newCount !== prevCount) {
+      logAction('fs_change', { detail: `Atualização periódica: ${Math.abs(newCount - prevCount)} arquivo(s) ${newCount > prevCount ? 'adicionado(s)' : 'removido(s)'}` });
+      renderMods();
+    }
+  }, 30000);
 }
 
 init();
