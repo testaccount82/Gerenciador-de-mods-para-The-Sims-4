@@ -1905,17 +1905,9 @@ async function doImport(filePaths) {
     '.zip', '.rar', '.7z'
   ]);
 
-  const supported   = filePaths.filter(p => SUPPORTED_EXTS.has(p.slice(p.lastIndexOf('.')).toLowerCase()));
-  const unsupported = filePaths.length - supported.length;
+  const supported = filePaths.filter(p => SUPPORTED_EXTS.has(p.slice(p.lastIndexOf('.')).toLowerCase()));
 
-  if (unsupported > 0 && supported.length === 0) {
-    toast(`Nenhum arquivo suportado. Tipos aceitos: .package, .ts4script, .zip, .rar, .7z e arquivos Tray`, 'warning', 5000);
-    return;
-  }
-
-  if (unsupported > 0) {
-    toast(`${unsupported} arquivo(s) ignorado(s) — tipo não suportado`, 'warning', 4000);
-  }
+  if (!supported.length) return;
 
   toast(`Importando ${supported.length} arquivo(s)...`, 'info', 2000);
   const result = await window.api.importFiles(supported, state.config.modsFolder, state.config.trayFolder);
