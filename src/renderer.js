@@ -936,6 +936,11 @@ function groupModsByPrefix(mods) {
     const primary = files.find(f => f.type === 'package') || files[0];
     const totalSize = files.reduce((s, f) => s + f.size, 0);
     const allEnabled = files.every(f => f.enabled);
+    const hasPackage = files.some(f => f.type === 'package');
+    const hasScript  = files.some(f => f.type === 'script');
+    // Icon/tag reflects what's actually in the group:
+    // mixed → package takes precedence visually; script-only → script icon
+    const groupType = hasPackage ? 'package' : 'script';
 
     result.push({
       _isModGroup: true,
@@ -945,7 +950,7 @@ function groupModsByPrefix(mods) {
       name: primary.name,
       size: totalSize,
       enabled: allEnabled,
-      type: primary.type,
+      type: groupType,
       folder: primary.folder,
       lastModified: primary.lastModified,
     });
