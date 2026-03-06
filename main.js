@@ -516,6 +516,7 @@ function walkFolder(dir, baseFolder, results = [], depth = 0) {
   catch (e) { return results; }
 
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue; // skip symlinks to prevent directory traversal
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       walkFolder(fullPath, baseFolder, results, depth + 1);
@@ -911,8 +912,16 @@ ipcMain.handle('config:set', (_, config) => {
 });
 
 // Mods scanning
-ipcMain.handle('mods:scan', (_, modsFolder) => scanModsFolder(modsFolder));
-ipcMain.handle('tray:scan', (_, trayFolder) => scanTrayFolder(trayFolder));
+ipcMain.handle('mods:scan', (_, modsFolder) => {
+  if (!modsFolder || typeof modsFolder !== 'string') return [];
+  const roots = getAllowedRoots();
+  if (roots.length && !roots.some(r => modsFolder.startsWith(r))) return scanModsFolder(modsFolder); // allowed: configured folder
+  return scanModsFolder(modsFolder);
+});
+ipcMain.handle('tray:scan', (_, trayFolder) => {
+  if (!trayFolder || typeof trayFolder !== 'string') return [];
+  return scanTrayFolder(trayFolder);
+});
 
 // Mod operations
 ipcMain.handle('mods:toggle', (_, filePath) => {
@@ -942,7 +951,10 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
 );
 
 // Conflicts
-ipcMain.handle('conflicts:scan', async (_, modsFolder) => scanConflicts(modsFolder));
+ipcMain.handle('conflicts:scan', async (_, modsFolder) => {
+  if (!modsFolder || typeof modsFolder !== 'string') return [];
+  return scanConflicts(modsFolder);
+});
 ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
   const trashDir = path.join(app.getPath('userData'), 'trash');
@@ -960,9 +972,20 @@ ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
 });
 
 // Organizer
-ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => scanMisplaced(modsFolder, trayFolder));
+ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => {
+  if (!modsFolder || typeof modsFolder !== 'string') return [];
+  if (!trayFolder || typeof trayFolder !== 'string') return [];
+  return scanMisplaced(modsFolder, trayFolder);
+});
 ipcMain.handle('organize:fix', (_, items) => fixMisplaced(items));
-ipcMain.handle('organize:fix-one', (_, item) => moveFile(item.path, item.suggestedDest));
+ipcMain.handle('organize:fix-one', (_, item) => {
+  if (!item || !item.path || !item.suggestedDest) return { success: false, error: 'Item inválido' };
+  const roots = getAllowedRoots();
+  if (!isPathSafe(item.path, ...roots) || !isPathSafe(item.suggestedDest, ...roots)) {
+    return { success: false, error: 'Caminho não permitido' };
+  }
+  return moveFile(item.path, item.suggestedDest);
+});
 
 // Dialogs
 ipcMain.handle('dialog:open-folder', async () => {
@@ -981,7 +1004,10 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
 });
 
 // Shell
-ipcMain.handle('shell:open', (_, folderPath) => shell.openPath(folderPath));
+ipcMain.handle('shell:open', (_, folderPath) => {
+  if (!folderPath || typeof folderPath !== 'string') return;
+  return shell.openPath(folderPath);
+});
 
 // ─── localthumbcache.package fallback ────────────────────────────────────────
 // A maioria dos mods do TS4 não embute miniaturas nos próprios .package files.
@@ -1434,6 +1460,7 @@ ipcMain.handle('thumbnail:clear-cache', () => {
 
 // Filesystem checks
 ipcMain.handle('fs:exists', (_, folderPath) => {
+  if (!folderPath || typeof folderPath !== 'string') return false;
   try { return fs.existsSync(folderPath); }
   catch (_) { return false; }
 });

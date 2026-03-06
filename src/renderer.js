@@ -751,13 +751,15 @@ function setupCommonModsEvents(el) {
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && !m.enabled; });
     if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
-    for (const p of targets) await window.api.toggleMod(p);
-    await loadMods(); state.selectedMods.clear(); renderMods();
-    toast(`${targets.length} mod(s) ativados`, 'success');
-    pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
+    try {
       for (const p of targets) await window.api.toggleMod(p);
-      await loadMods(); renderMods();
-    });
+      await loadMods(); state.selectedMods.clear(); renderMods();
+      toast(`${targets.length} mod(s) ativados`, 'success');
+      pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
+        for (const p of targets) await window.api.toggleMod(p);
+        await loadMods(); renderMods();
+      });
+    } catch (e) { toast('Erro ao ativar mods: ' + e.message, 'error'); }
   });
 
   // Batch disable
@@ -766,13 +768,15 @@ function setupCommonModsEvents(el) {
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && m.enabled; });
     if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
-    for (const p of targets) await window.api.toggleMod(p);
-    await loadMods(); state.selectedMods.clear(); renderMods();
-    toast(`${targets.length} mod(s) desativados`, 'success');
-    pushUndo(`Desativar ${targets.length} mod(s)`, async () => {
-      for (const p of targets.map(p => p + '.disabled')) await window.api.toggleMod(p);
-      await loadMods(); renderMods();
-    });
+    try {
+      for (const p of targets) await window.api.toggleMod(p);
+      await loadMods(); state.selectedMods.clear(); renderMods();
+      toast(`${targets.length} mod(s) desativados`, 'success');
+      pushUndo(`Desativar ${targets.length} mod(s)`, async () => {
+        for (const p of targets.map(p => p + '.disabled')) await window.api.toggleMod(p);
+        await loadMods(); renderMods();
+      });
+    } catch (e) { toast('Erro ao desativar mods: ' + e.message, 'error'); }
   });
 
   // Batch delete
