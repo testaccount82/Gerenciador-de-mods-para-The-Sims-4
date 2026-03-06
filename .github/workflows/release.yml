@@ -1,0 +1,59 @@
+name: Criar Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Versão (ex: v1.2.0)"
+        required: true
+      nome:
+        description: "Nome do release (ex: TS4 Mod Manager v1.2.0)"
+        required: true
+      notas:
+        description: "Notas da versão"
+        required: false
+        default: "Nova versão disponível."
+      prerelease:
+        description: "É um pré-release?"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar dependências
+        run: npm install --legacy-peer-deps
+
+      - name: Build do instalador Windows
+        run: npm run build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Criar Release com o EXE
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ github.event.inputs.nome }}
+          body: ${{ github.event.inputs.notas }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+          files: dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
