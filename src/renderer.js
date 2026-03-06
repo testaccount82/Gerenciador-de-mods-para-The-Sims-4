@@ -1560,7 +1560,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       <td>
         <div style="display:flex;align-items:center;gap:6px">
           ${statusBadge(f.enabled)}
-          <span style="font-size:10px;color:var(--text-disabled);background:var(--elevated-2);padding:1px 5px;border-radius:99px;flex-shrink:0">aninhado</span>
+
         </div>
       </td>
       <td>
@@ -1584,7 +1584,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
           <span class="file-icon">${badgeEmoji}</span>
           <span title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
           <span class="group-row-badge">${group.files.length} arquivos</span>
-          <span class="group-expand-arrow">${isExpanded ? '▾' : '▸'}</span>
+
         </div>
       </td>
       <td>${typeBadge(group.type)}</td>
