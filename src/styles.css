@@ -179,14 +179,18 @@ html, body {
 }
 
 /* ─── Sidebar Scan Indicator ────────────────────────────────────────── */
-#sidebar-scan-indicator {
+#sidebar-scan-indicator,
+#sidebar-scan-indicator-organize,
+#sidebar-scan-indicator-conflicts {
   margin: 6px 8px;
   padding: 10px 12px;
   background: linear-gradient(135deg, var(--accent-subtle) 0%, rgba(99,102,241,0.08) 100%);
   border: 1px solid var(--accent-subtle2);
   border-radius: var(--r-md);
 }
-#sidebar-scan-indicator.hidden { display: none; }
+#sidebar-scan-indicator.hidden,
+#sidebar-scan-indicator-organize.hidden,
+#sidebar-scan-indicator-conflicts.hidden { display: none; }
 
 .scan-indicator-header {
   display: flex;

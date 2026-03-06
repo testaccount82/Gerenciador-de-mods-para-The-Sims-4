@@ -1938,6 +1938,33 @@ async function renderConflicts() {
     return;
   }
 
+  // Scan em andamento na fase 'organize' (antes de chegar em conflitos)
+  if (scanProgress.running && scanProgress.phase === 'organize') {
+    const resultEl = el.querySelector('#conflicts-result');
+    resultEl.innerHTML = `
+      <div class="loading-state" id="conflict-loading">
+        <div class="spinner"></div>
+        <div class="loading-text" id="conflict-loading-text">Aguardando verificação de organização terminar…</div>
+        <div class="conflict-progress-wrap">
+          <div class="conflict-progress-bar-bg">
+            <div class="conflict-progress-bar" id="conflict-progress-bar" style="width:0%;animation:scan-pulse 1.8s ease-in-out infinite"></div>
+          </div>
+          <span class="conflict-progress-label" id="conflict-progress-label">Fase 1 de 2 em andamento…</span>
+        </div>
+      </div>`;
+
+    // Wait for the scan to finish and then refresh
+    (async () => {
+      await new Promise(resolve => {
+        const interval = setInterval(() => {
+          if (!scanProgress.running) { clearInterval(interval); resolve(); }
+        }, 300);
+      });
+      if (state.currentPage === 'conflicts') renderConflicts();
+    })();
+    return;
+  }
+
   if (state.conflicts.length > 0) renderConflictResults(el);
 }
 
