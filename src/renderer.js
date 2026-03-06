@@ -1171,6 +1171,9 @@ function openGroupOverlay(group) {
       const fp = row.dataset.path;
       const result = await window.api.toggleMod(fp);
       if (result.success) {
+        // Atualiza o data-path para o novo caminho (ex: .package → .package.disabled)
+        // sem isso o segundo clique usa o caminho antigo que já não existe no disco
+        row.dataset.path = result.newPath;
         await loadMods();
         // Refresh the badge inside the row
         const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
