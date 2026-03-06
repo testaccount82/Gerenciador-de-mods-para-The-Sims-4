@@ -1041,6 +1041,9 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const idVal  = group._isTrayGroup ? group.trayGuid   : group.modPrefix;
   const checkClass = group._isTrayGroup ? 'card-check-group' : 'card-check-mod-group';
   const cardClass  = group._isTrayGroup ? 'tray-group' : 'mod-group';
+  const allEnabled = group.files.every(f => f.enabled);
+  const toggleLabel = allEnabled ? '⏸' : '▶';
+  const toggleTitle = allEnabled ? 'Desativar grupo' : 'Ativar grupo';
 
   return `
     <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
@@ -1058,6 +1061,8 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
             <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
           </div>
         </div>
+        <button class="card-toggle-btn card-toggle-group-btn" ${idAttr}="${escapeHtml(idVal)}"
+                title="${toggleTitle}">${toggleLabel}</button>
       </div>
     </div>`;
 }
@@ -1592,6 +1597,7 @@ function setupGalleryEvents(el, mods) {
   el.querySelectorAll('.gallery-card.mod-group, .gallery-card.tray-group').forEach(card => {
     card.addEventListener('click', e => {
       if (e.target.classList.contains('card-check') || e.target.classList.contains('card-check-group') || e.target.classList.contains('card-check-mod-group')) return;
+      if (e.target.closest('.card-toggle-group-btn')) return;
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
       const guid   = card.dataset.trayGuid;
       const prefix = card.dataset.modPrefix;
@@ -1624,13 +1630,29 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card toggle button → enable/disable mod (dedicated action button)
-  el.querySelectorAll('.card-toggle-btn').forEach(btn => {
+  // Card toggle button → enable/disable individual mod
+  el.querySelectorAll('.card-toggle-btn:not(.card-toggle-group-btn)').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       const result = await window.api.toggleMod(btn.dataset.path);
       if (result.success) { await loadMods(); renderMods(); }
       else toast('Erro ao alternar mod', 'error');
+    });
+  });
+
+  // Card toggle button → enable/disable all files in a group
+  el.querySelectorAll('.card-toggle-group-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = btn.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === btn.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
+      if (!group) return;
+      try {
+        for (const f of group.files) await window.api.toggleMod(f.path);
+        await loadMods(); renderMods();
+      } catch (err) { toast('Erro ao alternar grupo', 'error'); }
     });
   });
 
