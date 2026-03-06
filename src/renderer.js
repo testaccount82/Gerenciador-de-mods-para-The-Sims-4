@@ -497,6 +497,7 @@ async function runStartupChecks() {
 
   // --- Phase 1: misplaced + empty folders (fast, no file I/O) ---
   if (checkMisplaced && !scanProgress.cancelled) {
+    state.organizeScanning = true;
     try {
       const [misplaced, emptyFolders] = await Promise.all([
         window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder),
@@ -505,6 +506,7 @@ async function runStartupChecks() {
       state.misplaced    = misplaced;
       state.emptyFolders = emptyFolders;
     } catch (_) {}
+    state.organizeScanning = false;
   }
 
   // --- Phase 2: conflicts/hash (slow — drives the remaining counter) ---
@@ -2187,13 +2189,48 @@ async function renderOrganizer() {
 
   el.querySelector('#btn-scan-organize').addEventListener('click', () => runOrganizeScan(el));
 
+  // If an organize scan is already running (manual or background), show loading and wait
+  if (state.organizeScanning || (scanProgress.running && scanProgress.phase === 'organize')) {
+    const resultEl = el.querySelector('#organize-result');
+    resultEl.innerHTML = `
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <div class="loading-text">Verificando organização e pastas vazias...</div>
+      </div>`;
+
+    (async () => {
+      await new Promise(resolve => {
+        const interval = setInterval(() => {
+          if (!state.organizeScanning && !(scanProgress.running && scanProgress.phase === 'organize')) {
+            clearInterval(interval); resolve();
+          }
+        }, 300);
+      });
+      if (state.currentPage === 'organizer') renderOrganizeResults(el);
+    })();
+    return;
+  }
+
   if (state.misplaced.length > 0 || state.emptyFolders.length > 0 || state.scattered.length > 0) renderOrganizeResults(el);
 }
 
 async function runOrganizeScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
-  const resultEl = el.querySelector('#organize-result');
-  resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização e pastas vazias...</div></div>`;
+  if (state.organizeScanning || (scanProgress.running && scanProgress.phase === 'organize')) {
+    toast('Uma verificação já está em andamento', 'warning', 2500); return;
+  }
+
+  state.organizeScanning    = true;
+  scanProgress.running      = true;
+  scanProgress.phase        = 'organize';
+  scanProgress.cancelled    = false;
+  updateScanIndicator();
+
+  const scanBtn = el?.querySelector('#btn-scan-organize');
+  if (scanBtn) { scanBtn.disabled = true; scanBtn.style.opacity = '0.5'; }
+
+  const resultEl = el?.querySelector('#organize-result');
+  if (resultEl) resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização e pastas vazias...</div></div>`;
 
   try {
     [state.misplaced, state.emptyFolders, state.scattered] = await Promise.all([
@@ -2201,9 +2238,13 @@ async function runOrganizeScan(el) {
       window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder),
       window.api.scanScatteredGroups(state.config.modsFolder),
     ]);
-    renderOrganizeResults(el);
+    if (state.currentPage === 'organizer' && el) renderOrganizeResults(el);
   } catch (e) {
-    resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
+    if (resultEl) resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    state.organizeScanning = false;
+    stopScanIndicator();
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.style.opacity = ''; }
   }
 }
 
