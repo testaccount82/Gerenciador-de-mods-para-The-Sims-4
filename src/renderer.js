@@ -844,39 +844,44 @@ function setupGalleryEvents(el, mods) {
 
 async function loadVisibleThumbnails(el) {
   const loaders = el.querySelectorAll('[data-load]');
+
+  // Collect all files that still need loading, marking them as in-progress
+  // atomically before any await — this prevents duplicate IPC calls across
+  // concurrent loadVisibleThumbnails instances that can be triggered by rapid
+  // renderMods() calls (filter changes, searches, mod toggles, etc.).
+  const toLoad = [];
   for (const loader of loaders) {
     const filePath = loader.dataset.load;
-    // FIX BUG 4: Previously used `undefined` as both "not checked" and "in-progress",
-    // but cache[key] returns undefined whether the key is absent OR set to undefined,
-    // making the lock completely ineffective. A Symbol sentinel is unique and never
-    // equal to undefined, null, or a base64 string, so it works correctly.
     if (state.thumbnailCache[filePath] !== undefined) continue;
-
-    // Mark as in-progress to prevent duplicate requests if renderMods() is called
-    // during an async load (e.g. user types in search while thumbnails load).
     state.thumbnailCache[filePath] = THUMB_LOADING;
-
-    const thumb = await window.api.getThumbnail(filePath);
-    state.thumbnailCache[filePath] = thumb ?? null; // null = checked, no thumbnail found
-
-    // Update DOM in place without full re-render
-    const stillThere = el.querySelector(`[data-load="${CSS.escape(filePath)}"]`);
-    if (stillThere) {
-      if (thumb) {
-        const img = document.createElement('img');
-        img.className = 'gallery-thumb';
-        img.src = thumb;
-        img.alt = '';
-        img.loading = 'lazy';
-        stillThere.replaceWith(img);
-      } else {
-        const ph = document.createElement('div');
-        ph.className = 'gallery-thumb-placeholder';
-        ph.textContent = '📦';
-        stillThere.replaceWith(ph);
-      }
-    }
+    toLoad.push(filePath);
   }
+
+  // Load all thumbnails in PARALLEL so that a slow file doesn't block the
+  // rest, and so that a new renderMods() call mid-loop doesn't leave items
+  // permanently stuck as THUMB_LOADING without anyone awaiting their result.
+  await Promise.all(toLoad.map(async (filePath) => {
+    const thumb = await window.api.getThumbnail(filePath);
+    state.thumbnailCache[filePath] = thumb ?? null;
+
+    // Update DOM in place without a full re-render
+    const stillThere = el.querySelector(`[data-load="${CSS.escape(filePath)}"]`);
+    if (!stillThere) return;
+
+    if (thumb) {
+      const img = document.createElement('img');
+      img.className = 'gallery-thumb';
+      img.src = thumb;
+      img.alt = '';
+      img.loading = 'lazy';
+      stillThere.replaceWith(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'gallery-thumb-placeholder';
+      ph.textContent = '📦';
+      stillThere.replaceWith(ph);
+    }
+  }));
 }
 
 function renderTh(col, label, width = '') {

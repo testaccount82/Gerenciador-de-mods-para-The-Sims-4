@@ -1462,6 +1462,7 @@ if (process.env.NODE_ENV === 'test') {
     readUInt24BE, internalDecompression,
     // Thumbnail
     generateTrayThumbnailSvg, purgeThumbnailCache, loadThumbnailCache,
+    extractThumbnailFromPackage,
     // File scanning
     walkFolder, buildModObject, scanModsFolder, scanTrayFolder,
     // Mod operations
