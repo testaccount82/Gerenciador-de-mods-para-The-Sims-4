@@ -744,6 +744,7 @@ tbody tr.disabled td { opacity: 0.5; }
 }
 .badge-active  { background: var(--success-subtle); color: var(--success); }
 .badge-inactive{ background: var(--elevated-2); color: var(--text-disabled); }
+.badge-partial { background: var(--warning-subtle); color: var(--warning); }
 .badge-package { background: rgba(88,166,255,0.12); color: var(--info); }
 .badge-script  { background: rgba(240,173,78,0.12); color: var(--warning); }
 .badge-tray    { background: rgba(0,180,160,0.12); color: var(--accent-light); }
@@ -927,8 +928,9 @@ tbody tr.disabled td { opacity: 0.5; }
   padding: 2px 6px; border-radius: 10px;
   pointer-events: none;
 }
-.tray-group-badge::before { content: '🏠 '; }
-.mod-group-badge::before  { content: '📦 '; }
+.tray-group-badge::before         { content: '🏠 '; }
+.mod-group-badge::before          { content: '📦 '; }
+.mod-group-badge-script::before   { content: '⚙️ '; }
 
 /* expand button — grid mode */
 .group-expand-btn {

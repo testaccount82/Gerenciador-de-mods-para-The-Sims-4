@@ -72,7 +72,8 @@ function typeBadge(type) {
   return '<span class="badge badge-warn">Mal colocado</span>';
 }
 
-function statusBadge(enabled) {
+function statusBadge(enabled, partial = false) {
+  if (partial) return '<span class="badge badge-partial">Parcial</span>';
   return enabled
     ? '<span class="badge badge-active">Ativo</span>'
     : '<span class="badge badge-inactive">Inativo</span>';
@@ -1726,8 +1727,11 @@ function setupGalleryEvents(el, mods) {
 function renderModGroupCard(group) {
   const typeTag   = group.type === 'package' ? '.pkg' : '.ts4';
   const typeClass = group.type === 'package' ? 'card-tag-pkg' : 'card-tag-scr';
+  const badgeClass = group.type === 'script'
+    ? 'tray-group-badge mod-group-badge mod-group-badge-script'
+    : 'tray-group-badge mod-group-badge';
   return renderGroupCard(group, 'mod:' + group.modPrefix, typeTag, typeClass,
-    'tray-group-badge mod-group-badge', fileIcon(group.type), group.name);
+    badgeClass, fileIcon(group.type), group.name);
 }
 
 async function loadVisibleThumbnails(el) {
@@ -1809,7 +1813,11 @@ function renderModRow(mod) {
             data-path="${escapeHtml(mod.path)}" title="${mod.enabled ? 'Desativar' : 'Ativar'}">
             ${mod.enabled ? '⏸' : '▶'}
           </button>
-          <button class="btn btn-sm btn-danger delete-mod-btn" data-path="${escapeHtml(mod.path)}" title="Deletar">🗑</button>
+          <button class="btn btn-sm btn-danger delete-mod-btn" data-path="${escapeHtml(mod.path)}" title="Apagar arquivo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+            </svg>
+          </button>
         </div>
       </td>
     </tr>`;
@@ -1820,6 +1828,8 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
   const allSel = allPaths.every(p => state.selectedMods.has(p));
   const groupKey = group._isTrayGroup ? 'tray:' + group.trayGuid : 'mod:' + group.modPrefix;
   const isExpanded = state.expandedGroups.has(groupKey);
+  const allEnabled  = group.files.every(f => f.enabled);
+  const someEnabled = !allEnabled && group.files.some(f => f.enabled);
 
   const childRows = isExpanded ? group.files.map(f => {
     const fSel = state.selectedMods.has(f.path);
@@ -1847,7 +1857,11 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
         <div style="display:flex;gap:4px;align-items:center">
           <button class="btn btn-sm ${f.enabled ? 'btn-secondary' : 'btn-primary'} toggle-mod-btn"
             data-path="${escapeHtml(f.path)}">${f.enabled ? '⏸' : '▶'}</button>
-          <button class="btn btn-sm btn-danger delete-mod-btn" data-path="${escapeHtml(f.path)}">🗑</button>
+          <button class="btn btn-sm btn-danger delete-mod-btn" data-path="${escapeHtml(f.path)}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+            </svg>
+          </button>
         </div>
       </td>
     </tr>`;
@@ -1870,7 +1884,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       <td>${typeBadge(group.type)}</td>
       <td>${formatBytes(group.size)}</td>
       <td title="${escapeHtml(group.folder)}">${escapeHtml(group.folder === '/' ? '(raiz)' : group.folder)}</td>
-      <td>${statusBadge(group.enabled)}</td>
+      <td>${statusBadge(group.enabled, someEnabled)}</td>
       <td>
         <div style="display:flex;gap:4px;align-items:center">
           <button class="btn btn-sm ${group.enabled ? 'btn-secondary' : 'btn-primary'} toggle-group-btn"
@@ -2444,7 +2458,7 @@ async function renderOrganizer() {
     <div class="page-header">
       <div>
         <div class="page-title">Organização Automática</div>
-        <div class="page-subtitle">Detecta e corrige arquivos fora do lugar e pastas vazias</div>
+        <div class="page-subtitle">Detecta e corrige arquivos fora do lugar, pastas vazias, grupos espalhados e arquivos inválidos</div>
       </div>
       <div class="header-actions">
         <button class="btn btn-primary" id="btn-scan-organize">
