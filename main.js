@@ -216,6 +216,13 @@ function internalDecompression(data) {
   const decompressedSize = largeFile
     ? (data[2] * 16777216 + data[3] * 65536 + data[4] * 256 + data[5])
     : readUInt24BE(data, 2);
+
+  // SEC-04: limite de 32 MB para evitar DoS via Buffer.alloc(4GB) com arquivo malicioso
+  const MAX_DECOMPRESS_SIZE = 32 * 1024 * 1024;
+  if (decompressedSize > MAX_DECOMPRESS_SIZE) {
+    throw new Error(`internalDecompression: tamanho descomprimido (${decompressedSize}) excede limite de 32 MB`);
+  }
+
   const udata = Buffer.alloc(decompressedSize);
   let uIdx = 0;
   let dIdx = largeFile ? 6 : 5; // 2 bytes flags + 3 ou 4 bytes de tamanho
@@ -228,6 +235,8 @@ function internalDecompression(data) {
       const copySize   = ((cc & 0x1C) >> 2) + 3;
       const copyOffset = ((cc & 0x60) << 3) + data[dIdx];
       dIdx++;
+      // QA-04: bounds check para evitar escrita fora do buffer de saída
+      if (uIdx + size + copySize > udata.length) break;
       for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
       for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
     } else if (cc <= 0xBF) {
@@ -235,6 +244,7 @@ function internalDecompression(data) {
       const copySize   = (cc & 0x3F) + 4;
       const copyOffset = ((data[dIdx] & 0x3F) << 8) + data[dIdx + 1];
       dIdx += 2;
+      if (uIdx + size + copySize > udata.length) break;
       for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
       for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
     } else if (cc <= 0xDF) {
@@ -242,13 +252,16 @@ function internalDecompression(data) {
       const copySize   = ((cc & 0xC) << 6) + data[dIdx + 2] + 5;
       const copyOffset = ((cc & 0x10) << 12) + (data[dIdx] << 8) + data[dIdx + 1];
       dIdx += 3;
+      if (uIdx + size + copySize > udata.length) break;
       for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
       for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
     } else if (cc <= 0xFB) {
       const size = ((cc & 0x1F) << 2) + 4;
+      if (uIdx + size > udata.length) break;
       for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
     } else {
       const size = cc & 0x3;
+      if (uIdx + size > udata.length) break;
       for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
     }
   } while (cc < 0xFC);
@@ -293,6 +306,8 @@ const THUMBNAIL_CACHE_PATH = path.join(app.getPath('userData'), 'thumbnail-cache
 // Incrementar sempre que a lógica de extração mudar — invalida cache antigo automaticamente
 const THUMBNAIL_CACHE_VERSION = 3;
 let _thumbnailCache = null;
+// QA-01: timer separado do objeto de cache para não ser serializado no JSON
+let _thumbnailSaveTimer = null;
 
 function loadThumbnailCache() {
   if (_thumbnailCache) return _thumbnailCache;
@@ -330,6 +345,9 @@ function purgeThumbnailCache(existingPaths) {
   if (dirty) saveThumbnailCache();
 }
 
+// QA-08: limite máximo de entradas no cache (eviction das mais antigas ao ultrapassar)
+const THUMBNAIL_CACHE_MAX_ENTRIES = 500;
+
 async function extractThumbnailFromPackage(filePath) {
   const cache = loadThumbnailCache();
 
@@ -347,10 +365,19 @@ async function extractThumbnailFromPackage(filePath) {
   // Store in cache
   try {
     const stat = fs.statSync(filePath);
+
+    // QA-08: eviction das entradas mais antigas se o cache exceder o limite
+    const entries = Object.keys(cache).filter(k => k !== '__version');
+    if (entries.length >= THUMBNAIL_CACHE_MAX_ENTRIES) {
+      // Remove o primeiro quarto das entradas (as mais antigas no JSON)
+      const toRemove = Math.floor(THUMBNAIL_CACHE_MAX_ENTRIES / 4);
+      entries.slice(0, toRemove).forEach(k => delete cache[k]);
+    }
+
     cache[filePath] = { mtime: stat.mtimeMs, data: result };
-    // Debounced save
-    clearTimeout(_thumbnailCache._saveTimer);
-    _thumbnailCache._saveTimer = setTimeout(saveThumbnailCache, 2000);
+    // QA-01: debounce via variável local, não dentro do objeto cache
+    clearTimeout(_thumbnailSaveTimer);
+    _thumbnailSaveTimer = setTimeout(saveThumbnailCache, 2000);
   } catch (_) {}
 
   return result;
@@ -682,10 +709,15 @@ function copyModFile(src, modsFolder, trayFolder) {
   // Handle duplicate filenames
   let finalDest = dest;
   let counter = 1;
-  while (fs.existsSync(finalDest)) {
+  const MAX_COPIES = 999;
+  while (fs.existsSync(finalDest) && counter <= MAX_COPIES) {
     const base = path.basename(dest, ext);
     finalDest = path.join(path.dirname(dest), `${base} (${counter})${ext}`);
     counter++;
+  }
+  // QA-09: se ultrapassar o limite, lança erro em vez de loop infinito
+  if (counter > MAX_COPIES) {
+    throw new Error(`Muitas cópias existentes de "${path.basename(dest)}" no destino`);
   }
   fs.copyFileSync(src, finalDest);
   return finalDest;
@@ -696,6 +728,8 @@ function collectModFiles(dir, found = []) {
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
   catch (_) { return found; }
   for (const entry of entries) {
+    // SEC-05: ignorar symlinks para evitar loop infinito em zips com symlinks circulares
+    if (entry.isSymbolicLink()) continue;
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       collectModFiles(fullPath, found);
@@ -806,7 +840,8 @@ async function scanConflicts(modsFolder, sender, cancelToken) {
       // Check if it's OS-generated duplicate (e.g. "file (2).package")
       const isOsDuplicate = paths.some(p => / \(\d+\)(\.\w+)*(\.disabled)?$/.test(p));
       conflicts.push({
-        id: crypto.createHash('md5').update(name).digest('hex'),
+        // QA-07: SHA-256 em vez de MD5 para evitar colisões de ID na UI
+        id: crypto.createHash('sha256').update(name).digest('hex').slice(0, 32),
         type: isOsDuplicate ? 'os-duplicate' : 'same-name',
         label: isOsDuplicate ? 'Duplicata do sistema' : 'Mesmo nome',
         files: paths.map(p => ({
@@ -1035,7 +1070,8 @@ ipcMain.handle('config:set', (_, config) => {
 ipcMain.handle('mods:scan', (_, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
   const roots = getAllowedRoots();
-  if (roots.length && !roots.some(r => modsFolder.startsWith(r))) return scanModsFolder(modsFolder); // allowed: configured folder
+  // SEC-03: bloqueia pastas fora das raízes permitidas (lógica estava invertida)
+  if (roots.length && !roots.some(r => modsFolder.startsWith(r))) return [];
   return scanModsFolder(modsFolder);
 });
 ipcMain.handle('tray:scan', (_, trayFolder) => {
@@ -1066,9 +1102,17 @@ ipcMain.handle('mods:move', (_, from, to) => {
   if (!isPathSafe(from, ...roots) || !isPathSafe(to, ...roots)) return { success: false, error: 'Caminho não permitido' };
   return moveFile(from, to);
 });
-ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
-  importFiles(filePaths, modsFolder, trayFolder)
-);
+ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) => {
+  // QA-06: validar tipos dos parâmetros
+  if (!Array.isArray(filePaths)) return { imported: [], errors: [] };
+  if (typeof modsFolder !== 'string' || typeof trayFolder !== 'string')
+    return { imported: [], errors: [{ error: 'Parâmetro de pasta inválido' }] };
+  // SEC-02: validar se destinos estão dentro das raízes permitidas
+  const roots = getAllowedRoots();
+  if (!isPathSafe(modsFolder, ...roots) || !isPathSafe(trayFolder, ...roots))
+    return { imported: [], errors: [{ error: 'Pasta de destino não permitida' }] };
+  return importFiles(filePaths, modsFolder, trayFolder);
+});
 
 // Conflicts
 ipcMain.handle('conflicts:scan', async (event, modsFolder) => {
@@ -1103,7 +1147,18 @@ ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => {
   if (!trayFolder || typeof trayFolder !== 'string') return [];
   return scanMisplaced(modsFolder, trayFolder);
 });
-ipcMain.handle('organize:fix', (_, items) => fixMisplaced(items));
+ipcMain.handle('organize:fix', (_, items) => {
+  // SEC-01 / QA-05: validar todos os caminhos antes de mover (equivalente ao organize:fix-one)
+  if (!Array.isArray(items)) return [];
+  const roots = getAllowedRoots();
+  for (const item of items) {
+    if (!item || !item.path || !item.suggestedDest)
+      return [{ success: false, error: 'Item inválido' }];
+    if (!isPathSafe(item.path, ...roots) || !isPathSafe(item.suggestedDest, ...roots))
+      return [{ success: false, error: 'Caminho não permitido' }];
+  }
+  return fixMisplaced(items);
+});
 ipcMain.handle('organize:fix-one', (_, item) => {
   if (!item || !item.path || !item.suggestedDest) return { success: false, error: 'Item inválido' };
   const roots = getAllowedRoots();
@@ -1596,7 +1651,8 @@ ipcMain.handle('thumbnail:get', async (_, filePath) => {
 ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => { purgeThumbnailCache(existingPaths); return true; });
 ipcMain.handle('thumbnail:clear-cache', () => {
   try {
-    _thumbnailCache = {};
+    // QA-02: sempre inicializar com __version para não corromper leituras futuras
+    _thumbnailCache = { __version: THUMBNAIL_CACHE_VERSION };
     if (fs.existsSync(THUMBNAIL_CACHE_PATH)) fs.unlinkSync(THUMBNAIL_CACHE_PATH);
     return true;
   } catch (_) { return false; }
