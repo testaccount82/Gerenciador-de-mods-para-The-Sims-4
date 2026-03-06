@@ -1450,3 +1450,27 @@ ipcMain.on('window:maximize', () => {
 });
 ipcMain.on('window:close', () => mainWindow?.close());
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false);
+
+// ─── Test Exports ─────────────────────────────────────────────────────────────
+// Exported only when NODE_ENV=test — not bundled in production build.
+if (process.env.NODE_ENV === 'test') {
+  module.exports = {
+    // Constants
+    MOD_EXTENSIONS, TRAY_EXTENSIONS, ARCHIVE_EXTENSIONS, DISABLED_SUFFIX,
+    // Path/name utilities
+    getFileDepth, getDisabledPath, isEnabled, getRealExtension, getRealName,
+    isPathSafe,
+    // Config
+    readConfig, writeConfig, DEFAULT_CONFIG,
+    // Compression
+    readUInt24BE, internalDecompression,
+    // Thumbnail
+    generateTrayThumbnailSvg, purgeThumbnailCache, loadThumbnailCache,
+    // File scanning
+    walkFolder, buildModObject, scanModsFolder, scanTrayFolder,
+    // Mod operations
+    toggleMod, moveFile, copyModFile, collectModFiles,
+    // Conflict & organizer
+    scanConflicts, scanMisplaced, fixMisplaced,
+  };
+}
