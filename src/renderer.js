@@ -1381,7 +1381,7 @@ function renderSettings() {
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" id="save-settings">Salvar Configurações</button>
       <button class="btn btn-secondary" id="reload-mods-btn">Recarregar Mods</button>
-      <button class="btn btn-subtle" id="clear-thumb-cache">🗑 Limpar cache de miniaturas</button>
+      <button class="btn btn-secondary" id="clear-thumb-cache">🗑 Limpar cache de miniaturas</button>
     </div>
   `;
 
