@@ -1209,11 +1209,14 @@ function setupCommonModsEvents(el) {
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && !m.enabled; });
     if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
     try {
-      for (const p of targets) await window.api.toggleMod(p);
+      const results = [];
+      for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
       toast(`${targets.length} mod(s) ativados`, 'success');
-      pushUndo(`Ativar ${targets.length} mod(s)`, async () => {
-        for (const p of targets) await window.api.toggleMod(p);
+      // Use newPath returned by each toggleMod so undo operates on the renamed file
+      const newPaths = results.filter(r => r.success).map(r => r.newPath);
+      pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
+        for (const p of newPaths) await window.api.toggleMod(p);
         await loadMods(); renderMods();
       });
     } catch (e) { toast('Erro ao ativar mods: ' + e.message, 'error'); }
@@ -1226,11 +1229,14 @@ function setupCommonModsEvents(el) {
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && m.enabled; });
     if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
     try {
-      for (const p of targets) await window.api.toggleMod(p);
+      const results = [];
+      for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
       toast(`${targets.length} mod(s) desativados`, 'success');
-      pushUndo(`Desativar ${targets.length} mod(s)`, async () => {
-        for (const p of targets.map(p => p + '.disabled')) await window.api.toggleMod(p);
+      // Use newPath returned by each toggleMod so undo operates on the renamed file
+      const newPaths = results.filter(r => r.success).map(r => r.newPath);
+      pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
+        for (const p of newPaths) await window.api.toggleMod(p);
         await loadMods(); renderMods();
       });
     } catch (e) { toast('Erro ao desativar mods: ' + e.message, 'error'); }
