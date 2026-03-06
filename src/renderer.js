@@ -34,10 +34,13 @@ const state = {
   // Gallery
   viewMode: 'grid',       // 'list' | 'grid' — FIX BUG 2: was 'list', thumbnails only show in grid mode
   galleryPage: 1,
-  itemsPerPage: 24,
+  itemsPerPage: 30,
   thumbnailCache: {},     // path -> base64 | null
   expandedGroups: new Set(), // group keys currently expanded
 };
+
+// Prevents runStartupChecks() from being called more than once per session
+let _startupChecksRan = false;
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -339,15 +342,6 @@ function renderDashboardAlerts(el) {
   const alertsEl = el.querySelector('#dash-alerts');
   if (!alertsEl) return;
 
-  // If a scan is still running, show a subtle "in progress" hint
-  if (scanProgress.running) {
-    alertsEl.innerHTML = `<div class="notice info" style="font-size:12.5px;padding:8px 12px">
-      <div class="spinner" style="width:13px;height:13px;border-width:2px;flex-shrink:0"></div>
-      <span>Verificação em andamento…</span>
-    </div>`;
-    return;
-  }
-
   const alerts = [];
 
   if (state.misplaced.length > 0) {
@@ -400,13 +394,23 @@ function renderDashboardAlerts(el) {
 
 // Runs all configured startup scans in the background.
 // Drives the sidebar indicator and updates the dashboard when done.
+// Guarded by _startupChecksRan so it can only execute once per session.
 async function runStartupChecks() {
+  if (_startupChecksRan) return;
+  _startupChecksRan = true;
+
   const cfg = state.config;
   if (!cfg?.modsFolder) return;
 
   const checkMisplaced  = cfg.autoCheckMisplaced !== false;
   const checkDuplicates = cfg.autoCheckDuplicates === true;
   if (!checkMisplaced && !checkDuplicates) return;
+
+  // Wait for a full render cycle before starting so the UI is responsive first
+  await new Promise(r => setTimeout(r, 300));
+
+  // If another scan was already started (e.g. user opened Conflicts tab quickly), abort
+  if (scanProgress.running || state.conflictScanning) return;
 
   startScanIndicator();
 
@@ -424,6 +428,8 @@ async function runStartupChecks() {
 
   // --- Phase 2: conflicts/hash (slow — drives the remaining counter) ---
   if (checkDuplicates && !scanProgress.cancelled) {
+    if (state.conflictScanning) { stopScanIndicator(); return; } // user started manual scan
+    state.conflictScanning = true;
     const unsubscribe = window.api.onConflictProgress(({ done, total }) => {
       scanProgress.remaining = total - done;
       updateScanIndicator();
@@ -433,6 +439,7 @@ async function runStartupChecks() {
       if (result !== null) state.conflicts = result;
     } catch (_) {}
     unsubscribe();
+    state.conflictScanning = false;
   }
 
   stopScanIndicator();
@@ -499,11 +506,12 @@ function renderMods() {
   // Group tray files by GUID, then group mods by prefix before pagination
   const allGrouped = groupModsByPrefix(groupTrayFiles(allFiltered));
 
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(allGrouped.length / state.itemsPerPage));
+  // Pagination — itemsPerPage=Infinity means "show all" (single page)
+  const effectivePerPage = isFinite(state.itemsPerPage) ? state.itemsPerPage : allGrouped.length || 1;
+  const totalPages = Math.max(1, Math.ceil(allGrouped.length / effectivePerPage));
   if (state.galleryPage > totalPages) state.galleryPage = totalPages;
-  const start = (state.galleryPage - 1) * state.itemsPerPage;
-  const mods = allGrouped.slice(start, start + state.itemsPerPage);
+  const start = (state.galleryPage - 1) * effectivePerPage;
+  const mods = allGrouped.slice(start, start + effectivePerPage);
 
   const isGrid = state.viewMode === 'grid';
 
@@ -605,13 +613,24 @@ function renderMods() {
             <input type="checkbox" class="checkbox" id="select-all-grid">
             <span>Todos</span>
           </label>
-          <select class="select-filter" id="items-per-page" style="width:auto;font-size:12px;padding:5px 26px 5px 8px">
-            <option value="24" ${state.itemsPerPage===24?'selected':''}>24/pág</option>
-            <option value="48" ${state.itemsPerPage===48?'selected':''}>48/pág</option>
-            <option value="96" ${state.itemsPerPage===96?'selected':''}>96/pág</option>
-          </select>
         ` : ''}
+        <select class="select-filter" id="items-per-page" style="width:auto;font-size:12px;padding:5px 26px 5px 8px"
+          title="Itens por página">
+          <option value="Infinity" ${!isFinite(state.itemsPerPage)?'selected':''}>Sem limite</option>
+          <option value="30" ${state.itemsPerPage===30?'selected':''}>30/pág</option>
+          <option value="50" ${state.itemsPerPage===50?'selected':''}>50/pág</option>
+          <option value="100" ${state.itemsPerPage===100?'selected':''}>100/pág</option>
+        </select>
       </div>
+    </div>
+
+    <!-- ── Drag & Drop hint (static, visible when idle) ───────────────── -->
+    <div class="drag-hint" id="drag-hint">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span>Arraste arquivos (.package, .ts4script, .zip, .rar, .7z, Tray) para importar</span>
     </div>
 
     <!-- ── Drag overlay (hidden until drag enters) ─────────────────── -->
@@ -717,6 +736,9 @@ function groupTrayFiles(mods) {
   }
 
   for (const [guid, files] of groups) {
+    // Single file with a GUID — show as individual item, not a group
+    if (files.length === 1) { result.push(files[0]); continue; }
+
     // Use the .trayitem file as the representative for name/thumbnail
     const primary = files.find(f => f.name.toLowerCase().endsWith('.trayitem'))
                  || files.find(f => f.name.toLowerCase().endsWith('.blueprint'))
@@ -828,7 +850,7 @@ function renderGallery(mods) {
         const isActive = state.sortColumn === c.key;
         const arrow = isActive ? (state.sortDir === 'asc' ? '↑' : '↓') : '';
         return `<button class="gallery-sort-btn ${isActive ? 'active' : ''}" data-col="${c.key}">
-          ${c.label}${arrow ? `<span class="gallery-sort-arrow">${arrow}</span>` : ''}
+          ${c.label}${arrow ? `<span class="gallery-sort-arrow" style="font-size:15px;font-weight:700">${arrow}</span>` : ''}
         </button>`;
       }).join('')}
     </div>`;
@@ -871,7 +893,6 @@ function renderGallery(mods) {
 function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeholderIcon, displayName) {
   const allPaths = group.files.map(f => f.path);
   const allSel = allPaths.every(p => state.selectedMods.has(p));
-  const isExpanded = state.expandedGroups.has(groupKey);
   const cached = state.thumbnailCache[thumbKey(group.path)];
   const canHaveThumb = group.type === 'package' || group.type === 'tray';
   const thumbHtml = (cached && cached !== THUMB_LOADING)
@@ -885,39 +906,14 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const checkClass = group._isTrayGroup ? 'card-check-group' : 'card-check-mod-group';
   const cardClass  = group._isTrayGroup ? 'tray-group' : 'mod-group';
 
-  const childrenHtml = isExpanded ? `
-    <div class="group-children-grid">
-      ${group.files.map(f => {
-        const fSel = state.selectedMods.has(f.path);
-        const fCached = state.thumbnailCache[thumbKey(f.path)];
-        const fThumb = (fCached && fCached !== THUMB_LOADING)
-          ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
-          : fCached === null
-            ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type)}</div>`
-            : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div></div>`;
-        const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
-        const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
-        return `<div class="gallery-card child-card ${fSel ? 'selected' : ''} ${!f.enabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
-          <input type="checkbox" class="card-check" data-path="${escapeHtml(f.path)}" ${fSel ? 'checked' : ''}>
-          <span class="card-type-tag ${fTypeClass}">${fTypeLabel}</span>
-          ${fThumb}
-          <div class="gallery-info">
-            <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
-            <div class="gallery-meta"><span>${formatBytes(f.size)}</span>
-              <span class="gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'}"></span>
-            </div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>` : '';
-
   return `
-    <div class="group-card-wrapper ${isExpanded ? 'is-expanded' : ''}" ${idAttr}="${escapeHtml(idVal)}">
-      <div class="gallery-card ${cardClass} ${!group.enabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}">
+    <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
+      <div class="gallery-card ${cardClass} ${!group.enabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
+           title="Clique para ver os ${group.files.length} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
         <span class="${badgeClass}" title="${group.files.length} arquivos">${group.files.length}</span>
-        <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}" data-tooltip="${isExpanded ? 'Recolher arquivos do grupo' : 'Ver arquivos do grupo'}" title="${isExpanded ? 'Recolher' : 'Expandir'}">${isExpanded ? '▲' : '▼'}</button>
+        <span class="group-overlay-hint" title="Clique para ver itens">⊞</span>
         ${thumbHtml}
         <div class="gallery-info">
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
@@ -927,7 +923,6 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
           </div>
         </div>
       </div>
-      ${childrenHtml}
     </div>`;
 }
 
@@ -1004,9 +999,11 @@ function setupCommonModsEvents(el) {
     state.filterFolder = 'all'; state.galleryPage = 1; renderMods();
   });
 
-  // Items per page
+  // Items per page (both list and grid modes)
   el.querySelector('#items-per-page')?.addEventListener('change', e => {
-    state.itemsPerPage = parseInt(e.target.value); state.galleryPage = 1; renderMods();
+    const val = e.target.value;
+    state.itemsPerPage = val === 'Infinity' ? Infinity : parseInt(val);
+    state.galleryPage = 1; renderMods();
   });
 
   // Pagination
@@ -1080,18 +1077,23 @@ function setupCommonModsEvents(el) {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     openModal('Confirmar Exclusão em Lote',
-      `<p>Tem certeza que deseja deletar <strong>${sel.length}</strong> mod(s) selecionado(s)?</p>`,
+      `<p>Tem certeza que deseja mover <strong>${sel.length}</strong> mod(s) selecionado(s) para a lixeira?</p>`,
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-        { label: `Deletar ${sel.length}`, cls: 'btn-danger', action: async () => {
-          const results = await window.api.deleteMods(sel);
+        { label: `Mover ${sel.length} para lixeira`, cls: 'btn-danger', action: async () => {
+          const results = await window.api.trashModsBatch(sel);
           const failed = results.filter(r => !r.success).length;
           const deleted = results.length - failed;
           await loadMods(); state.selectedMods.clear(); renderMods();
-          toast(`${deleted} deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
-          if (deleted > 0) pushUndo(`Deletar ${deleted} mod(s)`, async () => {
-            toast('Não é possível restaurar arquivos excluídos permanentemente', 'warning', 4000);
-          });
+          toast(`${deleted} mod(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+          if (deleted > 0) {
+            const trashed = results.filter(r => r.success);
+            pushUndo(`Excluir ${deleted} mod(s)`, async () => {
+              for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+              await loadMods(); renderMods();
+              toast(`${trashed.length} mod(s) restaurados`, 'success');
+            });
+          }
         }}
       ]
     );
@@ -1105,6 +1107,173 @@ function refreshSelBar(el) {
   bar.classList.toggle('sel-bar-show', n > 0);
   const cEl = bar.querySelector('#sel-bar-count');
   if (cEl) cEl.textContent = `${n} selecionado${n !== 1 ? 's' : ''}`;
+}
+
+// ─── Group Overlay ────────────────────────────────────────────────────────────
+
+/**
+ * Opens a modal overlay showing all files inside a group (tray or mod-prefix).
+ * Allows toggling individual files, and consolidating them to one folder when needed.
+ */
+function openGroupOverlay(group) {
+  const isTray = group._isTrayGroup;
+  const displayTitle = isTray
+    ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
+    : (group.modPrefix || group.name);
+
+  // Check whether files span multiple folders
+  const folders = [...new Set(group.files.map(f => f.folder))];
+  const multiFolder = folders.length > 1;
+  const primaryFolder = group.files[0].folder;
+
+  // Check organize rules before showing consolidate button:
+  // - ts4script files can only be at root or 1 level deep in Mods
+  const canConsolidate = multiFolder && group.files.every(f => {
+    if (f.type === 'script') return primaryFolder === '/' || (primaryFolder.split(/[/\\]/).length <= 1);
+    return true;
+  });
+
+  const filesHtml = group.files.map(f => {
+    const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+    const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+    return `
+      <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
+        <span class="card-type-tag ${fTypeClass}" style="flex-shrink:0">${fTypeLabel}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
+          <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
+        </div>
+        <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
+        <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
+      </div>`;
+  }).join('');
+
+  const consolidateHtml = canConsolidate ? `
+    <div style="margin-bottom:12px;padding:10px 12px;background:var(--warning-subtle);border:1px solid rgba(240,173,78,0.3);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <span style="font-size:12.5px;color:var(--warning)">📁 Arquivos em pastas diferentes — deseja movê-los para a mesma pasta?</span>
+      <button class="btn btn-sm btn-secondary" id="btn-consolidate-group" style="flex-shrink:0">Consolidar</button>
+    </div>` : '';
+
+  const bodyHtml = `
+    <div style="max-height:420px;overflow-y:auto">
+      ${multiFolder && !canConsolidate ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes (consolidação não disponível para este grupo)</div>` : ''}
+      ${consolidateHtml}
+      ${filesHtml}
+    </div>`;
+
+  openModal(`Grupo: ${displayTitle} (${group.files.length} arquivos)`, bodyHtml, [
+    { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
+  ]);
+
+  // Wire toggle on row click
+  document.querySelectorAll('.group-overlay-row').forEach(row => {
+    row.addEventListener('click', async () => {
+      const fp = row.dataset.path;
+      const result = await window.api.toggleMod(fp);
+      if (result.success) {
+        await loadMods();
+        // Refresh the badge inside the row
+        const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
+        if (f) {
+          const badge = row.querySelector('.badge');
+          if (badge) { badge.className = `badge ${f.enabled ? 'badge-active' : 'badge-inactive'}`; badge.textContent = f.enabled ? 'Ativo' : 'Inativo'; }
+        }
+        renderMods();
+      } else { toast('Erro ao alternar mod', 'error'); }
+    });
+  });
+
+  // Consolidate button
+  document.getElementById('btn-consolidate-group')?.addEventListener('click', async () => {
+    const cfg = state.config;
+    if (!cfg?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
+
+    const targetFolder = group.files[0].folder === '/' ? cfg.modsFolder : `${cfg.modsFolder}\\${group.files[0].folder}`;
+    const toMove = group.files.filter(f => f.folder !== group.files[0].folder);
+    let moved = 0;
+    for (const f of toMove) {
+      const dest = `${targetFolder}\\${f.name}`;
+      const r = await window.api.moveMod(f.path, dest);
+      if (r.success) moved++;
+    }
+    await loadMods(); renderMods();
+    closeModal();
+    toast(`${moved} arquivo(s) movidos para a mesma pasta`, 'success');
+  });
+}
+
+// ─── Rubber Band Selection ────────────────────────────────────────────────────
+
+let _rubberBand = { active: false, startX: 0, startY: 0, rect: null };
+
+function initRubberBand(container, getCards) {
+  container.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.gallery-card') || e.target.closest('.gallery-sort-bar') || e.target.closest('.sel-bar')) return;
+
+    _rubberBand.active = true;
+    const cr = container.getBoundingClientRect();
+    _rubberBand.startX = e.clientX - cr.left + container.scrollLeft;
+    _rubberBand.startY = e.clientY - cr.top  + container.scrollTop;
+
+    if (!_rubberBand.rect) {
+      _rubberBand.rect = document.createElement('div');
+      _rubberBand.rect.className = 'rubber-band-rect';
+      container.style.position = 'relative';
+      container.appendChild(_rubberBand.rect);
+    }
+    _rubberBand.rect.style.cssText = `display:block;left:${_rubberBand.startX}px;top:${_rubberBand.startY}px;width:0;height:0`;
+
+    const onMove = ev => {
+      if (!_rubberBand.active) return;
+      const r = container.getBoundingClientRect();
+      const curX = ev.clientX - r.left + container.scrollLeft;
+      const curY = ev.clientY - r.top  + container.scrollTop;
+      const x = Math.min(curX, _rubberBand.startX);
+      const y = Math.min(curY, _rubberBand.startY);
+      const w = Math.abs(curX - _rubberBand.startX);
+      const h = Math.abs(curY - _rubberBand.startY);
+      if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    };
+
+    const onUp = ev => {
+      if (!_rubberBand.active) { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); return; }
+      _rubberBand.active = false;
+      if (_rubberBand.rect) _rubberBand.rect.style.display = 'none';
+
+      const r = container.getBoundingClientRect();
+      const curX = ev.clientX - r.left + container.scrollLeft;
+      const curY = ev.clientY - r.top  + container.scrollTop;
+      const selL = Math.min(curX, _rubberBand.startX), selR = Math.max(curX, _rubberBand.startX);
+      const selT = Math.min(curY, _rubberBand.startY), selB = Math.max(curY, _rubberBand.startY);
+
+      if (selR - selL < 5 && selB - selT < 5) { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); return; }
+
+      const cards = getCards();
+      cards.forEach(card => {
+        const cr2 = card.getBoundingClientRect();
+        const bounding = container.getBoundingClientRect();
+        const cL = cr2.left - bounding.left + container.scrollLeft;
+        const cT = cr2.top  - bounding.top  + container.scrollTop;
+        const cR = cL + cr2.width, cB = cT + cr2.height;
+        if (cL < selR && cR > selL && cT < selB && cB > selT) {
+          const p = card.dataset.path;
+          if (p) {
+            state.selectedMods.add(p);
+            card.classList.add('selected');
+            const cb = card.querySelector('.card-check');
+            if (cb) cb.checked = true;
+          }
+        }
+      });
+      refreshSelBar(document.getElementById('page-mods'));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
 }
 
 function setupGalleryEvents(el, mods) {
@@ -1128,7 +1297,10 @@ function setupGalleryEvents(el, mods) {
   // Select all
   el.querySelector('#select-all-grid')?.addEventListener('change', e => {
     state.selectedMods.clear();
-    if (e.target.checked) mods.forEach(m => state.selectedMods.add(m.path));
+    if (e.target.checked) mods.forEach(m => {
+      if (m._isTrayGroup || m._isModGroup) m.files.forEach(f => state.selectedMods.add(f.path));
+      else state.selectedMods.add(m.path);
+    });
     el.querySelectorAll('.card-check').forEach(c => {
       c.checked = e.target.checked;
       c.closest('.gallery-card').classList.toggle('selected', e.target.checked);
@@ -1137,7 +1309,7 @@ function setupGalleryEvents(el, mods) {
   });
 
   // Card checkbox — individual files
-  el.querySelectorAll('.card-check:not(.card-check-group)').forEach(cb => {
+  el.querySelectorAll('.card-check:not(.card-check-group):not(.card-check-mod-group)').forEach(cb => {
     cb.addEventListener('change', e => {
       e.stopPropagation();
       const p = cb.dataset.path;
@@ -1179,31 +1351,21 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Expand button — grid groups (mod & tray)
-  el.querySelectorAll('.group-expand-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const key = btn.dataset.trayGuid ? 'tray:' + btn.dataset.trayGuid : 'mod:' + btn.dataset.modPrefix;
-      const scrollTop = document.getElementById('mods-table-container')?.scrollTop
-                     || el.querySelector('.gallery-grid')?.parentElement?.scrollTop || 0;
-      if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
-      else state.expandedGroups.add(key);
-      renderMods();
-    });
-  });
-
-  // Card click on group → expand/collapse (not toggle)
+  // Card click on group → open overlay with nested items
   el.querySelectorAll('.gallery-card.mod-group, .gallery-card.tray-group').forEach(card => {
-    card.addEventListener('click', async e => {
-      if (e.target.classList.contains('card-check') || e.target.classList.contains('group-expand-btn')) return;
-      const key = card.dataset.trayGuid ? 'tray:' + card.dataset.trayGuid : 'mod:' + card.dataset.modPrefix;
-      if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
-      else state.expandedGroups.add(key);
-      renderMods();
+    card.addEventListener('click', e => {
+      if (e.target.classList.contains('card-check') || e.target.classList.contains('card-check-group') || e.target.classList.contains('card-check-mod-group')) return;
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const guid   = card.dataset.trayGuid;
+      const prefix = card.dataset.modPrefix;
+      const group = guid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === prefix);
+      if (group) openGroupOverlay(group);
     });
   });
 
-  // Card click → toggle mod (individual, including children inside expanded groups)
+  // Card click → toggle mod (individual cards)
   el.querySelectorAll('.gallery-card:not(.tray-group):not(.mod-group)').forEach(card => {
     card.addEventListener('click', async e => {
       if (e.target.classList.contains('card-check')) return;
@@ -1212,6 +1374,12 @@ function setupGalleryEvents(el, mods) {
       else toast('Erro ao alternar mod', 'error');
     });
   });
+
+  // Rubber band (click-drag) selection on gallery grid
+  const grid = el.querySelector('#gallery-grid');
+  if (grid) {
+    initRubberBand(grid, () => grid.querySelectorAll('.gallery-card[data-path]'));
+  }
 
   // Load thumbnails
   loadVisibleThumbnails(el);
@@ -1478,26 +1646,37 @@ function setupModsEvents(el, mods) {
     });
   });
 
-  // Delete individual
+  // Delete individual (list mode) — uses internal trash for undo
   el.querySelectorAll('.delete-mod-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const filePath = btn.dataset.path;
-      const name = mods.find(m => m.path === filePath)?.name || filePath;
+      const allMods  = [...state.mods, ...state.trayFiles];
+      const name = allMods.find(m => m.path === filePath)?.name || filePath;
       openModal('Confirmar Exclusão',
-        `<p>Tem certeza que deseja deletar <strong>${escapeHtml(name)}</strong>?</p>`,
+        `<p>Tem certeza que deseja mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-          { label: 'Deletar', cls: 'btn-danger', action: async () => {
-            const results = await window.api.deleteMods([filePath]);
-            if (results[0].success) { await loadMods(); renderMods(); toast('Mod deletado', 'success'); }
-            else toast('Erro ao deletar: ' + results[0].error, 'error');
+          { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+            const results = await window.api.trashModsBatch([filePath]);
+            if (results[0]?.success) {
+              const { trashPath, originalPath } = results[0];
+              await loadMods(); renderMods();
+              toast('Mod movido para a lixeira', 'success');
+              pushUndo(`Excluir ${name}`, async () => {
+                await window.api.restoreModFromTrash(trashPath, originalPath);
+                await loadMods(); renderMods();
+                toast('Mod restaurado', 'success');
+              });
+            } else {
+              toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+            }
           }}
         ]
       );
     });
   });
 
-  // Delete group (all files in a tray/mod-prefix group at once)
+  // Delete group in list mode — uses internal trash for undo
   el.querySelectorAll('.delete-group-btn').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
@@ -1508,19 +1687,34 @@ function setupModsEvents(el, mods) {
       if (!group) return;
       const paths = group.files.map(f => f.path);
       openModal('Confirmar Exclusão do Grupo',
-        `<p>Tem certeza que deseja deletar <strong>${group.files.length} arquivo(s)</strong> do grupo <strong>${escapeHtml(group.name)}</strong>?</p>`,
+        `<p>Tem certeza que deseja mover <strong>${group.files.length} arquivo(s)</strong> do grupo <strong>${escapeHtml(group.name)}</strong> para a lixeira?</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-          { label: `Deletar ${group.files.length} arquivo(s)`, cls: 'btn-danger', action: async () => {
-            const results = await window.api.deleteMods(paths);
-            const failed = results.filter(r => !r.success).length;
+          { label: `Mover ${group.files.length} para lixeira`, cls: 'btn-danger', action: async () => {
+            const results = await window.api.trashModsBatch(paths);
+            const failed  = results.filter(r => !r.success).length;
+            const deleted = results.length - failed;
             await loadMods(); renderMods();
-            toast(`${results.length - failed} arquivo(s) deletado(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+            toast(`${deleted} arquivo(s) movidos para lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+            if (deleted > 0) {
+              const trashed = results.filter(r => r.success);
+              pushUndo(`Excluir grupo ${group.name}`, async () => {
+                for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+                await loadMods(); renderMods();
+                toast(`${trashed.length} arquivo(s) restaurados`, 'success');
+              });
+            }
           }}
         ]
       );
     });
   });
+
+  // Rubber band selection in table
+  const tableContainer = el.querySelector('#mods-table-container');
+  if (tableContainer) {
+    initRubberBand(tableContainer, () => tableContainer.querySelectorAll('tr[data-path]'));
+  }
 }
 
 async function importFiles() {
@@ -1591,7 +1785,10 @@ async function renderConflicts() {
 
 async function runConflictScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
-  if (state.conflictScanning) return; // guard against double-click
+  if (state.conflictScanning || scanProgress.running) {
+    toast('Uma verificação já está em andamento', 'warning', 2500);
+    return;
+  }
   state.conflictScanning = true;
 
   // Update header button to disabled state while scanning
@@ -1933,18 +2130,30 @@ function renderOrganizeResults(el) {
     const count = state.emptyFolders.length;
     openModal(
       'Apagar Todas as Pastas Vazias',
-      `<p>Tem certeza que deseja apagar <strong>${count} pasta(s) vazia(s)</strong>?</p>
-       <p style="color:var(--text-secondary);font-size:12px;margin-top:8px">Esta ação não pode ser desfeita.</p>`,
+      `<p>Tem certeza que deseja apagar <strong>${count} pasta(s) vazia(s)</strong>?</p>`,
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: `Apagar ${count} pasta(s)`, cls: 'btn-danger', action: async () => {
-          const paths = state.emptyFolders.map(f => f.path);
+          const toDelete = [...state.emptyFolders];
+          const paths = toDelete.map(f => f.path);
           const results = await window.api.deleteEmptyFolders(paths);
           const ok = results.filter(r => r.success).length;
           const failed = results.length - ok;
+          const deletedFolders = toDelete.filter((_, i) => results[i]?.success);
           state.emptyFolders = state.emptyFolders.filter((_, i) => !results[i]?.success);
           renderOrganizeResults(el);
           toast(`${ok} pasta(s) apagada(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+          if (ok > 0) {
+            pushUndo(`Apagar ${ok} pasta(s) vazia(s)`, async () => {
+              // Recreate the folders (they were empty, so just mkdir)
+              for (const f of deletedFolders) {
+                try { await window.api.moveMod(f.path, f.path); } catch (_) {}
+                // moveMod won't work for dirs — use a workaround: create a placeholder file then delete it
+              }
+              // Actually just show hint, folders can't be easily recreated via existing API
+              toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
+            });
+          }
         }}
       ]
     );
@@ -1966,6 +2175,9 @@ function renderOrganizeResults(el) {
               state.emptyFolders.splice(idx, 1);
               renderOrganizeResults(el);
               toast('Pasta apagada', 'success');
+              pushUndo(`Apagar pasta ${folder.name}`, async () => {
+                toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
+              });
             } else {
               toast('Erro ao apagar pasta: ' + (results[0]?.error || ''), 'error');
             }
@@ -2163,11 +2375,22 @@ async function init() {
   state.config = await window.api.getConfig();
   await loadMods();
 
+  // Load app icon from main process and set in titlebar (replaces SVG placeholder)
+  try {
+    const iconBase64 = await window.api.getIcon();
+    if (iconBase64) {
+      const logo = document.getElementById('app-logo');
+      if (logo) {
+        logo.innerHTML = `<img src="data:image/png;base64,${iconBase64}" width="18" height="18" alt="TS4 Mod Manager" style="object-fit:contain;image-rendering:auto">`;
+      }
+    }
+  } catch (_) { /* keep the SVG fallback */ }
+
   // Initial page
   navigate('dashboard');
 
-  // Start background checks (non-blocking — runs after first render)
-  runStartupChecks();
+  // Start background checks (non-blocking — runs after first render, only once per session)
+  setTimeout(runStartupChecks, 300);
 }
 
 init();

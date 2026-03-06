@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('api', {
   importFiles: (filePaths, modsFolder, trayFolder) =>
     ipcRenderer.invoke('mods:import', filePaths, modsFolder, trayFolder),
 
+  // Undo-able mod deletion (moves to internal trash)
+  trashModsBatch: (filePaths) => ipcRenderer.invoke('mods:trash-batch', filePaths),
+  restoreModFromTrash: (trashPath, originalPath) => ipcRenderer.invoke('mods:restore-from-trash', trashPath, originalPath),
+
   // Conflict detection
   scanConflicts: (modsFolder) => ipcRenderer.invoke('conflicts:scan', modsFolder),
   cancelConflictScan: () => ipcRenderer.send('conflicts:cancel'),
@@ -50,6 +54,9 @@ contextBridge.exposeInMainWorld('api', {
   getThumbnail: (filePath) => ipcRenderer.invoke('thumbnail:get', filePath),
   purgeThumbnailCache: (existingPaths) => ipcRenderer.invoke('thumbnail:purge-cache', existingPaths),
   clearThumbnailCache: () => ipcRenderer.invoke('thumbnail:clear-cache'),
+
+  // App icon (for titlebar)
+  getIcon: () => ipcRenderer.invoke('icon:get'),
 
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),

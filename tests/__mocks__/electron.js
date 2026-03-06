@@ -29,9 +29,17 @@ const app = {
     };
     return paths[name] || os.tmpdir();
   }),
-  whenReady:          jest.fn(() => Promise.resolve()),
-  quit:               jest.fn(),
-  on:                 jest.fn(),
+  whenReady:                  jest.fn(() => Promise.resolve()),
+  quit:                       jest.fn(),
+  on:                         jest.fn(),
+  requestSingleInstanceLock:  jest.fn(() => true), // always returns true (sole instance) in tests
+};
+
+const nativeImage = {
+  createFromPath: jest.fn(() => ({
+    toPNG: jest.fn(() => Buffer.alloc(0)),
+    isEmpty: jest.fn(() => true),
+  })),
 };
 
 const BrowserWindow = jest.fn().mockImplementation(() => ({
@@ -57,7 +65,7 @@ const shell = {
 };
 
 module.exports = {
-  app, BrowserWindow, ipcMain, dialog, shell,
+  app, BrowserWindow, ipcMain, dialog, shell, nativeImage,
   // Exposed for tests that need to call handlers directly
   _ipcHandlers,
   _ipcOnHandlers,

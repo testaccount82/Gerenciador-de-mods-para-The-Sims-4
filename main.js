@@ -1,12 +1,21 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const { execFile } = require('child_process');
+
+// ─── Single Instance Lock ─────────────────────────────────────────────────────
+// Ensures only one instance of the app can run at a time.
+// If a second instance is launched, focus the existing window and quit.
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -95,6 +104,14 @@ function createWindow() {
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
+
+app.on('second-instance', () => {
+  // Someone tried to run a second instance — focus our window
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -1583,6 +1600,45 @@ ipcMain.handle('thumbnail:clear-cache', () => {
     if (fs.existsSync(THUMBNAIL_CACHE_PATH)) fs.unlinkSync(THUMBNAIL_CACHE_PATH);
     return true;
   } catch (_) { return false; }
+});
+
+// App icon (returns PNG base64 for use in renderer titlebar)
+ipcMain.handle('icon:get', () => {
+  try {
+    const iconPath = path.join(__dirname, 'assets', 'icon.ico');
+    const img = nativeImage.createFromPath(iconPath);
+    const png = img.toPNG();
+    if (!png || png.length === 0) return null;
+    return png.toString('base64');
+  } catch (_) { return null; }
+});
+
+// Moves files to internal trash for undo-able deletion from the Mods list
+ipcMain.handle('mods:trash-batch', async (_, filePaths) => {
+  const roots = getAllowedRoots();
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  ensureDir(trashDir);
+  const results = [];
+  for (const fp of filePaths) {
+    if (!isPathSafe(fp, ...roots)) {
+      results.push({ success: false, path: fp, trashPath: null, error: 'Caminho não permitido' });
+      continue;
+    }
+    // Use timestamp + random suffix to avoid collisions
+    const dest = path.join(trashDir, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${path.basename(fp)}`);
+    const result = moveFile(fp, dest);
+    results.push({ ...result, originalPath: fp, trashPath: dest });
+  }
+  return results;
+});
+
+// Restores a file previously moved by mods:trash-batch
+ipcMain.handle('mods:restore-from-trash', (_, trashPath, originalPath) => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  const roots = getAllowedRoots();
+  if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Origem não é da lixeira interna' };
+  if (!isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
+  return moveFile(trashPath, originalPath);
 });
 
 // Filesystem checks
