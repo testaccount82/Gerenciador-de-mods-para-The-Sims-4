@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build EXE (artefato no Actions)
 
 on:
   workflow_run:
