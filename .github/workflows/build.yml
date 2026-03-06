@@ -42,25 +42,3 @@ jobs:
           name: TS4-Mod-Manager-Windows
           path: dist/*.exe
           retention-days: 30
-
-      - name: Criar Release com o EXE
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.1.0
-          name: "TS4 Mod Manager v1.1.0"
-          body: |
-            ## TS4 Mod Manager v1.1.0 🎮
-
-            ### 🐛 Correções
-            - Detecção real das pastas Mods e Tray via `fs.existsSync` (antes qualquer caminho era marcado como detectado)
-            - Removido `...` na coluna de checkbox da tabela de mods
-            - Filtro de pastas não exibe mais `/` como opção
-            - Ícone da janela trocado de escudo para controle de videogame
-            - Cor de destaque alterada para azul Fluent (#0078D4)
-            - Caminho completo do arquivo exibido nos cards de conflito
-            - Desfazer disponível ao deletar arquivos na página de Conflitos
-          draft: false
-          prerelease: false
-          files: dist/*.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
