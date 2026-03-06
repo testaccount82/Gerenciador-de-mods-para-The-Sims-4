@@ -760,7 +760,7 @@ tbody tr.disabled td { opacity: 0.5; }
 
 .gallery-thumb {
   width: 100%; aspect-ratio: 1;
-  object-fit: cover; display: block;
+  object-fit: contain; display: block;
   background: var(--surface-2);
 }
 .gallery-thumb-placeholder {
