@@ -758,7 +758,10 @@ function extractArchive(archivePath, destDir, sevenZipPath) {
 
 // ─── Conflict Detection ──────────────────────────────────────────────────────
 
-async function scanConflicts(modsFolder, sender) {
+// Active cancellation token — replaced on each new scan, set to cancelled on cancel request.
+let _conflictCancelToken = null;
+
+async function scanConflicts(modsFolder, sender, cancelToken) {
   const conflicts = [];
   const allFiles = walkFolder(modsFolder, modsFolder);
   const modFiles = allFiles.filter(({ fullPath }) =>
@@ -802,6 +805,9 @@ async function scanConflicts(modsFolder, sender) {
   // Phase 2 — hash duplicates (reads every file — send progress per file)
   const hashMap = {};
   for (let i = 0; i < modFiles.length; i++) {
+    // Check cancellation before each file read
+    if (cancelToken?.cancelled) return null;
+
     const { fullPath } = modFiles[i];
     sendProgress(i + 1, 'hashes');
     try {
@@ -810,6 +816,9 @@ async function scanConflicts(modsFolder, sender) {
       hashMap[hash].push(fullPath);
     } catch (_) {}
   }
+
+  if (cancelToken?.cancelled) return null;
+
   for (const [hash, paths] of Object.entries(hashMap)) {
     if (paths.length > 1) {
       // Avoid duplicating conflicts already found by name
@@ -1047,7 +1056,13 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) =>
 // Conflicts
 ipcMain.handle('conflicts:scan', async (event, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
-  return scanConflicts(modsFolder, event.sender);
+  // Create a fresh token for this scan, invalidating any previous one
+  const token = { cancelled: false };
+  _conflictCancelToken = token;
+  return scanConflicts(modsFolder, event.sender, token);
+});
+ipcMain.on('conflicts:cancel', () => {
+  if (_conflictCancelToken) _conflictCancelToken.cancelled = true;
 });
 ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };

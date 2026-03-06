@@ -1460,6 +1460,12 @@ async function doImport(filePaths) {
 // ─── Conflicts Page ───────────────────────────────────────────────────────────
 
 async function renderConflicts() {
+  // If a scan is running, cancel it before rebuilding the page
+  if (state.conflictScanning) {
+    window.api.cancelConflictScan();
+    state.conflictScanning = false;
+  }
+
   const el = document.getElementById('page-conflicts');
   el.innerHTML = `
     <div class="page-header">
@@ -1494,9 +1500,15 @@ async function renderConflicts() {
 
 async function runConflictScan(el) {
   if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
+  if (state.conflictScanning) return; // guard against double-click
+  state.conflictScanning = true;
+
+  // Update header button to disabled state while scanning
+  const scanBtn = el.querySelector('#btn-scan-conflicts');
+  if (scanBtn) { scanBtn.disabled = true; scanBtn.style.opacity = '0.5'; }
+
   const resultEl = el.querySelector('#conflicts-result');
 
-  // Initial loading state with progress elements
   resultEl.innerHTML = `
     <div class="loading-state" id="conflict-loading">
       <div class="spinner"></div>
@@ -1507,7 +1519,18 @@ async function runConflictScan(el) {
         </div>
         <span class="conflict-progress-label" id="conflict-progress-label">Aguardando…</span>
       </div>
+      <button class="btn btn-secondary btn-sm" id="btn-cancel-scan" style="margin-top:8px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+        </svg>
+        Parar
+      </button>
     </div>`;
+
+  // Wire up the stop button
+  document.getElementById('btn-cancel-scan')?.addEventListener('click', () => {
+    window.api.cancelConflictScan();
+  });
 
   // Subscribe to progress events from the main process
   const unsubscribe = window.api.onConflictProgress(({ done, total, phase }) => {
@@ -1523,12 +1546,27 @@ async function runConflictScan(el) {
   });
 
   try {
-    state.conflicts = await window.api.scanConflicts(state.config.modsFolder);
+    const result = await window.api.scanConflicts(state.config.modsFolder);
+
+    // null means the scan was cancelled
+    if (result === null) {
+      resultEl.innerHTML = `
+        <div class="notice info" style="justify-content:space-between;align-items:center">
+          <span>⏹ Escaneamento cancelado.</span>
+          <button class="btn btn-sm btn-primary" id="btn-retry-scan">Escanear novamente</button>
+        </div>`;
+      el.querySelector('#btn-retry-scan')?.addEventListener('click', () => runConflictScan(el));
+      return;
+    }
+
+    state.conflicts = result;
     renderConflictResults(el);
   } catch (e) {
     resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
   } finally {
-    unsubscribe(); // always clean up the listener
+    unsubscribe();
+    state.conflictScanning = false;
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.style.opacity = ''; }
   }
 }
 
