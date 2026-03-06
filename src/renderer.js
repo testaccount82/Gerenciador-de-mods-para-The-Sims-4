@@ -117,7 +117,20 @@ function closeModal() {
 
 // ─── Undo System ─────────────────────────────────────────────────────────────
 
-function pushUndo(label, undoFn) {
+function pushUndo(label, undoFn, type = 'action', details = {}) {
+  // Store undoFn in the log entry so History page can expose it
+  const entry = {
+    id: Date.now() + Math.random(),
+    type,
+    details: { ...details, label },
+    timestamp: new Date(),
+    undoFn,
+    undone: false,
+  };
+  state.actionLog.unshift(entry);
+  if (state.actionLog.length > 500) state.actionLog.length = 500;
+  if (state.currentPage === 'history') renderHistory();
+
   state.undoStack.push({ label, undoFn });
   showUndoBar(label);
 }
@@ -1345,7 +1358,8 @@ function setupCommonModsEvents(el) {
       pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
         for (const p of newPaths) await window.api.toggleMod(p);
         await loadMods(); renderMods();
-      });
+        logAction('restore', { count: newPaths.length, label: `Desfazer ativação em lote` });
+      }, 'toggle_on', { count: newPaths.length, source: 'batch' });
     } catch (e) { toast('Erro ao ativar mods: ' + e.message, 'error'); }
   });
 
@@ -1365,7 +1379,8 @@ function setupCommonModsEvents(el) {
       pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
         for (const p of newPaths) await window.api.toggleMod(p);
         await loadMods(); renderMods();
-      });
+        logAction('restore', { count: newPaths.length, label: `Desfazer desativação em lote` });
+      }, 'toggle_off', { count: newPaths.length, source: 'batch' });
     } catch (e) { toast('Erro ao desativar mods: ' + e.message, 'error'); }
   });
 
@@ -1389,7 +1404,8 @@ function setupCommonModsEvents(el) {
               for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
               await loadMods(); renderMods();
               toast(`${trashed.length} mod(s) restaurados`, 'success');
-            });
+              logAction('restore', { count: trashed.length, source: 'batch', label: 'Restaurar exclusão em lote' });
+            }, 'delete', { count: deleted, source: 'batch' });
           }
         }}
       ]
@@ -1483,12 +1499,12 @@ function openGroupOverlay(group) {
                   closeModal();
                   await loadMods(); renderMods();
                   toast(`"${name}" movido para a lixeira`, 'success');
-                  logAction('delete', { name, type: 'single' });
                   pushUndo(`Excluir ${name}`, async () => {
                     await window.api.restoreModFromTrash(trashPath, originalPath);
                     await loadMods(); renderMods();
                     toast('Mod restaurado', 'success');
-                  });
+                    logAction('restore', { name, label: `Restaurar ${name}` });
+                  }, 'delete', { name, source: 'group-overlay' });
                 } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
               }}
             ]
@@ -1809,13 +1825,11 @@ function setupGalleryEvents(el, mods) {
         const allMods = [...state.mods, ...state.trayFiles];
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
-        const label = nowEnabled ? 'Ativar' : 'Desativar';
         const modName = mod?.name || result.newPath.split('\\').pop();
-        logAction(nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
-        pushUndo(`${label} ${modName}`, async () => {
+        pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`, async () => {
           await window.api.toggleMod(result.newPath);
           await loadMods(); renderMods();
-        });
+        }, nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
       } else toast('Erro ao alternar mod', 'error');
     });
   });
@@ -1839,13 +1853,11 @@ function setupGalleryEvents(el, mods) {
           if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));
         }
         await loadMods(); renderMods();
-        const action = allEnabled ? 'toggle_off' : 'toggle_on';
-        logAction(action, { name: group.name, count: prevPaths.length, type: 'group' });
         const newPaths = results.filter(r => r.success).map(r => r.newPath);
         pushUndo(`${allEnabled ? 'Desativar' : 'Ativar'} grupo ${group.name}`, async () => {
           for (const p of newPaths) await window.api.toggleMod(p);
           await loadMods(); renderMods();
-        });
+        }, allEnabled ? 'toggle_off' : 'toggle_on', { name: group.name, count: newPaths.length, type: 'group' });
       } catch (err) { toast('Erro ao alternar grupo', 'error'); }
     });
   });
@@ -2168,12 +2180,11 @@ function setupModsEvents(el, mods) {
           if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));
         }
         await loadMods(); renderMods();
-        logAction(allEnabled ? 'toggle_off' : 'toggle_on', { name: group.name, type: 'group' });
         const newPaths = results.filter(r => r.success).map(r => r.newPath);
         pushUndo(`${allEnabled ? 'Desativar' : 'Ativar'} grupo ${group.name}`, async () => {
           for (const p of newPaths) await window.api.toggleMod(p);
           await loadMods(); renderMods();
-        });
+        }, allEnabled ? 'toggle_off' : 'toggle_on', { name: group.name, count: newPaths.length, type: 'group' });
       } catch (err) { toast('Erro ao alternar conjunto', 'error'); }
     });
   });
@@ -2188,11 +2199,10 @@ function setupModsEvents(el, mods) {
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split('\\').pop();
-        logAction(nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`, async () => {
           await window.api.toggleMod(result.newPath);
           await loadMods(); renderMods();
-        });
+        }, nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
       } else toast('Erro ao alternar mod: ' + result.error, 'error');
     });
   });
@@ -2217,7 +2227,8 @@ function setupModsEvents(el, mods) {
                 await window.api.restoreModFromTrash(trashPath, originalPath);
                 await loadMods(); renderMods();
                 toast('Mod restaurado', 'success');
-              });
+                logAction('restore', { name, label: `Restaurar ${name}` });
+              }, 'delete', { name });
             } else {
               toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
             }
@@ -2249,15 +2260,14 @@ function setupModsEvents(el, mods) {
             const deleted = results.length - failed;
             await loadMods(); renderMods();
             toast(`${deleted} arquivo(s) movidos para lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
-            logAction('delete', { count: deleted, name: group.name, type: 'group' });
             if (deleted > 0) {
               const trashed = results.filter(r => r.success);
               pushUndo(`Excluir grupo ${group.name}`, async () => {
                 for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
                 await loadMods(); renderMods();
                 toast(`${trashed.length} arquivo(s) restaurados`, 'success');
-                logAction('restore', { count: trashed.length, name: group.name });
-              });
+                logAction('restore', { count: trashed.length, name: group.name, label: `Restaurar grupo ${group.name}` });
+              }, 'delete', { count: deleted, name: group.name, type: 'group' });
             }
           }}
         ]
@@ -2599,7 +2609,8 @@ function renderConflictResults(el) {
               }
               renderConflictResults(el);
               toast('Arquivo restaurado', 'success');
-            });
+              logAction('restore', { name: fileName, label: `Restaurar ${fileName}` });
+            }, 'delete', { name: fileName, source: 'conflicts' });
           }}
         ]
       );
@@ -2941,6 +2952,7 @@ function renderOrganizeResults(el) {
           state.invalidFiles = state.invalidFiles.filter((_, i) => !results[i]?.success);
           renderOrganizeResults(el);
           toast(`${ok} arquivo(s) movidos para a lixeira`, ok < total ? 'warning' : 'success');
+          if (ok > 0) logAction('delete', { count: ok, source: 'invalid-files' });
         }}
       ]
     );
@@ -2956,6 +2968,7 @@ function renderOrganizeResults(el) {
         state.invalidFiles.splice(idx, 1);
         renderOrganizeResults(el);
         toast(`"${item.name}" movido para a lixeira`, 'success');
+        logAction('delete', { name: item.name, source: 'invalid-files' });
       } else {
         toast('Erro ao mover para lixeira: ' + (results[0]?.error || ''), 'error');
       }
@@ -2981,7 +2994,9 @@ function renderOrganizeResults(el) {
         if (r.success) await window.api.moveMod(r.to, r.from);
       }
       await loadMods();
-    });
+      renderOrganizeResults(el);
+      logAction('restore', { count: ok, label: `Desfazer correção de ${ok} arquivo(s)` });
+    }, 'move', { count: ok, source: 'organizer-fix-all' });
   });
 
   el.querySelectorAll('.fix-one-btn').forEach(btn => {
@@ -2998,7 +3013,9 @@ function renderOrganizeResults(el) {
         pushUndo(`Mover ${item.name}`, async () => {
           await window.api.moveMod(to, from);
           await loadMods();
-        });
+          renderOrganizeResults(el);
+          logAction('restore', { name: item.name, label: `Desfazer movimentação de ${item.name}` });
+        }, 'move', { name: item.name, source: 'organizer-fix-one' });
       } else {
         toast('Erro ao mover arquivo: ' + (result.error || ''), 'error');
       }
@@ -3034,6 +3051,7 @@ function renderOrganizeResults(el) {
               state.scattered.splice(idx, 1);
               renderOrganizeResults(el);
               toast(`${moved} arquivo(s) consolidados`, 'success');
+              logAction('consolidate', { count: moved, name: group.prefix });
             } else {
               toast('Nenhum arquivo precisava ser movido', 'info');
             }
@@ -3090,6 +3108,7 @@ function renderOrganizeResults(el) {
           state.scattered = [];
           renderOrganizeResults(el);
           toast(`${totalMoved} arquivo(s) consolidados com sucesso`, 'success');
+          logAction('consolidate', { count: totalMoved, groups: state.scattered.length + totalMoved });
         }}
       ]
     );
@@ -3116,7 +3135,7 @@ function renderOrganizeResults(el) {
           if (ok > 0) {
             pushUndo(`Apagar ${ok} pasta(s) vazia(s)`, async () => {
               toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
-            });
+            }, 'delete', { count: ok, source: 'empty-folders', type: 'folder' });
           }
         }}
       ]
@@ -3141,7 +3160,7 @@ function renderOrganizeResults(el) {
               toast('Pasta apagada', 'success');
               pushUndo(`Apagar pasta ${folder.name}`, async () => {
                 toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
-              });
+              }, 'delete', { name: folder.name, source: 'empty-folders', type: 'folder' });
             } else {
               toast('Erro ao apagar pasta: ' + (results[0]?.error || ''), 'error');
             }
@@ -3245,34 +3264,50 @@ function renderManual() {
 function renderHistory() {
   const el = document.getElementById('page-history');
 
-  const formatTime = (date) => {
+  const pad = n => String(n).padStart(2, '0');
+  const formatTime = date => {
     const d = new Date(date);
-    const pad = n => String(n).padStart(2, '0');
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} — ${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
   };
 
-  const typeLabel = {
-    toggle_on:   'Ativado',
-    toggle_off:  'Desativado',
-    delete:      'Excluído',
-    import:      'Importado',
-    move:        'Movido',
-    consolidate: 'Consolidado',
-    restore:     'Restaurado',
-    scan:        'Verificação',
-    fs_change:   'Alteração externa',
+  const TYPE_META = {
+    toggle_on:   { label: 'Ativado',           color: 'var(--success)',        icon: '▶'  },
+    toggle_off:  { label: 'Desativado',         color: 'var(--text-secondary)', icon: '⏸' },
+    delete:      { label: 'Excluído',           color: 'var(--danger)',         icon: '🗑' },
+    import:      { label: 'Importado',          color: 'var(--accent)',         icon: '📥' },
+    move:        { label: 'Movido',             color: 'var(--accent-light)',   icon: '📁' },
+    consolidate: { label: 'Consolidado',        color: 'var(--accent-light)',   icon: '📦' },
+    restore:     { label: 'Restaurado',         color: 'var(--warning)',        icon: '↩' },
+    scan:        { label: 'Verificação',        color: 'var(--text-disabled)',  icon: '🔍' },
+    fs_change:   { label: 'Alteração externa',  color: 'var(--warning)',        icon: '🔄' },
+    action:      { label: 'Ação',               color: 'var(--text-secondary)', icon: '•'  },
   };
-  const typeColor = {
-    toggle_on:   'var(--success)',
-    toggle_off:  'var(--text-secondary)',
-    delete:      'var(--danger)',
-    import:      'var(--accent)',
-    move:        'var(--accent-light)',
-    consolidate: 'var(--accent-light)',
-    restore:     'var(--warning)',
-    scan:        'var(--text-disabled)',
-    fs_change:   'var(--warning)',
+
+  const SOURCE_LABELS = {
+    batch:              'Seleção múltipla',
+    'group-overlay':    'Janela de grupo',
+    conflicts:          'Conflitos',
+    'organizer-fix-all':'Organizar — Corrigir todos',
+    'organizer-fix-one':'Organizar — Corrigir um',
+    'empty-folders':    'Organizar — Pastas vazias',
+    'invalid-files':    'Organizar — Arquivos inválidos',
   };
+
+  function buildDetail(entry) {
+    const d = entry.details || {};
+    const parts = [];
+    if (d.label && !d.name) parts.push(escapeHtml(d.label));
+    if (d.name)  parts.push(`<strong>${escapeHtml(d.name)}</strong>`);
+    if (d.count !== undefined && d.count !== 1) parts.push(`<span style="color:var(--text-secondary)">(${d.count} arquivo${d.count !== 1 ? 's' : ''})</span>`);
+    if (d.groups !== undefined) parts.push(`<span style="color:var(--text-disabled)">${d.groups} grupo${d.groups !== 1 ? 's' : ''}</span>`);
+    if (d.type === 'group') parts.push('<span class="badge badge-partial" style="font-size:10px">grupo</span>');
+    if (d.type === 'folder') parts.push('<span class="badge badge-warn" style="font-size:10px">pasta</span>');
+    if (d.source && SOURCE_LABELS[d.source]) parts.push(`<span style="font-size:11px;color:var(--text-disabled)">via ${escapeHtml(SOURCE_LABELS[d.source])}</span>`);
+    if (d.detail) parts.push(`<span style="color:var(--text-secondary)">${escapeHtml(d.detail)}</span>`);
+    return parts.join(' ');
+  }
+
+  const undoableCount = state.actionLog.filter(e => e.undoFn && !e.undone).length;
 
   const rows = state.actionLog.length === 0
     ? `<div class="empty-state" style="padding:40px 0">
@@ -3286,29 +3321,38 @@ function renderHistory() {
         <table id="history-table">
           <thead>
             <tr>
-              <th style="width:160px"><div class="th-content">Horário</div></th>
+              <th style="width:155px"><div class="th-content">Horário</div></th>
               <th style="width:120px"><div class="th-content">Ação</div></th>
               <th><div class="th-content">Detalhes</div></th>
+              <th style="width:100px"><div class="th-content" style="justify-content:center">Desfazer</div></th>
             </tr>
           </thead>
           <tbody>
-            ${state.actionLog.map(entry => {
-              const icon  = ACTION_ICONS[entry.type] || '•';
-              const label = typeLabel[entry.type] || entry.type;
-              const color = typeColor[entry.type] || 'var(--text-primary)';
-              let detail  = '';
-              if (entry.details.name)  detail += escapeHtml(entry.details.name);
-              if (entry.details.count !== undefined && entry.details.count !== 1) detail += ` (${entry.details.count} arquivo${entry.details.count !== 1 ? 's' : ''})`;
-              if (entry.details.type === 'group') detail += ' <span class="badge badge-partial">grupo</span>';
+            ${state.actionLog.map((entry, idx) => {
+              const meta    = TYPE_META[entry.type] || TYPE_META.action;
+              const detail  = buildDetail(entry);
+              const canUndo = entry.undoFn && !entry.undone;
+              const undoneRow = entry.undone ? 'history-row-undone' : '';
               return `
-                <tr>
+                <tr class="${undoneRow}" data-history-idx="${idx}">
                   <td style="font-size:12px;color:var(--text-disabled);white-space:nowrap">${formatTime(entry.timestamp)}</td>
                   <td>
-                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:${color}">
-                      <span>${icon}</span>${escapeHtml(label)}
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:${meta.color}">
+                      <span>${meta.icon}</span>${escapeHtml(meta.label)}
                     </span>
                   </td>
                   <td style="font-size:13px;color:var(--text-primary)">${detail}</td>
+                  <td style="text-align:center">
+                    ${entry.undone
+                      ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
+                      : canUndo
+                        ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${idx}"
+                             title="${escapeHtml(entry.details?.label || 'Desfazer esta ação')}">
+                             ↩ Desfazer
+                           </button>`
+                        : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`
+                    }
+                  </td>
                 </tr>`;
             }).join('')}
           </tbody>
@@ -3319,20 +3363,46 @@ function renderHistory() {
     <div class="page-header">
       <div>
         <div class="page-title">Histórico</div>
-        <div class="page-subtitle">${state.actionLog.length} ação(ões) nesta sessão</div>
+        <div class="page-subtitle">${state.actionLog.length} ação(ões) nesta sessão${undoableCount > 0 ? ` · <span style="color:var(--accent-light)">${undoableCount} reversível(is)</span>` : ''}</div>
       </div>
       <div class="header-actions">
-        ${state.actionLog.length > 0 ? `
-        <button class="btn btn-secondary btn-sm" id="btn-clear-history">Limpar histórico</button>` : ''}
+        ${state.actionLog.length > 0 ? `<button class="btn btn-secondary btn-sm" id="btn-clear-history">Limpar histórico</button>` : ''}
       </div>
     </div>
     ${rows}
   `;
 
+  // ── Clear history
   el.querySelector('#btn-clear-history')?.addEventListener('click', () => {
     state.actionLog = [];
     renderHistory();
     toast('Histórico limpo', 'info', 1500);
+  });
+
+  // ── Undo from history row
+  el.querySelectorAll('.history-undo-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx   = parseInt(btn.dataset.historyIdx);
+      const entry = state.actionLog[idx];
+      if (!entry || entry.undone || !entry.undoFn) return;
+
+      btn.disabled = true;
+      btn.textContent = '…';
+
+      try {
+        await entry.undoFn();
+        entry.undone = true;
+        // Remove from undoStack if present
+        const stackIdx = state.undoStack.findIndex(s => s.label === (entry.details?.label || entry.type));
+        if (stackIdx !== -1) state.undoStack.splice(stackIdx, 1);
+        toast('Ação desfeita', 'info');
+        renderHistory();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '↩ Desfazer';
+        toast('Erro ao desfazer: ' + e.message, 'error');
+      }
+    });
   });
 }
 
