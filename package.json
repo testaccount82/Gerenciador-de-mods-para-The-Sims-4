@@ -63,10 +63,6 @@
         "pt_BR"
       ],
       "language": "1046"
-    },
-    "portable": {
-      "artifactName": "TS4 Mod Manager Portable ${version}.exe",
-      "icon": "assets/icon.ico"
     }
   },
   "electron-builder": "^26.8.1"
