@@ -50,18 +50,27 @@ jobs:
               runs = runs.filter(r => r.name === escolha);
             }
 
-            // Não apaga a execução atual
-            runs = runs.filter(r => r.id !== context.runId);
+            // Só apaga execuções já concluídas e ignora a atual
+            runs = runs.filter(r => r.id !== context.runId && r.status === "completed");
 
             console.log(`Encontradas ${runs.length} execuções para deletar.`);
 
+            let deletados = 0;
+            let ignorados = 0;
+
             for (const run of runs) {
-              await github.rest.actions.deleteWorkflowRun({
-                owner,
-                repo,
-                run_id: run.id,
-              });
-              console.log(`Deletado: [${run.name}] #${run.run_number}`);
+              try {
+                await github.rest.actions.deleteWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: run.id,
+                });
+                console.log(`Deletado: [${run.name}] #${run.run_number}`);
+                deletados++;
+              } catch (e) {
+                console.log(`Ignorado: [${run.name}] #${run.run_number} — ${e.message}`);
+                ignorados++;
+              }
             }
 
-            console.log("Concluído!");
+            console.log(`Concluído! ${deletados} deletados, ${ignorados} ignorados.`);
