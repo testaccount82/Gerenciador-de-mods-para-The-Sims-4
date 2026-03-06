@@ -1,0 +1,67 @@
+name: Limpar Histórico de Execuções
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: "Qual histórico limpar?"
+        required: true
+        type: choice
+        options:
+          - Todos
+          - Criar Artefatos
+          - Criar Release
+          - Testes
+          - Limpar Histórico de Execuções
+
+permissions:
+  actions: write
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Limpar execuções antigas
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const escolha = "${{ github.event.inputs.workflow }}";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let runs = [];
+            let page = 1;
+
+            while (true) {
+              const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                per_page: 100,
+                page,
+              });
+
+              if (data.workflow_runs.length === 0) break;
+              runs = runs.concat(data.workflow_runs);
+              page++;
+            }
+
+            if (escolha !== "Todos") {
+              runs = runs.filter(r => r.name === escolha);
+            }
+
+            // Não apaga a execução atual
+            runs = runs.filter(r => r.id !== context.runId);
+
+            console.log(`Encontradas ${runs.length} execuções para deletar.`);
+
+            for (const run of runs) {
+              await github.rest.actions.deleteWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+              });
+              console.log(`Deletado: [${run.name}] #${run.run_number}`);
+            }
+
+            console.log("Concluído!");
