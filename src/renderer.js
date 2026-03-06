@@ -1876,7 +1876,11 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
           <button class="btn btn-sm ${group.enabled ? 'btn-secondary' : 'btn-primary'} toggle-group-btn"
             data-${idAttr}="${escapeHtml(idVal)}">${group.enabled ? '⏸' : '▶'}</button>
           <button class="btn btn-sm btn-danger delete-group-btn"
-            data-${idAttr}="${escapeHtml(idVal)}" title="Deletar grupo">🗑</button>
+            data-${idAttr}="${escapeHtml(idVal)}" title="Apagar os ${group.files.length} arquivo(s) do grupo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+            </svg>
+          </button>
         </div>
       </td>
     </tr>${childRows}`;
