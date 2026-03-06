@@ -478,12 +478,8 @@ async function _readDbpfThumbnail(filePath) {
             const alfaMagic = slice.readUInt32BE(24);
             if (alfaMagic === 0x414C4641) { // FIX BUG 1: was 0x41464C41 ("AFLA"), correct is 0x414C4641 ("ALFA")
               try {
-                // Lê tamanho do alpha (big-endian byte-swapped como no s4pe)
-                const lenRaw = slice.readUInt32BE(28);
-                const alphaLen = ((lenRaw & 0xFF000000) >>> 24) |
-                                 ((lenRaw & 0x00FF0000) >>> 8)  |
-                                 ((lenRaw & 0x0000FF00) << 8)   |
-                                 ((lenRaw & 0x000000FF) << 24);
+                // Lê tamanho do alpha — armazenado em big-endian puro (sem byte-swap)
+                const alphaLen = slice.readUInt32BE(28);
                 if (alphaLen > 0 && 32 + alphaLen <= slice.length) {
                   // Extrai somente o JPEG puro (sem o bloco ALFA)
                   // removendo os 20 bytes extras injetados (offset 12..31)
