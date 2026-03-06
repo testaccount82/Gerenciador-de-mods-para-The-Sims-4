@@ -296,6 +296,7 @@ async function runDashboardAutoChecks(el) {
   if (checkMisplaced) {
     try {
       const misplaced = await window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder);
+      state.misplaced = misplaced; // salva no state para a página Organizar usar sem re-escanear
       if (misplaced.length > 0) {
         alerts.push({
           type: 'warning',
@@ -311,6 +312,7 @@ async function runDashboardAutoChecks(el) {
   if (checkDuplicates) {
     try {
       const conflicts = await window.api.scanConflicts(cfg.modsFolder);
+      state.conflicts = conflicts; // salva no state para a página Conflitos usar sem re-escanear
       if (conflicts.length > 0) {
         alerts.push({
           type: 'danger',

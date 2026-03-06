@@ -70,6 +70,7 @@ function createWindow() {
     transparent: false,
     backgroundColor: '#1a1a1a',
     titleBarStyle: 'hidden',
+    icon: path.join(__dirname, 'assets', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
