@@ -1221,6 +1221,14 @@ function openGroupOverlay(group) {
     { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
   ]);
 
+  // Right-click context menu on group modal rows
+  document.querySelectorAll('.group-overlay-row').forEach(row => {
+    row.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      showCtxMenu(e.clientX, e.clientY, row.dataset.path);
+    });
+  });
+
   // Wire toggle on row click
   document.querySelectorAll('.group-overlay-row').forEach(row => {
     row.addEventListener('click', async () => {
