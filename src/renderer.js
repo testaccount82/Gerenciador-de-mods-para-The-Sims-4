@@ -397,8 +397,8 @@ function renderMods() {
   const hasFilter    = state.searchQuery || state.filterStatus !== 'all'
                      || state.filterType !== 'all' || state.filterFolder !== 'all';
 
-  // Group tray files by GUID before pagination
-  const allGrouped = groupTrayFiles(allFiltered);
+  // Group tray files by GUID, then group mods by prefix before pagination
+  const allGrouped = groupModsByPrefix(groupTrayFiles(allFiltered));
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(allGrouped.length / state.itemsPerPage));
@@ -646,6 +646,64 @@ function groupTrayFiles(mods) {
   return result;
 }
 
+
+// ─── Mod Prefix Grouping ─────────────────────────────────────────────────────
+
+/**
+ * Extracts the prefix from a mod filename (everything before the first "_").
+ * Returns null if there's no underscore or the prefix is too short (< 2 chars).
+ */
+function getModPrefix(name) {
+  const base = name.replace(/\.(disabled)$/i, '').replace(/\.[^.]+$/, '');
+  const idx = base.indexOf('_');
+  if (idx < 2) return null;
+  return base.slice(0, idx).toLowerCase();
+}
+
+/**
+ * Groups mods (package + script) with the same filename prefix into a single
+ * card. Only creates a group when 2+ files share the same prefix.
+ * Tray files are not affected (already grouped by GUID).
+ */
+function groupModsByPrefix(mods) {
+  const prefixMap = new Map(); // prefix → [mod, ...]
+  const noPrefix  = [];
+
+  for (const mod of mods) {
+    if (mod._isTrayGroup || mod.type === 'tray') { noPrefix.push(mod); continue; }
+    const prefix = getModPrefix(mod.name);
+    if (!prefix) { noPrefix.push(mod); continue; }
+    if (!prefixMap.has(prefix)) prefixMap.set(prefix, []);
+    prefixMap.get(prefix).push(mod);
+  }
+
+  const result = [...noPrefix];
+
+  for (const [prefix, files] of prefixMap) {
+    if (files.length === 1) { result.push(files[0]); continue; } // solo — show normally
+
+    // Use .package as primary if available, else first file
+    const primary = files.find(f => f.type === 'package') || files[0];
+    const totalSize = files.reduce((s, f) => s + f.size, 0);
+    const allEnabled = files.every(f => f.enabled);
+
+    result.push({
+      _isModGroup: true,
+      modPrefix: prefix,
+      files,
+      path: primary.path,
+      name: primary.name,
+      size: totalSize,
+      enabled: allEnabled,
+      type: primary.type,
+      folder: primary.folder,
+      lastModified: primary.lastModified,
+    });
+  }
+
+  return result;
+}
+
 function renderGallery(mods) {
   if (mods.length === 0) return `
     <div class="empty-state">
@@ -660,6 +718,7 @@ function renderGallery(mods) {
   return `<div class="gallery-grid" id="gallery-grid">
     ${mods.map(mod => {
       if (mod._isTrayGroup) return renderTrayGroupCard(mod);
+      if (mod._isModGroup)  return renderModGroupCard(mod);
 
       const sel = state.selectedMods.has(mod.path);
       const cached = state.thumbnailCache[mod.path];
@@ -915,6 +974,22 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
+  // Card checkbox — mod groups (selects/deselects all files in group)
+  el.querySelectorAll('.card-check-mod-group').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      const prefix = cb.dataset.modPrefix;
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = allGrouped.find(g => g._isModGroup && g.modPrefix === prefix);
+      if (!group) return;
+      group.files.forEach(f => {
+        cb.checked ? state.selectedMods.add(f.path) : state.selectedMods.delete(f.path);
+      });
+      cb.closest('.gallery-card').classList.toggle('selected', cb.checked);
+      refreshSelBar(el);
+    });
+  });
+
   // Card checkbox — tray groups (selects/deselects all files in group)
   el.querySelectorAll('.card-check-group').forEach(cb => {
     cb.addEventListener('change', e => {
@@ -931,8 +1006,23 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
+  // Card click → toggle all files in mod group
+  el.querySelectorAll('.gallery-card.mod-group').forEach(card => {
+    card.addEventListener('click', async e => {
+      if (e.target.classList.contains('card-check')) return;
+      const prefix = card.dataset.modPrefix;
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = allGrouped.find(g => g._isModGroup && g.modPrefix === prefix);
+      if (!group) return;
+      try {
+        for (const f of group.files) await window.api.toggleMod(f.path);
+        await loadMods(); renderMods();
+      } catch (err) { toast('Erro ao alternar arquivos do conjunto', 'error'); }
+    });
+  });
+
   // Card click → toggle mod (individual)
-  el.querySelectorAll('.gallery-card:not(.tray-group)').forEach(card => {
+  el.querySelectorAll('.gallery-card:not(.tray-group):not(.mod-group)').forEach(card => {
     card.addEventListener('click', async e => {
       if (e.target.classList.contains('card-check')) return;
       const result = await window.api.toggleMod(card.dataset.path);
@@ -958,6 +1048,41 @@ function setupGalleryEvents(el, mods) {
 
   // Load thumbnails
   loadVisibleThumbnails(el);
+}
+
+function renderModGroupCard(group) {
+  const allPaths = group.files.map(f => f.path);
+  const allSel = allPaths.every(p => state.selectedMods.has(p));
+  const cached = state.thumbnailCache[group.path];
+  const canHaveThumb = group.type === 'package';
+  const thumbHtml = (cached && cached !== THUMB_LOADING)
+    ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
+    : cached === null || !canHaveThumb
+      ? `<div class="gallery-thumb-placeholder">${fileIcon(group.type)}</div>`
+      : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+
+  const typeLabel = group.type === 'package' ? '.pkg' : group.type === 'script' ? '.ts4' : group.type;
+  const typeClass = group.type === 'package' ? 'card-tag-pkg' : group.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+
+  // Show prefix as group label (capitalize first letter)
+  const label = group.modPrefix.charAt(0).toUpperCase() + group.modPrefix.slice(1);
+
+  return `
+    <div class="gallery-card mod-group ${!group.enabled ? 'card-inactive' : ''}"
+         data-mod-prefix="${escapeHtml(group.modPrefix)}">
+      <input type="checkbox" class="card-check card-check-mod-group"
+             data-mod-prefix="${escapeHtml(group.modPrefix)}" ${allSel ? 'checked' : ''}>
+      <span class="card-type-tag ${typeClass}">${typeLabel}</span>
+      <span class="tray-group-badge mod-group-badge" title="${group.files.length} arquivos neste conjunto">${group.files.length}</span>
+      ${thumbHtml}
+      <div class="gallery-info">
+        <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</div>
+        <div class="gallery-meta">
+          <span>${formatBytes(group.size)}</span>
+          <span class="gallery-status-dot ${group.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+        </div>
+      </div>
+    </div>`;
 }
 
 async function loadVisibleThumbnails(el) {

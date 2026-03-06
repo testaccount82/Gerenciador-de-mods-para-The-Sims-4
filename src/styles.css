@@ -751,6 +751,7 @@ tbody tr.disabled td { opacity: 0.5; }
   pointer-events: none;
 }
 .tray-group-badge::before { content: '🏠 '; }
+.mod-group-badge::before  { content: '📦 '; }
 
 /* type badge — top-right corner */
 .card-type-tag {
