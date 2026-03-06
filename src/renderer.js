@@ -175,9 +175,14 @@ function updateScanIndicator() {
   if (organizeProgress.running && state.currentPage !== 'organizer') {
     elOrg.classList.remove('hidden');
     const text = document.getElementById('scan-indicator-organize-text');
+    const bar  = document.getElementById('scan-indicator-organize-bar');
     if (text) text.textContent = 'Verificando arquivos e pastas…';
+    // Indeterminate bar — set to 60% so the pulse animation is visible
+    if (bar) bar.style.width = '60%';
   } else {
     elOrg.classList.add('hidden');
+    const bar = document.getElementById('scan-indicator-organize-bar');
+    if (bar) bar.style.width = '0%';
   }
 
   // ── Conflitos indicator — hidden when user is already on that page ────────
@@ -188,12 +193,19 @@ function updateScanIndicator() {
     if (text) text.textContent = conflictProgress.remaining > 0
       ? `${conflictProgress.remaining} arquivo(s) restantes`
       : 'Verificando hashes…';
-    if (bar && conflictProgress.total > 0) {
-      const done = conflictProgress.total - conflictProgress.remaining;
-      bar.style.width = Math.round((done / conflictProgress.total) * 100) + '%';
+    if (bar) {
+      if (conflictProgress.total > 0) {
+        const done = conflictProgress.total - conflictProgress.remaining;
+        bar.style.width = Math.max(5, Math.round((done / conflictProgress.total) * 100)) + '%';
+      } else {
+        // Total not yet known — show indeterminate progress
+        bar.style.width = '30%';
+      }
     }
   } else {
     elConf.classList.add('hidden');
+    const bar = document.getElementById('scan-indicator-conflicts-bar');
+    if (bar) bar.style.width = '0%';
   }
 }
 
@@ -515,17 +527,19 @@ async function runStartupChecks() {
   // If another conflicts scan is already running, skip — don't abort organize
   if (state.conflictScanning) return;
 
-  // --- Phase 1: misplaced + empty folders (fast, no file I/O) ---
+  // --- Phase 1: misplaced + empty folders + scattered groups (fast, no file I/O) ---
   if (checkMisplaced && !state.organizeScanning) {
     state.organizeScanning = true;
     startOrganizeIndicator();
     try {
-      const [misplaced, emptyFolders] = await Promise.all([
+      const [misplaced, emptyFolders, scattered] = await Promise.all([
         window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder),
         window.api.scanEmptyFolders(cfg.modsFolder, cfg.trayFolder),
+        window.api.scanScatteredGroups(cfg.modsFolder),
       ]);
       state.misplaced    = misplaced;
       state.emptyFolders = emptyFolders;
+      state.scattered    = scattered;
     } catch (_) {}
     state.organizeScanning = false;
     stopOrganizeIndicator();
@@ -1131,18 +1145,39 @@ function setupCommonModsEvents(el) {
   const dz = el.querySelector('#drop-zone');
   if (dz) {
     let dragDepth = 0;
-    el.addEventListener('dragenter', e => { e.preventDefault(); if (++dragDepth === 1) dz.classList.add('drop-overlay-show'); });
-    el.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dz.classList.remove('drop-overlay-show'); } });
+    el.addEventListener('dragenter', e => {
+      e.preventDefault();
+      if (++dragDepth === 1) dz.classList.add('drop-overlay-show');
+    });
+    el.addEventListener('dragleave', e => {
+      // Only hide when leaving el itself (not a child element)
+      if (!el.contains(e.relatedTarget)) {
+        dragDepth = 0;
+        dz.classList.remove('drop-overlay-show');
+      }
+    });
     el.addEventListener('dragover', e => e.preventDefault());
     el.addEventListener('drop', async e => {
-      e.preventDefault(); dragDepth = 0; dz.classList.remove('drop-overlay-show');
+      e.preventDefault();
+      dragDepth = 0;
+      dz.classList.remove('drop-overlay-show');
 
-      // Recursively collect all File objects from dropped items (including folders)
-      const allFiles = await collectDroppedFiles(e.dataTransfer.items);
-      const paths = allFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
+      let paths = [];
+
+      // Primary: get paths directly from File objects (most reliable in Electron)
+      const directFiles = [...(e.dataTransfer.files || [])];
+      if (directFiles.length > 0) {
+        paths = directFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
+      }
+
+      // Fallback: use FileSystem API to recurse into dropped folders
+      if (!paths.length && e.dataTransfer.items) {
+        const allFiles = await collectDroppedFiles(e.dataTransfer.items);
+        paths = allFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
+      }
+
       if (paths.length) await doImport(paths);
     });
-    dz.addEventListener('click', importFiles);
   }
 
   // Sel-bar deselect
@@ -1332,7 +1367,7 @@ function openGroupOverlay(group) {
 
 // ─── Rubber Band Selection ────────────────────────────────────────────────────
 
-let _rubberBand = { active: false, startX: 0, startY: 0, rect: null };
+let _rubberBand = { active: false, startX: 0, startY: 0, rect: null, didSelect: false };
 
 function initRubberBand(container, getCards) {
   container.addEventListener('mousedown', e => {
@@ -1340,9 +1375,21 @@ function initRubberBand(container, getCards) {
     if (e.target.closest('.gallery-card') || e.target.closest('.gallery-sort-bar') || e.target.closest('.sel-bar')) return;
 
     _rubberBand.active = true;
+    _rubberBand.didSelect = false;
     const cr = container.getBoundingClientRect();
     _rubberBand.startX = e.clientX - cr.left + container.scrollLeft;
     _rubberBand.startY = e.clientY - cr.top  + container.scrollTop;
+
+    // Windows behavior: clear selection when starting a new rubber band unless Ctrl is held
+    if (!e.ctrlKey && !e.metaKey) {
+      state.selectedMods.clear();
+      container.querySelectorAll('.gallery-card.selected, tr.selected').forEach(el => {
+        el.classList.remove('selected');
+        const cb = el.querySelector('.card-check, .row-check');
+        if (cb) cb.checked = false;
+      });
+      refreshSelBar(document.getElementById('page-mods'));
+    }
 
     if (!_rubberBand.rect) {
       _rubberBand.rect = document.createElement('div');
@@ -1394,6 +1441,7 @@ function initRubberBand(container, getCards) {
           }
         }
       });
+      _rubberBand.didSelect = true;
       refreshSelBar(document.getElementById('page-mods'));
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
@@ -1402,6 +1450,15 @@ function initRubberBand(container, getCards) {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   });
+
+  // Prevent ghost click on cards after a rubber band selection ends on top of a card
+  container.addEventListener('click', e => {
+    if (_rubberBand.didSelect) {
+      _rubberBand.didSelect = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
 }
 
 function setupGalleryEvents(el, mods) {
@@ -1620,7 +1677,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       </td>
       <td>
         <div class="cell-name" style="padding-left:20px">
-          <span style="color:var(--text-disabled);font-size:12px;margin-right:4px;flex-shrink:0" title="Item aninhado">↳</span>
+          <span style="color:var(--text-disabled);font-size:12px;margin-right:4px;flex-shrink:0">↳</span>
           <span class="file-icon">${fileIcon(f.type)}</span>
           <span title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
         </div>
@@ -1678,7 +1735,7 @@ function renderTrayGroupRow(group) {
 }
 
 function renderModGroupRow(group) {
-  return renderGroupRow(group, 'mod-prefix', group.modPrefix, '📦');
+  return renderGroupRow(group, 'mod-prefix', group.modPrefix, fileIcon(group.type));
 }
 
 function setupModsEvents(el, mods) {
@@ -1977,7 +2034,7 @@ async function renderConflicts() {
           <span class="conflict-progress-label" id="conflict-progress-label">Aguardando…</span>
         </div>
         <button class="btn btn-secondary btn-sm" id="btn-cancel-scan" style="margin-top:8px">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#f85149" stroke="none">
             <rect x="3" y="3" width="18" height="18" rx="2"/>
           </svg>
           Parar
@@ -2075,7 +2132,7 @@ async function runConflictScan(el) {
         <span class="conflict-progress-label" id="conflict-progress-label">Aguardando…</span>
       </div>
       <button class="btn btn-secondary btn-sm" id="btn-cancel-scan" style="margin-top:8px">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="#f85149" stroke="none">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
         </svg>
         Parar
@@ -2339,7 +2396,7 @@ function renderOrganizeResults(el) {
   // ── Misplaced files section ──────────────────────────────────────────────
   if (hasMisplaced) {
     html += `
-      <div class="organize-section">
+      <div class="card organize-section">
         <div class="organize-section-header">
           <div>
             <span class="section-title">Arquivos fora do lugar</span>
@@ -2376,7 +2433,7 @@ function renderOrganizeResults(el) {
   // ── Scattered groups section ─────────────────────────────────────────────
   if (hasScattered) {
     html += `
-      <div class="organize-section" ${hasMisplaced ? 'style="margin-top:20px"' : ''}>
+      <div class="card organize-section">
         <div class="organize-section-header">
           <div>
             <span class="section-title">Grupos dispersos</span>
@@ -2417,7 +2474,7 @@ function renderOrganizeResults(el) {
   // ── Empty folders section ────────────────────────────────────────────────
   if (hasEmpty) {
     html += `
-      <div class="organize-section" ${hasMisplaced || hasScattered ? 'style="margin-top:20px"' : ''}>
+      <div class="card organize-section">
         <div class="organize-section-header">
           <div>
             <span class="section-title">Pastas vazias</span>

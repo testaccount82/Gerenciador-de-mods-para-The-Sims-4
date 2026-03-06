@@ -248,19 +248,22 @@ html, body {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border: 1px solid var(--accent-subtle2);
+  border: 1px solid rgba(248, 81, 73, 0.3);
   border-radius: var(--r-xs);
   background: transparent;
-  color: var(--accent-light);
+  color: #f85149;
   cursor: pointer;
   padding: 0;
-  opacity: 0.8;
+  opacity: 0.85;
   transition: opacity var(--transition), background var(--transition);
 }
 #scan-indicator-stop:hover {
   opacity: 1;
-  background: var(--accent-subtle2);
+  background: rgba(248, 81, 73, 0.15);
 }
+
+/* Generic stop/cancel button with red icon */
+.btn-stop-red svg { color: #f85149; }
 
 /* ─── Content Area ──────────────────────────────────────────────────── */
 #content-area {
@@ -760,7 +763,7 @@ tbody tr.disabled td { opacity: 0.5; }
   transition: opacity 0.15s ease;
   cursor: copy;
 }
-.drop-overlay-show { opacity: 1; pointer-events: all; }
+.drop-overlay-show { opacity: 1; }
 .drop-overlay-inner {
   display: flex;
   flex-direction: column;
