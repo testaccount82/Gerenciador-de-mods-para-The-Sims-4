@@ -379,6 +379,17 @@ html, body {
 .stat-card.danger  .stat-value { color: var(--danger); }
 .stat-card.info    .stat-value { color: var(--info); }
 
+.stat-card.stat-card-link {
+  cursor: pointer;
+  user-select: none;
+}
+.stat-card.stat-card-link:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-subtle2), var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.stat-card.stat-card-link:active { transform: translateY(0); }
+
 /* ─── Folder Status ─────────────────────────────────────────────────── */
 .folder-status-grid {
   display: flex;

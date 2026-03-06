@@ -383,19 +383,19 @@ async function renderDashboard() {
         <div class="stat-label">Total de Mods</div>
         <div class="stat-value">${allMods.length}</div>
       </div>
-      <div class="stat-card success">
+      <div class="stat-card success stat-card-link" data-filter-status="active" title="Ver mods ativos">
         <div class="stat-label">Ativos</div>
         <div class="stat-value">${active}</div>
       </div>
-      <div class="stat-card warning">
+      <div class="stat-card warning stat-card-link" data-filter-status="inactive" title="Ver mods inativos">
         <div class="stat-label">Inativos</div>
         <div class="stat-value">${inactive}</div>
       </div>
-      <div class="stat-card info">
+      <div class="stat-card info stat-card-link" data-filter-type="package" title="Ver pacotes .package">
         <div class="stat-label">Pacotes (.package)</div>
         <div class="stat-value">${state.mods.filter(m => m.type === 'package').length}</div>
       </div>
-      <div class="stat-card warning">
+      <div class="stat-card warning stat-card-link" data-filter-type="script" title="Ver scripts .ts4script">
         <div class="stat-label">Scripts (.ts4script)</div>
         <div class="stat-value">${state.mods.filter(m => m.type === 'script').length}</div>
       </div>
@@ -451,6 +451,18 @@ async function renderDashboard() {
   el.querySelector('#quick-import')?.addEventListener('click', () => navigate('mods'));
   el.querySelector('#quick-conflicts')?.addEventListener('click', () => navigate('conflicts'));
   el.querySelector('#quick-organize')?.addEventListener('click', () => navigate('organizer'));
+
+  // Stat cards → navigate to Mods with the corresponding filter pre-applied
+  el.querySelectorAll('.stat-card-link').forEach(card => {
+    card.addEventListener('click', () => {
+      state.filterStatus = card.dataset.filterStatus || 'all';
+      state.filterType   = card.dataset.filterType   || 'all';
+      state.filterFolder = 'all';
+      state.searchQuery  = '';
+      state.galleryPage  = 1;
+      navigate('mods');
+    });
+  });
 
   // Show alerts from already-completed scan results (or "in progress" hint)
   if (modsOk) renderDashboardAlerts(el);
