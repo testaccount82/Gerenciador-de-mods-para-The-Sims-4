@@ -974,6 +974,65 @@ function scanMisplaced(modsFolder, trayFolder) {
 }
 
 /**
+ * Detecta arquivos inválidos nas pastas Mods e Tray — extensões que não
+ * pertencem a nenhum formato reconhecido pelo jogo.
+ * Categorias:
+ *   'archive'  – .zip / .rar / .7z  (provavelmente não foi extraído)
+ *   'unknown'  – qualquer outra extensão estranha
+ * Arquivos de sistema comuns (Thumbs.db, desktop.ini, .DS_Store…) são
+ * ignorados para não gerar falsos positivos.
+ */
+function scanInvalidFiles(modsFolder, trayFolder) {
+  const ALL_VALID = new Set([
+    ...MOD_EXTENSIONS,
+    ...TRAY_EXTENSIONS,
+    ...ARCHIVE_EXTENSIONS, // tratados separadamente mas ainda "detectados"
+  ]);
+  const SYSTEM_IGNORE = new Set([
+    'thumbs.db', 'desktop.ini', '.ds_store', '.localized',
+    'folder.jpg', 'folder.png', 'albumart.jpg',
+  ]);
+
+  const invalid = [];
+
+  function scanFolder(baseFolder, folderLabel) {
+    if (!baseFolder || !fs.existsSync(baseFolder)) return;
+    const files = walkFolder(baseFolder, baseFolder);
+    for (const { fullPath } of files) {
+      const basename = path.basename(fullPath);
+      if (SYSTEM_IGNORE.has(basename.toLowerCase())) continue;
+
+      // Strip .disabled suffix to find the real extension
+      const realExt = getRealExtension(fullPath);   // already handles .disabled
+      if (ALL_VALID.has(realExt)) continue;          // recognised → skip
+
+      const relative = path.relative(baseFolder, path.dirname(fullPath));
+      const folder   = relative || '/';
+      let size = 0;
+      try { size = fs.statSync(fullPath).size; } catch (_) {}
+
+      const isArchive = ARCHIVE_EXTENSIONS.includes(realExt);
+      invalid.push({
+        path:    fullPath,
+        name:    basename,
+        ext:     realExt || path.extname(basename).toLowerCase() || '(sem extensão)',
+        folder,
+        folderType: folderLabel,   // 'mods' | 'tray'
+        size,
+        category: isArchive ? 'archive' : 'unknown',
+        reason:   isArchive
+          ? `Arquivo compactado não extraído (${realExt})`
+          : `Extensão não reconhecida pelo jogo (${realExt || 'sem extensão'})`,
+      });
+    }
+  }
+
+  scanFolder(modsFolder,  'mods');
+  scanFolder(trayFolder,  'tray');
+  return invalid;
+}
+
+/**
  * Detecta grupos de mods (mesmo prefixo de nome) cujos arquivos estão
  * espalhados em pastas diferentes. Retorna grupos onde a consolidação
  * faria sentido (2+ arquivos, 2+ pastas distintas).
@@ -1269,6 +1328,26 @@ ipcMain.handle('organize:scan-empty-folders', (_, modsFolder, trayFolder) => {
   }
   if (trayFolder && typeof trayFolder === 'string' && fs.existsSync(trayFolder)) {
     results.push(...scanEmptyFolders(trayFolder));
+  }
+  return results;
+});
+
+ipcMain.handle('organize:scan-invalid', (_, modsFolder, trayFolder) => {
+  const roots = getAllowedRoots();
+  if (modsFolder && roots.length && !isPathSafe(modsFolder, ...roots)) return [];
+  return scanInvalidFiles(modsFolder, trayFolder);
+});
+
+ipcMain.handle('organize:delete-invalid', async (_, filePaths) => {
+  if (!Array.isArray(filePaths)) return [];
+  const roots = getAllowedRoots();
+  const results = [];
+  for (const filePath of filePaths) {
+    if (!filePath || (roots.length && !isPathSafe(filePath, ...roots))) {
+      results.push({ success: false, path: filePath, error: 'Caminho não permitido' });
+      continue;
+    }
+    results.push(await deleteMod(filePath));
   }
   return results;
 });

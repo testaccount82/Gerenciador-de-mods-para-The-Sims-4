@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
   fixOneMisplaced: (item) => ipcRenderer.invoke('organize:fix-one', item),
   scanEmptyFolders: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan-empty-folders', modsFolder, trayFolder),
   deleteEmptyFolders: (folderPaths) => ipcRenderer.invoke('organize:delete-empty-folders', folderPaths),
+  scanInvalidFiles: (modsFolder, trayFolder) => ipcRenderer.invoke('organize:scan-invalid', modsFolder, trayFolder),
+  deleteInvalidFiles: (filePaths) => ipcRenderer.invoke('organize:delete-invalid', filePaths),
 
   // Dialogs
   openFolderDialog: () => ipcRenderer.invoke('dialog:open-folder'),

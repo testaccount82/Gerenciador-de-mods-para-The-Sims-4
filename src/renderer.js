@@ -32,6 +32,7 @@ const state = {
   conflictScanning: false,
   organizeScanning: false,
   emptyFolders: [],   // empty folder paths found by the organizer
+  invalidFiles: [],   // files with unrecognised extensions in Mods/Tray folders
   // Gallery
   viewMode: 'grid',       // 'list' | 'grid' — FIX BUG 2: was 'list', thumbnails only show in grid mode
   galleryPage: 1,
@@ -492,6 +493,14 @@ function renderDashboardAlerts(el) {
     });
   }
 
+  if (state.invalidFiles.length > 0) {
+    alerts.push({
+      type: 'danger', icon: '🚫',
+      message: `${state.invalidFiles.length} arquivo(s) inválido(s) nas pastas de mods`,
+      action: 'organizer', actionLabel: 'Ver e remover'
+    });
+  }
+
   if (state.conflicts.length > 0) {
     alerts.push({
       type: 'danger', icon: '⚠️',
@@ -544,14 +553,16 @@ async function runStartupChecks() {
     state.organizeScanning = true;
     startOrganizeIndicator();
     try {
-      const [misplaced, emptyFolders, scattered] = await Promise.all([
+      const [misplaced, emptyFolders, scattered, invalidFiles] = await Promise.all([
         window.api.scanMisplaced(cfg.modsFolder, cfg.trayFolder),
         window.api.scanEmptyFolders(cfg.modsFolder, cfg.trayFolder),
         window.api.scanScatteredGroups(cfg.modsFolder),
+        window.api.scanInvalidFiles(cfg.modsFolder, cfg.trayFolder),
       ]);
       state.misplaced    = misplaced;
       state.emptyFolders = emptyFolders;
       state.scattered    = scattered;
+      state.invalidFiles = invalidFiles;
     } catch (_) {}
     state.organizeScanning = false;
     stopOrganizeIndicator();
@@ -2493,10 +2504,11 @@ async function runOrganizeScan(el) {
   if (resultEl) resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização e pastas vazias...</div></div>`;
 
   try {
-    [state.misplaced, state.emptyFolders, state.scattered] = await Promise.all([
+    [state.misplaced, state.emptyFolders, state.scattered, state.invalidFiles] = await Promise.all([
       window.api.scanMisplaced(state.config.modsFolder, state.config.trayFolder),
       window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder),
       window.api.scanScatteredGroups(state.config.modsFolder),
+      window.api.scanInvalidFiles(state.config.modsFolder, state.config.trayFolder),
     ]);
     if (state.currentPage === 'organizer' && el) renderOrganizeResults(el);
   } catch (e) {
@@ -2511,10 +2523,11 @@ async function runOrganizeScan(el) {
 function renderOrganizeResults(el) {
   const resultEl = el.querySelector('#organize-result');
   const hasMisplaced = state.misplaced.length > 0;
-  const hasEmpty = state.emptyFolders.length > 0;
+  const hasEmpty     = state.emptyFolders.length > 0;
   const hasScattered = state.scattered.length > 0;
+  const hasInvalid   = state.invalidFiles.length > 0;
 
-  if (!hasMisplaced && !hasEmpty && !hasScattered) {
+  if (!hasMisplaced && !hasEmpty && !hasScattered && !hasInvalid) {
     resultEl.innerHTML = `
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -2640,9 +2653,103 @@ function renderOrganizeResults(el) {
       </div>`;
   }
 
+  // ── Invalid files section ────────────────────────────────────────────────
+  if (hasInvalid) {
+    const archiveCount = state.invalidFiles.filter(f => f.category === 'archive').length;
+    const unknownCount = state.invalidFiles.filter(f => f.category === 'unknown').length;
+    const subtitle = [
+      archiveCount ? `${archiveCount} compactado(s)` : '',
+      unknownCount ? `${unknownCount} desconhecido(s)` : '',
+    ].filter(Boolean).join(' · ');
+
+    html += `
+      <div class="card organize-section">
+        <div class="organize-section-header">
+          <div>
+            <span class="section-title">Arquivos inválidos</span>
+            <span class="organize-section-count organize-section-count-danger">${state.invalidFiles.length}</span>
+            ${subtitle ? `<span style="font-size:11.5px;color:var(--text-secondary);margin-left:6px">${subtitle}</span>` : ''}
+          </div>
+          <button class="btn btn-danger btn-sm" id="btn-delete-all-invalid">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+              <path d="M10 11v6"/><path d="M14 11v6"/>
+            </svg>
+            Mover Todos para Lixeira
+          </button>
+        </div>
+        <div class="organize-rows" id="invalid-files-list">
+          ${state.invalidFiles.map((item, i) => {
+            const isArchive = item.category === 'archive';
+            const iconColor = isArchive ? 'var(--warning)' : 'var(--danger)';
+            const folderLabel = item.folderType === 'tray' ? 'Tray' : 'Mods';
+            return `
+            <div class="invalid-file-row" data-index="${i}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;color:${iconColor}">
+                ${isArchive
+                  ? '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'
+                  : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'}
+              </svg>
+              <div class="misplaced-info">
+                <div class="misplaced-name" title="${escapeHtml(item.path)}">${escapeHtml(item.name)}</div>
+                <div class="misplaced-issue" style="color:${iconColor}">⚠ ${escapeHtml(item.reason)}</div>
+                <div style="font-size:11px;color:var(--text-disabled)">📁 ${escapeHtml(folderLabel)}${item.folder !== '/' ? ' / ' + escapeHtml(item.folder) : ''}</div>
+              </div>
+              <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(item.size)}</span>
+              <button class="btn btn-sm btn-subtle show-invalid-in-explorer-btn" data-index="${i}" title="Mostrar no Explorer">📂</button>
+              <button class="btn btn-sm btn-danger delete-invalid-btn" data-index="${i}">🗑 Lixeira</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
   resultEl.innerHTML = html;
 
-  // ── Misplaced event handlers ─────────────────────────────────────────────
+  // ── Invalid files event handlers ─────────────────────────────────────────
+  el.querySelector('#btn-delete-all-invalid')?.addEventListener('click', () => {
+    const total = state.invalidFiles.length;
+    openModal(
+      'Mover Arquivos Inválidos para Lixeira',
+      `<p>Mover <strong>${total} arquivo(s) inválido(s)</strong> para a lixeira do sistema?</p>
+       <p style="font-size:12.5px;color:var(--text-secondary)">Você poderá restaurá-los pela lixeira do Windows se necessário.</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: `Mover ${total} para Lixeira`, cls: 'btn-danger', action: async () => {
+          const paths = state.invalidFiles.map(f => f.path);
+          const results = await window.api.deleteInvalidFiles(paths);
+          const ok = results.filter(r => r.success).length;
+          state.invalidFiles = state.invalidFiles.filter((_, i) => !results[i]?.success);
+          renderOrganizeResults(el);
+          toast(`${ok} arquivo(s) movidos para a lixeira`, ok < total ? 'warning' : 'success');
+        }}
+      ]
+    );
+  });
+
+  el.querySelectorAll('.delete-invalid-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx  = parseInt(btn.dataset.index);
+      const item = state.invalidFiles[idx];
+      if (!item) return;
+      const results = await window.api.deleteInvalidFiles([item.path]);
+      if (results[0]?.success) {
+        state.invalidFiles.splice(idx, 1);
+        renderOrganizeResults(el);
+        toast(`"${item.name}" movido para a lixeira`, 'success');
+      } else {
+        toast('Erro ao mover para lixeira: ' + (results[0]?.error || ''), 'error');
+      }
+    });
+  });
+
+  el.querySelectorAll('.show-invalid-in-explorer-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx  = parseInt(btn.dataset.index);
+      const item = state.invalidFiles[idx];
+      if (item) window.api.showItemInFolder(item.path);
+    });
+  });
   el.querySelector('#btn-fix-all')?.addEventListener('click', async () => {
     const results = await window.api.fixMisplaced(state.misplaced);
     const ok = results.filter(r => r.success).length;
