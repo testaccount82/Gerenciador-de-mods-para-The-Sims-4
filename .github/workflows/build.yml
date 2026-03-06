@@ -1,8 +1,10 @@
 name: Build Windows EXE
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Testes"]
     branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -11,6 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout código
