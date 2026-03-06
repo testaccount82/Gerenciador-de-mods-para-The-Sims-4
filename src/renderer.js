@@ -1657,6 +1657,8 @@ function setupGalleryEvents(el, mods) {
         }
       }
     }, /* allowOnCards = */ true);
+    // Block drag on any element inside the grid (covers <img> loaded dynamically)
+    grid.addEventListener('dragstart', e => e.preventDefault());
     attachCtxMenu(grid);
   }
 

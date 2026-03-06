@@ -1073,6 +1073,9 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   width: 100%; aspect-ratio: 3/4;
   object-fit: cover; display: block;
   background: var(--surface-2);
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
 }
 .gallery-thumb-placeholder {
   width: 100%; aspect-ratio: 3/4;
