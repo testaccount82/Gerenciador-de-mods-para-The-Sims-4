@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('api', {
   trashModsBatch: (filePaths) => ipcRenderer.invoke('mods:trash-batch', filePaths),
   restoreModFromTrash: (trashPath, originalPath) => ipcRenderer.invoke('mods:restore-from-trash', trashPath, originalPath),
 
+  // Internal Trash management
+  trashList: () => ipcRenderer.invoke('trash:list'),
+  trashRestore: (trashPath, originalPath) => ipcRenderer.invoke('trash:restore', trashPath, originalPath),
+  trashDeletePermanent: (trashPath) => ipcRenderer.invoke('trash:delete-permanent', trashPath),
+  trashEmpty: () => ipcRenderer.invoke('trash:empty'),
+
   // Conflict detection
   scanConflicts: (modsFolder) => ipcRenderer.invoke('conflicts:scan', modsFolder),
   cancelConflictScan: () => ipcRenderer.send('conflicts:cancel'),

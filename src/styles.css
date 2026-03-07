@@ -1739,3 +1739,30 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 .history-redo-btn:hover { filter: brightness(1.15); }
 .history-nav-btn        { opacity: 0.7; font-size: 11px; }
 .history-nav-btn:hover  { opacity: 1; background: var(--elevated); }
+
+/* ─── Trash Page ─────────────────────────────────────────────────── */
+#trash-table td { vertical-align: middle; }
+#trash-table tbody tr:hover { background: var(--elevated); }
+.trash-restore-btn, .trash-delete-btn {
+  font-size: 11.5px; padding: 2px 8px; height: 26px; white-space: nowrap;
+}
+
+/* Nav badge for Lixeira item count */
+.nav-item { position: relative; }
+.nav-trash-badge {
+  position: absolute;
+  top: 4px; right: 6px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  pointer-events: none;
+  line-height: 1;
+}

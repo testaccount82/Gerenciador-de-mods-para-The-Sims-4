@@ -401,6 +401,7 @@ function navigate(page) {
     organizer: renderOrganizer,
     manual: renderManual,
     history: renderHistory,
+    trash: renderTrash,
     settings: renderSettings
   };
   if (renderers[page]) renderers[page]();
@@ -3458,7 +3459,7 @@ function renderHistory() {
       document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
       const renderers = { dashboard, mods: renderMods, conflicts: renderConflicts,
                           organizer: renderOrganizer, manual: renderManual,
-                          history: renderHistory, settings: renderSettings };
+                          history: renderHistory, trash: renderTrash, settings: renderSettings };
       renderers[page]?.();
     });
   });
@@ -3501,6 +3502,201 @@ function renderHistory() {
         toast('Erro ao refazer: ' + e.message, 'error');
       }
     });
+  });
+}
+
+// ─── Trash Page ───────────────────────────────────────────────────────────────
+
+async function renderTrash() {
+  const el = document.getElementById('page-trash');
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Lixeira</div>
+        <div class="page-subtitle" id="trash-subtitle">Carregando…</div>
+      </div>
+      <div class="header-actions" id="trash-header-actions"></div>
+    </div>
+    <div id="trash-list-container">
+      <div class="loading-state"><div class="spinner"></div></div>
+    </div>`;
+
+  const items = await window.api.trashList();
+  renderTrashList(el, items);
+}
+
+function renderTrashList(el, items) {
+  const subtitle = el.querySelector('#trash-subtitle');
+  const actions  = el.querySelector('#trash-header-actions');
+  const container = el.querySelector('#trash-list-container');
+
+  const totalSize = items.reduce((s, i) => s + (i.size || 0), 0);
+  subtitle.textContent = items.length === 0
+    ? 'Nenhum item na lixeira'
+    : `${items.length} item(ns) · ${formatBytes(totalSize)}`;
+
+  actions.innerHTML = items.length > 0 ? `
+    <button class="btn btn-secondary btn-sm" id="btn-trash-restore-all">↩ Restaurar Todos</button>
+    <button class="btn btn-danger btn-sm" id="btn-trash-empty">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+        <path d="M10 11v6"/><path d="M14 11v6"/>
+        <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+      </svg>
+      Esvaziar Lixeira
+    </button>` : '';
+
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/>
+          <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+        </svg>
+        <h3>Lixeira vazia</h3>
+        <p>Arquivos excluídos da aba Mods e de Conflitos aparecerão aqui.</p>
+      </div>`;
+    return;
+  }
+
+  const SOURCE_LABEL = { mods: 'Mods', conflicts: 'Conflitos', unknown: '—' };
+  const pad = n => String(n).padStart(2, '0');
+  const formatDate = iso => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  container.innerHTML = `
+    <div class="table-container">
+      <table id="trash-table">
+        <thead>
+          <tr>
+            <th><div class="th-content">Nome</div></th>
+            <th style="width:90px"><div class="th-content">Origem</div></th>
+            <th style="width:140px"><div class="th-content">Excluído em</div></th>
+            <th style="width:80px"><div class="th-content">Tamanho</div></th>
+            <th style="width:190px"><div class="th-content" style="justify-content:center">Ações</div></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item, idx) => `
+            <tr data-trash-idx="${idx}">
+              <td>
+                <div class="cell-name" title="${escapeHtml(item.originalPath || item.trashPath)}">
+                  <span class="file-icon">${fileIcon(item.name.endsWith('.package') ? 'package' : item.name.endsWith('.ts4script') ? 'script' : 'tray')}</span>
+                  <span>${escapeHtml(item.name)}</span>
+                </div>
+                ${item.originalPath ? `<div style="font-size:11px;color:var(--text-disabled);margin-top:2px;padding-left:4px">${escapeHtml(item.originalPath)}</div>` : ''}
+              </td>
+              <td><span class="badge badge-partial" style="font-size:11px">${escapeHtml(SOURCE_LABEL[item.source] || item.source)}</span></td>
+              <td style="font-size:12px;color:var(--text-disabled)">${formatDate(item.trashedAt)}</td>
+              <td style="font-size:12.5px">${formatBytes(item.size)}</td>
+              <td>
+                <div style="display:flex;gap:5px;justify-content:center;align-items:center">
+                  ${item.originalPath
+                    ? `<button class="btn btn-sm btn-secondary trash-restore-btn" data-trash-idx="${idx}" title="Restaurar para o local original">↩ Restaurar</button>`
+                    : `<span style="font-size:11px;color:var(--text-disabled)" title="Caminho original desconhecido">Sem origem</span>`}
+                  <button class="btn btn-sm btn-danger trash-delete-btn" data-trash-idx="${idx}" title="Apagar permanentemente (envia para Lixeira do sistema)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                      <path d="M10 11v6"/><path d="M14 11v6"/>
+                      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  // ── Restore individual
+  container.querySelectorAll('.trash-restore-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = items[parseInt(btn.dataset.trashIdx)];
+      if (!item?.originalPath) return;
+      btn.disabled = true; btn.textContent = '…';
+      const result = await window.api.trashRestore(item.trashPath, item.originalPath);
+      if (result.success) {
+        await loadMods();
+        toast(`"${item.name}" restaurado`, 'success');
+        const updated = await window.api.trashList();
+        renderTrashList(el, updated);
+      } else {
+        btn.disabled = false; btn.textContent = '↩ Restaurar';
+        toast('Erro ao restaurar: ' + (result.error || ''), 'error');
+      }
+    });
+  });
+
+  // ── Delete permanent individual
+  container.querySelectorAll('.trash-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = items[parseInt(btn.dataset.trashIdx)];
+      openModal('Excluir permanentemente',
+        `<p>Enviar <strong>${escapeHtml(item.name)}</strong> para a lixeira do sistema?</p>
+         <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita pelo gerenciador.</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: 'Excluir permanentemente', cls: 'btn-danger', action: async () => {
+            const result = await window.api.trashDeletePermanent(item.trashPath);
+            if (result.success) {
+              toast(`"${item.name}" enviado para a lixeira do sistema`, 'info');
+              const updated = await window.api.trashList();
+              renderTrashList(el, updated);
+            } else {
+              toast('Erro ao excluir: ' + (result.error || ''), 'error');
+            }
+          }}
+        ]
+      );
+    });
+  });
+
+  // ── Restore all
+  el.querySelector('#btn-trash-restore-all')?.addEventListener('click', async () => {
+    const restorable = items.filter(i => i.originalPath);
+    if (!restorable.length) { toast('Nenhum item com caminho de origem conhecido', 'warning'); return; }
+    openModal('Restaurar Todos',
+      `<p>Restaurar <strong>${restorable.length}</strong> item(ns) para seus locais originais?</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: 'Restaurar Todos', cls: 'btn-primary', action: async () => {
+          let ok = 0;
+          for (const item of restorable) {
+            const r = await window.api.trashRestore(item.trashPath, item.originalPath);
+            if (r.success) ok++;
+          }
+          await loadMods();
+          toast(`${ok} item(ns) restaurado(s)`, 'success');
+          logAction('restore', { count: ok, source: 'trash', label: `Restaurar ${ok} item(ns) da lixeira` });
+          const updated = await window.api.trashList();
+          renderTrashList(el, updated);
+        }}
+      ]
+    );
+  });
+
+  // ── Empty trash
+  el.querySelector('#btn-trash-empty')?.addEventListener('click', () => {
+    openModal('Esvaziar Lixeira',
+      `<p>Enviar <strong>${items.length}</strong> item(ns) para a lixeira do sistema?</p>
+       <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita pelo gerenciador.<br>Os arquivos ainda poderão ser recuperados pela Lixeira do Windows/macOS.</p>`,
+      [
+        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+        { label: 'Esvaziar Lixeira', cls: 'btn-danger', action: async () => {
+          const result = await window.api.trashEmpty();
+          toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
+          const updated = await window.api.trashList();
+          renderTrashList(el, updated);
+        }}
+      ]
+    );
   });
 }
 
@@ -3642,6 +3838,25 @@ function renderSettings() {
 
 // ─── Data Loading ─────────────────────────────────────────────────────────────
 
+async function updateTrashBadge() {
+  const navBtn = document.querySelector('.nav-item[data-page="trash"]');
+  if (!navBtn) return;
+  try {
+    const items = await window.api.trashList();
+    let badge = navBtn.querySelector('.nav-trash-badge');
+    if (items.length > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-trash-badge';
+        navBtn.appendChild(badge);
+      }
+      badge.textContent = items.length > 99 ? '99+' : items.length;
+    } else {
+      badge?.remove();
+    }
+  } catch (_) {}
+}
+
 async function loadMods() {
   if (!state.config) return;
   try {
@@ -3661,6 +3876,7 @@ async function loadMods() {
     // would cause every disabled mod's thumbnail to be evicted on every reload.
     const allPaths = [...state.mods, ...state.trayFiles].map(m => thumbKey(m.path));
     window.api.purgeThumbnailCache(allPaths);
+    updateTrashBadge();
   } catch (e) {
     console.error('Error loading mods:', e);
     state.modsFolderExists = false;

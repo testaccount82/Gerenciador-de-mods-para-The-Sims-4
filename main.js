@@ -1271,8 +1271,19 @@ ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
   const trashDir = path.join(app.getPath('userData'), 'trash');
   ensureDir(trashDir);
-  const dest = path.join(trashDir, `${Date.now()}_${path.basename(filePath)}`);
-  return moveFile(filePath, dest);
+  const slug = `${Date.now()}_${path.basename(filePath)}`;
+  const dest = path.join(trashDir, slug);
+  const result = moveFile(filePath, dest);
+  if (result.success) {
+    try {
+      fs.writeFileSync(dest + '.meta.json', JSON.stringify({
+        originalPath: filePath,
+        trashedAt: new Date().toISOString(),
+        source: 'conflicts',
+      }));
+    } catch (_) {}
+  }
+  return { ...result, to: dest };
 });
 ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
   const trashDir = path.join(app.getPath('userData'), 'trash');
@@ -1861,9 +1872,19 @@ ipcMain.handle('mods:trash-batch', async (_, filePaths) => {
       results.push({ success: false, path: fp, trashPath: null, error: 'Caminho não permitido' });
       continue;
     }
-    // Use timestamp + random suffix to avoid collisions
-    const dest = path.join(trashDir, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${path.basename(fp)}`);
+    const slug = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${path.basename(fp)}`;
+    const dest = path.join(trashDir, slug);
     const result = moveFile(fp, dest);
+    if (result.success) {
+      // Write sidecar metadata so the Trash page can show origin path
+      try {
+        fs.writeFileSync(dest + '.meta.json', JSON.stringify({
+          originalPath: fp,
+          trashedAt: new Date().toISOString(),
+          source: 'mods',
+        }));
+      } catch (_) {}
+    }
     results.push({ ...result, originalPath: fp, trashPath: dest });
   }
   return results;
@@ -1875,7 +1896,103 @@ ipcMain.handle('mods:restore-from-trash', (_, trashPath, originalPath) => {
   const roots = getAllowedRoots();
   if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Origem não é da lixeira interna' };
   if (!isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
-  return moveFile(trashPath, originalPath);
+  const result = moveFile(trashPath, originalPath);
+  if (result.success) {
+    // Clean up sidecar metadata if exists
+    try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
+  }
+  return result;
+});
+
+// ─── Internal Trash Management ───────────────────────────────────────────────
+
+// Lists all items in the internal trash with metadata
+ipcMain.handle('trash:list', () => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  ensureDir(trashDir);
+  try {
+    const entries = fs.readdirSync(trashDir);
+    const items = [];
+    for (const name of entries) {
+      if (name.endsWith('.meta.json')) continue; // skip sidecars
+      const trashPath = path.join(trashDir, name);
+      let stat;
+      try { stat = fs.statSync(trashPath); } catch (_) { continue; }
+      let meta = {};
+      try { meta = JSON.parse(fs.readFileSync(trashPath + '.meta.json', 'utf8')); } catch (_) {}
+      items.push({
+        trashPath,
+        name: meta.originalPath ? path.basename(meta.originalPath) : name.replace(/^\d+_[a-z0-9]+_/, ''),
+        originalPath: meta.originalPath || null,
+        trashedAt: meta.trashedAt || null,
+        source: meta.source || 'unknown',
+        size: stat.size,
+      });
+    }
+    // Sort newest first
+    items.sort((a, b) => (b.trashedAt || '').localeCompare(a.trashedAt || ''));
+    return items;
+  } catch (e) {
+    return [];
+  }
+});
+
+// Restores one item from internal trash back to its original location
+ipcMain.handle('trash:restore', (_, trashPath, originalPath) => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  const roots = getAllowedRoots();
+  if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Não está na lixeira interna' };
+  if (!originalPath || !isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
+  const result = moveFile(trashPath, originalPath);
+  if (result.success) {
+    try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
+  }
+  return result;
+});
+
+// Permanently deletes one item from internal trash (sends to OS trash)
+ipcMain.handle('trash:delete-permanent', async (_, trashPath) => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Não está na lixeira interna' };
+  try {
+    await shell.trashItem(trashPath);
+    try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
+    return { success: true };
+  } catch (e) {
+    // Fallback: permanent delete if trashItem fails
+    try {
+      fs.unlinkSync(trashPath);
+      try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
+      return { success: true };
+    } catch (e2) {
+      return { success: false, error: e2.message };
+    }
+  }
+});
+
+// Empties the entire internal trash (sends all files to OS trash)
+ipcMain.handle('trash:empty', async () => {
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  ensureDir(trashDir);
+  let ok = 0, failed = 0;
+  try {
+    const entries = fs.readdirSync(trashDir).filter(n => !n.endsWith('.meta.json'));
+    for (const name of entries) {
+      const p = path.join(trashDir, name);
+      try {
+        await shell.trashItem(p);
+        try { fs.unlinkSync(p + '.meta.json'); } catch (_) {}
+        ok++;
+      } catch (_) {
+        try {
+          fs.unlinkSync(p);
+          try { fs.unlinkSync(p + '.meta.json'); } catch (_) {}
+          ok++;
+        } catch (_2) { failed++; }
+      }
+    }
+  } catch (_) {}
+  return { ok, failed };
 });
 
 // Filesystem checks
