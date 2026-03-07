@@ -1254,7 +1254,8 @@ function setupCommonModsEvents(el) {
           for (const group of scattered) {
             const primaryFolder = group.files[0].folder;
             for (const f of group.files.filter(fi => fi.folder !== primaryFolder)) {
-              const dest = (state.config.modsFolder + (primaryFolder === '/' ? '' : '\\' + primaryFolder) + '\\' + f.name);
+              const _sep3a = state.config.modsFolder.includes('\\') ? '\\' : '/';
+              const dest = state.config.modsFolder + (primaryFolder === '/' ? '' : _sep3a + primaryFolder) + _sep3a + f.name;
               const r = await window.api.moveMod(f.path, dest);
               if (r.success) totalMoved++;
             }
@@ -1580,11 +1581,12 @@ function openGroupOverlay(group) {
     const cfg = state.config;
     if (!cfg?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
 
-    const targetFolder = group.files[0].folder === '/' ? cfg.modsFolder : `${cfg.modsFolder}\\${group.files[0].folder}`;
+    const _sep3b = cfg.modsFolder.includes('\\') ? '\\' : '/';
+    const targetFolder = group.files[0].folder === '/' ? cfg.modsFolder : cfg.modsFolder + _sep3b + group.files[0].folder;
     const toMove = group.files.filter(f => f.folder !== group.files[0].folder);
     let moved = 0;
     for (const f of toMove) {
-      const dest = `${targetFolder}\\${f.name}`;
+      const dest = targetFolder + _sep3b + f.name;
       const r = await window.api.moveMod(f.path, dest);
       if (r.success) moved++;
     }
@@ -3511,7 +3513,7 @@ function renderHistory() {
       state.currentPage = page;
       document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
       document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
-      const renderers = { dashboard, mods: renderMods, conflicts: renderConflicts,
+      const renderers = { dashboard: renderDashboard, mods: renderMods, conflicts: renderConflicts,
                           organizer: renderOrganizer, manual: renderManual,
                           history: renderHistory, trash: renderTrash, settings: renderSettings };
       renderers[page]?.();
@@ -3641,7 +3643,7 @@ function renderTrashList(el, items) {
             <tr data-trash-idx="${idx}">
               <td>
                 <div class="cell-name" title="${escapeHtml(item.originalPath || item.trashPath)}">
-                  <span class="file-icon">${fileIcon(item.name.endsWith('.package') ? 'package' : item.name.endsWith('.ts4script') ? 'script' : 'tray')}</span>
+                  <span class="file-icon">${fileIcon((() => { const n = item.name.replace(/\.disabled$/i, ''); return n.endsWith('.package') ? 'package' : n.endsWith('.ts4script') ? 'script' : 'tray'; })())}</span>
                   <span>${escapeHtml(item.name)}</span>
                 </div>
                 ${item.originalPath ? `<div style="font-size:11px;color:var(--text-disabled);margin-top:2px;padding-left:4px">${escapeHtml(item.originalPath)}</div>` : ''}
