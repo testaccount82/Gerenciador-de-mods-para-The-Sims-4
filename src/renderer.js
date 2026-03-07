@@ -1188,6 +1188,8 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
             <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'}"></span>
           </div>
         </div>
+        <button class="card-toggle-btn" data-path="${escapeHtml(f.path)}"
+                title="${fEnabled ? 'Desativar mod' : 'Ativar mod'}">${fEnabled ? '⏸' : '▶'}</button>
       </div>`;
   }).join('');
 
@@ -1807,7 +1809,11 @@ function setupGalleryEvents(el, mods) {
       btn.textContent = isExpanded ? '▴' : '▾';
       btn.dataset.tooltip = isExpanded ? 'Fechar' : 'Ver arquivos do grupo';
       const grid = wrapper.querySelector('.group-children-grid');
-      if (grid) grid.style.display = isExpanded ? '' : 'none';
+      if (grid) {
+        grid.style.display = isExpanded ? '' : 'none';
+        // Carrega thumbs dos child-cards agora que estão visíveis
+        if (isExpanded) loadVisibleThumbnails(el);
+      }
     });
   });
 
@@ -1965,7 +1971,10 @@ function renderModGroupCard(group) {
 }
 
 async function loadVisibleThumbnails(el) {
-  const loaders = el.querySelectorAll('[data-load]');
+  const loaders = [...el.querySelectorAll('[data-load]')].filter(loader => {
+    const hiddenGrid = loader.closest('.group-children-grid');
+    return !hiddenGrid || hiddenGrid.style.display !== 'none';
+  });
 
   // Collect all files that still need loading, marking them as in-progress
   // atomically before any await — this prevents duplicate IPC calls across
@@ -2004,7 +2013,9 @@ async function loadVisibleThumbnails(el) {
       const ph = document.createElement('div');
       ph.className = 'gallery-thumb-placeholder';
       // Use the correct icon for this file type instead of always 📦
-      const modEntry = [...state.mods, ...state.trayFiles].find(m => thumbKey(m.path) === cacheKey);
+      const allFiles = [...state.mods, ...state.trayFiles];
+      const allIndividual = allFiles.flatMap(m => (m._isModGroup || m._isTrayGroup) ? m.files : [m]);
+      const modEntry = allIndividual.find(m => thumbKey(m.path) === cacheKey);
       ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
       stillThere.replaceWith(ph);
     }
