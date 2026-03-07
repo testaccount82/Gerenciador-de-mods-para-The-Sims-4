@@ -2756,13 +2756,13 @@ async function renderOrganizer() {
     </div>
 
     <div class="card" style="display:flex;flex-direction:column;gap:12px">
-      <div class="card-title">Regras do The Sims 4</div>
+      <div class="card-title">O que o Organizar faz</div>
       <div class="notice info">
         <div>
-          <strong>.ts4script</strong> — máximo 1 nível de subpasta dentro da pasta Mods.<br>
-          <strong>.package</strong> — pode ir até 5 níveis de profundidade.<br>
-          <strong>Arquivos de Tray</strong> (.trayitem, .blueprint, etc.) — devem estar na pasta Tray, não em Mods.<br>
-          <strong>Pastas vazias</strong> — subpastas sem nenhum arquivo dentro (incluindo subpastas aninhadas).
+          <strong>Arquivos mal posicionados</strong> — detecta arquivos no lugar errado: .ts4script muito fundo, arquivos de Tray dentro de Mods e vice-versa.<br>
+          <strong>Grupos dispersos</strong> — encontra mods com o mesmo prefixo espalhados em pastas diferentes, ou soltos na raiz sem pasta própria, e oferece consolidá-los.<br>
+          <strong>Conflitos de nome</strong> — identifica arquivos com o mesmo nome em pastas diferentes que podem se sobrescrever.<br>
+          <strong>Pastas vazias</strong> — lista subpastas sem nenhum arquivo dentro (incluindo subpastas aninhadas) para remoção.
         </div>
       </div>
     </div>
