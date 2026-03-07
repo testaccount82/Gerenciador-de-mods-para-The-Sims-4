@@ -794,13 +794,6 @@ function renderMods() {
           </svg>
           Atualizar
         </button>
-        ${!isGrid ? `
-        <button class="btn btn-secondary" id="btn-consolidate-list" title="Consolidar grupos com arquivos em pastas diferentes">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/>
-          </svg>
-          Consolidar
-        </button>` : ''}
         <button class="btn btn-primary" id="btn-import">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -1236,37 +1229,6 @@ function setupCommonModsEvents(el) {
   el.querySelector('#btn-import')?.addEventListener('click', importFiles);
   el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
 
-  // Consolidar grupos (list mode only)
-  el.querySelector('#btn-consolidate-list')?.addEventListener('click', async () => {
-    if (!state.config?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
-    const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
-    const scattered = allGrouped.filter(g => (g._isTrayGroup || g._isModGroup) && new Set(g.files.map(f => f.folder)).size > 1);
-    if (!scattered.length) { toast('Nenhum grupo com arquivos dispersos encontrado', 'info'); return; }
-    const totalFiles = scattered.reduce((s, g) => s + g.files.filter(f => f.folder !== g.files[0].folder).length, 0);
-    openModal(
-      'Consolidar Grupos Dispersos',
-      `<p>Mover <strong>${totalFiles} arquivo(s)</strong> para reorganizar <strong>${scattered.length} grupo(s)</strong> com arquivos em pastas diferentes?</p>
-       <p style="font-size:12.5px;color:var(--text-secondary);margin-top:8px">Cada grupo será consolidado na pasta do seu arquivo principal.</p>`,
-      [
-        { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-        { label: `Consolidar ${scattered.length} grupo(s)`, cls: 'btn-primary', action: async () => {
-          let totalMoved = 0;
-          for (const group of scattered) {
-            const primaryFolder = group.files[0].folder;
-            for (const f of group.files.filter(fi => fi.folder !== primaryFolder)) {
-              const _sep3a = state.config.modsFolder.includes('\\') ? '\\' : '/';
-              const dest = state.config.modsFolder + (primaryFolder === '/' ? '' : _sep3a + primaryFolder) + _sep3a + f.name;
-              const r = await window.api.moveMod(f.path, dest);
-              if (r.success) totalMoved++;
-            }
-          }
-          await loadMods(); renderMods();
-          toast(`${totalMoved} arquivo(s) consolidados`, 'success');
-          logAction('consolidate', { count: totalMoved, groups: scattered.length });
-        }}
-      ]
-    );
-  });
 
   // Search input
   el.querySelector('#search-input')?.addEventListener('input', e => {
@@ -1438,6 +1400,7 @@ function setupCommonModsEvents(el) {
           const failed = results.filter(r => !r.success).length;
           const deleted = results.length - failed;
           await loadMods(); state.selectedMods.clear(); renderMods();
+          updateTrashBadge();
           toast(`${deleted} mod(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           if (deleted > 0) {
             const trashed = results.filter(r => r.success);
@@ -1457,10 +1420,36 @@ function setupCommonModsEvents(el) {
 function refreshSelBar(el) {
   const bar = el.querySelector('#sel-bar');
   if (!bar) return;
-  const n = state.selectedMods.size;
-  bar.classList.toggle('sel-bar-show', n > 0);
+  if (state.selectedMods.size === 0) {
+    bar.classList.remove('sel-bar-show');
+    return;
+  }
+
+  // Conta itens visuais: cada grupo (tray ou mod) selecionado conta como 1
+  const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+  let visualCount = 0;
+  const accounted = new Set();
+
+  for (const item of allGrouped) {
+    if (item._isTrayGroup || item._isModGroup) {
+      const filePaths = item.files.map(f => f.path);
+      if (filePaths.some(p => state.selectedMods.has(p))) {
+        visualCount++;
+        filePaths.forEach(p => accounted.add(p));
+      }
+    } else if (state.selectedMods.has(item.path)) {
+      visualCount++;
+      accounted.add(item.path);
+    }
+  }
+  // Itens selecionados não cobertos pelo agrupamento (edge case)
+  for (const p of state.selectedMods) {
+    if (!accounted.has(p)) visualCount++;
+  }
+
+  bar.classList.add('sel-bar-show');
   const cEl = bar.querySelector('#sel-bar-count');
-  if (cEl) cEl.textContent = `${n} selecionado${n !== 1 ? 's' : ''}`;
+  if (cEl) cEl.textContent = `${visualCount} selecionado${visualCount !== 1 ? 's' : ''}`;
 }
 
 // ─── Group Overlay ────────────────────────────────────────────────────────────
@@ -1502,11 +1491,7 @@ function openGroupOverlay(group) {
       </div>`;
   }).join('');
 
-  const consolidateHtml = canConsolidate ? `
-    <div style="margin-bottom:12px;padding:10px 12px;background:var(--warning-subtle);border:1px solid rgba(240,173,78,0.3);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <span style="font-size:12.5px;color:var(--warning)">📁 Arquivos em pastas diferentes — deseja movê-los para a mesma pasta?</span>
-      <button class="btn btn-sm btn-secondary" id="btn-consolidate-group" style="flex-shrink:0">Consolidar</button>
-    </div>` : '';
+  const consolidateHtml = '';
 
   const bodyHtml = `
     <div style="max-height:420px;overflow-y:auto">
@@ -1539,6 +1524,7 @@ function openGroupOverlay(group) {
                   const { trashPath, originalPath } = results[0];
                   closeModal();
                   await loadMods(); renderMods();
+                  updateTrashBadge();
                   toast(`"${name}" movido para a lixeira`, 'success');
                   pushUndo(`Excluir ${name}`, async () => {
                     await window.api.restoreModFromTrash(trashPath, originalPath);
@@ -1575,25 +1561,6 @@ function openGroupOverlay(group) {
       } else { toast('Erro ao alternar mod', 'error'); }
     });
   });
-
-  // Consolidate button
-  document.getElementById('btn-consolidate-group')?.addEventListener('click', async () => {
-    const cfg = state.config;
-    if (!cfg?.modsFolder) { toast('Configure a pasta Mods primeiro', 'warning'); return; }
-
-    const _sep3b = cfg.modsFolder.includes('\\') ? '\\' : '/';
-    const targetFolder = group.files[0].folder === '/' ? cfg.modsFolder : cfg.modsFolder + _sep3b + group.files[0].folder;
-    const toMove = group.files.filter(f => f.folder !== group.files[0].folder);
-    let moved = 0;
-    for (const f of toMove) {
-      const dest = targetFolder + _sep3b + f.name;
-      const r = await window.api.moveMod(f.path, dest);
-      if (r.success) moved++;
-    }
-    await loadMods(); renderMods();
-    closeModal();
-    toast(`${moved} arquivo(s) movidos para a mesma pasta`, 'success');
-  });
 }
 
 // ─── Rubber Band Selection ────────────────────────────────────────────────────
@@ -1626,6 +1593,8 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
   container.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     if (e.target.closest('.gallery-sort-bar') || e.target.closest('.sel-bar')) return;
+    // Nunca iniciar no cabeçalho da tabela
+    if (e.target.closest('thead')) return;
     // In list mode, don't start on row cells (clicks handle selection there)
     if (!allowOnCards && e.target.closest('.gallery-card')) return;
     // Never start on interactive controls inside cards
@@ -2267,6 +2236,7 @@ function setupModsEvents(el, mods) {
             if (results[0]?.success) {
               const { trashPath, originalPath } = results[0];
               await loadMods(); renderMods();
+              updateTrashBadge();
               toast('Mod movido para a lixeira', 'success');
               pushUndo(`Excluir ${name}`, async () => {
                 await window.api.restoreModFromTrash(trashPath, originalPath);
@@ -2304,6 +2274,7 @@ function setupModsEvents(el, mods) {
             const failed  = results.filter(r => !r.success).length;
             const deleted = results.length - failed;
             await loadMods(); renderMods();
+            updateTrashBadge();
             toast(`${deleted} arquivo(s) movidos para lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
             if (deleted > 0) {
               const trashed = results.filter(r => r.success);
@@ -2320,10 +2291,37 @@ function setupModsEvents(el, mods) {
     });
   });
 
-  // Rubber band selection in table
+  // Rubber band selection in table (includes group-rows + expanded child-rows)
   const tableContainer = el.querySelector('#mods-table-container');
   if (tableContainer) {
-    initRubberBand(tableContainer, () => tableContainer.querySelectorAll('tr[data-path]'));
+    initRubberBand(
+      tableContainer,
+      // All selectable rows: individual rows, child-rows (expanded groups), and group header rows
+      () => tableContainer.querySelectorAll('tr[data-path], tr.group-row'),
+      // Custom selectCard: group-rows select all their files; plain rows select the single file
+      (card) => {
+        if (card.classList.contains('group-row')) {
+          const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+          const group = card.dataset.trayGuid
+            ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === card.dataset.trayGuid)
+            : allGrouped.find(g => g._isModGroup  && g.modPrefix === card.dataset.modPrefix);
+          if (group) {
+            group.files.forEach(f => state.selectedMods.add(f.path));
+            card.classList.add('selected');
+            const cb = card.querySelector('.row-check-group');
+            if (cb) cb.checked = true;
+          }
+        } else {
+          const p = card.dataset.path;
+          if (p) {
+            state.selectedMods.add(p);
+            card.classList.add('selected');
+            const cb = card.querySelector('.row-check');
+            if (cb) cb.checked = true;
+          }
+        }
+      }
+    );
     attachCtxMenu(tableContainer);
   }
 }
@@ -2426,6 +2424,7 @@ async function doImport(filePaths) {
         const trashResults = await window.api.trashModsBatch(importedPaths);
         const ok = trashResults.filter(r => r.success).length;
         await loadMods();
+        updateTrashBadge();
         if (state.currentPage === 'mods') renderMods();
         if (state.currentPage === 'dashboard') renderDashboard();
         toast(`${ok} arquivo(s) importado(s) removido(s)`, 'info');
@@ -2628,8 +2627,6 @@ async function runConflictScan(el) {
     }
 
     state.conflicts = result;
-    logAction('scan', { count: result.length, source: 'conflicts',
-      label: result.length ? `${result.length} conflito(s) encontrado(s)` : 'Nenhum conflito encontrado' });
     renderConflictResults(el);
   } catch (e) {
     resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
@@ -2685,6 +2682,7 @@ function renderConflictResults(el) {
             await loadMods();
             renderConflictResults(el);
             toast('Arquivo deletado', 'success');
+            updateTrashBadge();
             pushUndo(`Deletar ${fileName}`, async () => {
               await window.api.conflictRestoreFromTrash(trashPath, filePath);
               await loadMods();
@@ -2703,11 +2701,8 @@ function renderConflictResults(el) {
   });
 
   el.querySelector('#btn-dismiss-all')?.addEventListener('click', () => {
-    const count = state.conflicts.length;
     state.conflicts = [];
     renderConflictResults(el);
-    if (count > 0) logAction('scan', { count: 0, source: 'conflicts',
-      label: `${count} conflito(s) dispensado(s) manualmente` });
   });
 }
 
@@ -2826,8 +2821,6 @@ async function runOrganizeScan(el) {
     ]);
     const totalIssues = state.misplaced.length + state.emptyFolders.length
                       + state.scattered.length + state.invalidFiles.length;
-    logAction('scan', { count: totalIssues, source: 'organizer',
-      label: totalIssues ? `${totalIssues} problema(s) encontrado(s)` : 'Tudo organizado' });
     if (state.currentPage === 'organizer' && el) renderOrganizeResults(el);
   } catch (e) {
     if (resultEl) resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
@@ -3033,18 +3026,36 @@ function renderOrganizeResults(el) {
     const total = state.invalidFiles.length;
     openModal(
       'Mover Arquivos Inválidos para Lixeira',
-      `<p>Mover <strong>${total} arquivo(s) inválido(s)</strong> para a lixeira do sistema?</p>
-       <p style="font-size:12.5px;color:var(--text-secondary)">Você poderá restaurá-los pela lixeira do Windows se necessário.</p>`,
+      `<p>Mover <strong>${total} arquivo(s) inválido(s)</strong> para a lixeira interna?</p>
+       <p style="font-size:12.5px;color:var(--text-secondary)">Você poderá restaurá-los pela aba Lixeira se necessário.</p>`,
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: `Mover ${total} para Lixeira`, cls: 'btn-danger', action: async () => {
           const paths = state.invalidFiles.map(f => f.path);
           const results = await window.api.deleteInvalidFiles(paths);
           const ok = results.filter(r => r.success).length;
+          const trashed = results.filter(r => r.success);
           state.invalidFiles = state.invalidFiles.filter((_, i) => !results[i]?.success);
           renderOrganizeResults(el);
+          updateTrashBadge();
           toast(`${ok} arquivo(s) movidos para a lixeira`, ok < total ? 'warning' : 'success');
-          if (ok > 0) logAction('delete', { count: ok, source: 'invalid-files' });
+          if (ok > 0) {
+            pushUndo(`Excluir ${ok} arquivo(s) inválido(s)`, async () => {
+              for (const r of trashed) {
+                if (r.trashPath && r.originalPath) {
+                  await window.api.trashRestore(r.trashPath, r.originalPath);
+                }
+              }
+              await loadMods();
+              if (state.config?.modsFolder) {
+                state.invalidFiles = await window.api.scanInvalidFiles(
+                  state.config.modsFolder, state.config.trayFolder);
+              }
+              if (state.currentPage === 'organizer') renderOrganizeResults(el);
+              updateTrashBadge();
+              logAction('restore', { count: ok, label: `Restaurar ${ok} arquivo(s) inválido(s)` });
+            }, 'delete', { count: ok, source: 'invalid-files' });
+          }
         }}
       ]
     );
@@ -3057,10 +3068,24 @@ function renderOrganizeResults(el) {
       if (!item) return;
       const results = await window.api.deleteInvalidFiles([item.path]);
       if (results[0]?.success) {
+        const { trashPath, originalPath } = results[0];
         state.invalidFiles.splice(idx, 1);
         renderOrganizeResults(el);
+        updateTrashBadge();
         toast(`"${item.name}" movido para a lixeira`, 'success');
-        logAction('delete', { name: item.name, source: 'invalid-files' });
+        pushUndo(`Excluir "${item.name}"`, async () => {
+          if (trashPath && originalPath) {
+            await window.api.trashRestore(trashPath, originalPath);
+          }
+          await loadMods();
+          if (state.config?.modsFolder) {
+            state.invalidFiles = await window.api.scanInvalidFiles(
+              state.config.modsFolder, state.config.trayFolder);
+          }
+          if (state.currentPage === 'organizer') renderOrganizeResults(el);
+          updateTrashBadge();
+          logAction('restore', { name: item.name, label: `Restaurar "${item.name}"` });
+        }, 'delete', { name: item.name, source: 'invalid-files' });
       } else {
         toast('Erro ao mover para lixeira: ' + (results[0]?.error || ''), 'error');
       }
@@ -3116,34 +3141,73 @@ function renderOrganizeResults(el) {
 
   // ── Scattered groups event handlers ──────────────────────────────────────
   async function consolidateGroup(group) {
+    const cfg = state.config;
+    if (!cfg?.modsFolder) return { moved: 0, targetAbs: group.targetFolderAbs, movedMap: [] };
+
+    const sep = cfg.modsFolder.includes('\\') ? '\\' : '/';
+    let targetAbs = group.targetFolderAbs;
+    let createNewFolder = false;
+
+    // Se o destino calculado é a raiz, criar subpasta nomeada pelo prefixo
+    // (máx. 1 nível de profundidade — válido tanto para .package quanto para .ts4script)
+    if (group.targetFolder === '/') {
+      targetAbs = cfg.modsFolder + sep + group.prefix;
+      createNewFolder = true;
+    }
+
+    // Quais arquivos precisam mover: ao criar nova pasta, todos; caso contrário só os que estão fora
+    const filesToMove = createNewFolder
+      ? [...group.files]
+      : group.files.filter(f => f.folder !== group.targetFolder);
+
+    // Captura mapa originalPath → newPath ANTES de qualquer operação de disco
+    const movedMap = filesToMove.map(f => ({
+      originalPath: f.path,
+      newPath: targetAbs + sep + f.name,
+    }));
+
     let moved = 0;
-    const toMove = group.files.filter(f => f.folder !== group.targetFolder);
-    for (const f of toMove) {
-      // Determina destino: targetFolderAbs + nome do arquivo
-      const destPath = group.targetFolderAbs + (group.targetFolderAbs.endsWith('\\') || group.targetFolderAbs.endsWith('/') ? '' : '\\') + f.name;
-      const result = await window.api.moveMod(f.path, destPath);
+    for (const { originalPath, newPath } of movedMap) {
+      const result = await window.api.moveMod(originalPath, newPath);
       if (result.success) moved++;
     }
+
     await loadMods();
-    return moved;
+    return { moved, targetAbs, movedMap };
   }
 
   el.querySelectorAll('.consolidate-one-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const idx = parseInt(btn.dataset.index);
       const group = state.scattered[idx];
+      const destLabel = group.targetFolder === '/' ? `pasta "${group.prefix}" (nova)` : group.targetFolder;
+      const moveCount = group.targetFolder === '/' ? group.files.length : group.files.filter(f => f.folder !== group.targetFolder).length;
       openModal(
         `Consolidar grupo "${group.prefix}"`,
-        `<p>Mover <strong>${group.files.filter(f => f.folder !== group.targetFolder).length} arquivo(s)</strong> para a pasta <strong>${escapeHtml(group.targetFolder === '/' ? '(raiz)' : group.targetFolder)}</strong>?</p>`,
+        `<p>Mover <strong>${moveCount} arquivo(s)</strong> para <strong>${escapeHtml(destLabel)}</strong>?</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Consolidar', cls: 'btn-primary', action: async () => {
-            const moved = await consolidateGroup(group);
+            const { moved, movedMap } = await consolidateGroup(group);
             if (moved > 0) {
               state.scattered.splice(idx, 1);
               renderOrganizeResults(el);
-              toast(`${moved} arquivo(s) consolidados`, 'success');
-              logAction('consolidate', { count: moved, name: group.prefix });
+              toast(`${moved} arquivo(s) consolidados em "${group.prefix}"`, 'success');
+              pushUndo(
+                `Consolidar "${group.prefix}" (${moved} arquivo${moved !== 1 ? 's' : ''})`,
+                async () => {
+                  for (const { newPath, originalPath } of movedMap) {
+                    await window.api.moveMod(newPath, originalPath);
+                  }
+                  await loadMods();
+                  if (state.config?.modsFolder) {
+                    state.scattered = await window.api.scanScatteredGroups(state.config.modsFolder);
+                  }
+                  if (state.currentPage === 'organizer') renderOrganizeResults(el);
+                },
+                'consolidate',
+                { count: moved, name: group.prefix }
+              );
             } else {
               toast('Nenhum arquivo precisava ser movido', 'info');
             }
@@ -3186,21 +3250,41 @@ function renderOrganizeResults(el) {
   });
 
   el.querySelector('#btn-consolidate-all-scattered')?.addEventListener('click', () => {
-    const total = state.scattered.reduce((s, g) => s + g.files.filter(f => f.folder !== g.targetFolder).length, 0);
+    const total = state.scattered.reduce((s, g) => {
+      return s + (g.targetFolder === '/' ? g.files.length : g.files.filter(f => f.folder !== g.targetFolder).length);
+    }, 0);
+    const groupCount = state.scattered.length;
     openModal(
       'Consolidar Todos os Grupos',
-      `<p>Mover <strong>${total} arquivo(s)</strong> para reorganizar <strong>${state.scattered.length} grupo(s)</strong> dispersos?</p>`,
+      `<p>Mover <strong>${total} arquivo(s)</strong> para reorganizar <strong>${groupCount} grupo(s)</strong> dispersos?</p>`,
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-        { label: `Consolidar ${state.scattered.length} grupos`, cls: 'btn-primary', action: async () => {
+        { label: `Consolidar ${groupCount} grupos`, cls: 'btn-primary', action: async () => {
           let totalMoved = 0;
-          for (const group of state.scattered) {
-            totalMoved += await consolidateGroup(group);
+          const allMovedMap = [];
+          for (const group of [...state.scattered]) {
+            const { moved, movedMap } = await consolidateGroup(group);
+            totalMoved += moved;
+            if (moved > 0) allMovedMap.push(...movedMap);
           }
           state.scattered = [];
           renderOrganizeResults(el);
           toast(`${totalMoved} arquivo(s) consolidados com sucesso`, 'success');
-          logAction('consolidate', { count: totalMoved, groups: state.scattered.length + totalMoved });
+          pushUndo(
+            `Consolidar ${groupCount} grupo${groupCount !== 1 ? 's' : ''} (${totalMoved} arquivo${totalMoved !== 1 ? 's' : ''})`,
+            async () => {
+              for (const { newPath, originalPath } of allMovedMap) {
+                await window.api.moveMod(newPath, originalPath);
+              }
+              await loadMods();
+              if (state.config?.modsFolder) {
+                state.scattered = await window.api.scanScatteredGroups(state.config.modsFolder);
+              }
+              if (state.currentPage === 'organizer') renderOrganizeResults(el);
+            },
+            'consolidate',
+            { count: totalMoved, groups: groupCount }
+          );
         }}
       ]
     );
@@ -3356,6 +3440,10 @@ function renderManual() {
 function renderHistory() {
   const el = document.getElementById('page-history');
 
+  // ── Sort state (persiste entre re-renders via closure em state)
+  if (!state.historySort) state.historySort = { col: 'time', dir: 'desc' };
+  const { col: sortCol, dir: sortDir } = state.historySort;
+
   const pad = n => String(n).padStart(2, '0');
   const formatTime = date => {
     const d = new Date(date);
@@ -3418,6 +3506,31 @@ function renderHistory() {
 
   const PAGE_LABELS = { mods: 'Mods', conflicts: 'Conflitos', organizer: 'Organizar', dashboard: 'Início' };
 
+  // ── Sort logic
+  const sortedLog = [...state.actionLog].sort((a, b) => {
+    let va, vb;
+    if (sortCol === 'time') {
+      va = new Date(a.timestamp).getTime();
+      vb = new Date(b.timestamp).getTime();
+    } else if (sortCol === 'action') {
+      const ma = TYPE_META[a.type] || TYPE_META.action;
+      const mb = TYPE_META[b.type] || TYPE_META.action;
+      va = ma.label; vb = mb.label;
+    } else {
+      va = vb = 0;
+    }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const thArrow = col => {
+    if (sortCol !== col) return `<span class="sort-arrow sort-arrow-none">⇅</span>`;
+    return sortDir === 'asc'
+      ? `<span class="sort-arrow sort-arrow-asc">↑</span>`
+      : `<span class="sort-arrow sort-arrow-desc">↓</span>`;
+  };
+
   const undoableCount = state.actionLog.filter(e => e.undoFn && !e.undone).length;
 
   const rows = state.actionLog.length === 0
@@ -3432,14 +3545,26 @@ function renderHistory() {
         <table id="history-table">
           <thead>
             <tr>
-              <th style="width:155px"><div class="th-content">Horário</div></th>
-              <th style="width:115px"><div class="th-content">Ação</div></th>
-              <th><div class="th-content">Detalhes</div></th>
-              <th style="width:195px"><div class="th-content" style="justify-content:center">Ações</div></th>
+              <th style="width:155px" data-sort-col="time">
+                <div class="th-content">Horário ${thArrow('time')}</div>
+                <div class="col-resize-handle"></div>
+              </th>
+              <th style="width:120px" data-sort-col="action">
+                <div class="th-content">Ação ${thArrow('action')}</div>
+                <div class="col-resize-handle"></div>
+              </th>
+              <th>
+                <div class="th-content">Detalhes</div>
+                <div class="col-resize-handle"></div>
+              </th>
+              <th style="width:195px">
+                <div class="th-content" style="justify-content:center">Ações</div>
+              </th>
             </tr>
           </thead>
           <tbody>
-            ${state.actionLog.map((entry, idx) => {
+            ${sortedLog.map((entry, sortedIdx) => {
+              const origIdx = state.actionLog.indexOf(entry);
               const meta    = TYPE_META[entry.type] || TYPE_META.action;
               const detail  = buildDetail(entry);
               const canUndo = entry.undoFn && !entry.undone;
@@ -3448,24 +3573,24 @@ function renderHistory() {
               const undoneRow = entry.undone ? 'history-row-undone' : '';
 
               const navBtn = navPage
-                ? `<button class="btn btn-sm btn-subtle history-nav-btn" data-page="${navPage}" data-history-idx="${idx}"
+                ? `<button class="btn btn-sm btn-subtle history-nav-btn" data-page="${navPage}" data-history-idx="${origIdx}"
                      title="Ir para aba ${escapeHtml(PAGE_LABELS[navPage] || navPage)}">
                      → ${escapeHtml(PAGE_LABELS[navPage] || navPage)}
                    </button>`
                 : '';
 
               const actionBtn = canRedo
-                ? `<button class="btn btn-sm btn-primary history-redo-btn" data-history-idx="${idx}"
+                ? `<button class="btn btn-sm btn-primary history-redo-btn" data-history-idx="${origIdx}"
                      title="Refazer esta ação">↺ Refazer</button>`
                 : canUndo
-                  ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${idx}"
+                  ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${origIdx}"
                        title="${escapeHtml(entry.details?.label || 'Desfazer esta ação')}">↩ Desfazer</button>`
                   : entry.undone
                     ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
                     : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`;
 
               return `
-                <tr class="${undoneRow}" data-history-idx="${idx}">
+                <tr class="${undoneRow}" data-history-idx="${origIdx}">
                   <td style="font-size:12px;color:var(--text-disabled);white-space:nowrap">${formatTime(entry.timestamp)}</td>
                   <td>
                     <span style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:${meta.color}">
@@ -3504,6 +3629,26 @@ function renderHistory() {
     renderHistory();
     toast('Histórico limpo', 'info', 1500);
   });
+
+  // ── Sort by column header click
+  el.querySelectorAll('th[data-sort-col]').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', e => {
+      if (e.target.closest('.col-resize-handle')) return;
+      const col = th.dataset.sortCol;
+      if (state.historySort.col === col) {
+        state.historySort.dir = state.historySort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.historySort.col = col;
+        state.historySort.dir = 'asc';
+      }
+      renderHistory();
+    });
+  });
+
+  // ── Column resize
+  const histTable = el.querySelector('#history-table');
+  if (histTable) initColumnResize(histTable);
 
   // ── Navigate to related page
   el.querySelectorAll('.history-nav-btn').forEach(btn => {
@@ -3582,6 +3727,9 @@ async function renderTrash() {
 }
 
 function renderTrashList(el, items) {
+  // Sincroniza o badge do nav sempre que a lista da lixeira muda
+  updateTrashBadge();
+
   const subtitle = el.querySelector('#trash-subtitle');
   const actions  = el.querySelector('#trash-header-actions');
   const container = el.querySelector('#trash-list-container');

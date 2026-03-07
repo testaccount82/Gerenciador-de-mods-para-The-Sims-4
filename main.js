@@ -699,7 +699,7 @@ function moveFile(fromPath, toPath) {
 
 // ─── Import Files ────────────────────────────────────────────────────────────
 
-function copyModFile(src, modsFolder, trayFolder) {
+async function copyModFile(src, modsFolder, trayFolder) {
   const ext = getRealExtension(src);
   let dest;
   if (MOD_EXTENSIONS.includes(ext)) {
@@ -709,6 +709,15 @@ function copyModFile(src, modsFolder, trayFolder) {
   } else {
     return null;
   }
+
+  // MD5 check: se o arquivo de destino já existe com conteúdo idêntico, pula a cópia
+  if (fs.existsSync(dest)) {
+    try {
+      const [srcHash, destHash] = await Promise.all([getFileHash(src), getFileHash(dest)]);
+      if (srcHash === destHash) return dest; // arquivo idêntico já existe — não reimportar
+    } catch (_) {} // se hash falhar, continua com lógica normal de duplicatas
+  }
+
   // Handle duplicate filenames
   let finalDest = dest;
   let counter = 1;
@@ -759,7 +768,7 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
 
     if ([...MOD_EXTENSIONS, ...TRAY_EXTENSIONS].includes(ext)) {
       try {
-        const dest = copyModFile(src, modsFolder, trayFolder);
+        const dest = await copyModFile(src, modsFolder, trayFolder);
         if (dest) imported.push(dest);
       } catch (e) {
         errors.push({ file: src, error: e.message });
@@ -771,7 +780,7 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
         await extractArchive(src, tempDir, sevenZip);
         const modFiles = collectModFiles(tempDir);
         for (const mf of modFiles) {
-          const dest = copyModFile(mf, modsFolder, trayFolder);
+          const dest = await copyModFile(mf, modsFolder, trayFolder);
           if (dest) imported.push(dest);
         }
       } catch (e) {
@@ -1375,13 +1384,27 @@ ipcMain.handle('organize:scan-invalid', (_, modsFolder, trayFolder) => {
 ipcMain.handle('organize:delete-invalid', async (_, filePaths) => {
   if (!Array.isArray(filePaths)) return [];
   const roots = getAllowedRoots();
+  const trashDir = path.join(app.getPath('userData'), 'trash');
+  ensureDir(trashDir);
   const results = [];
   for (const filePath of filePaths) {
     if (!filePath || (roots.length && !isPathSafe(filePath, ...roots))) {
       results.push({ success: false, path: filePath, error: 'Caminho não permitido' });
       continue;
     }
-    results.push(await deleteMod(filePath));
+    const slug = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${path.basename(filePath)}`;
+    const dest = path.join(trashDir, slug);
+    const result = moveFile(filePath, dest);
+    if (result.success) {
+      try {
+        fs.writeFileSync(dest + '.meta.json', JSON.stringify({
+          originalPath: filePath,
+          trashedAt: new Date().toISOString(),
+          source: 'invalid-files',
+        }));
+      } catch (_) {}
+    }
+    results.push({ ...result, originalPath: filePath, trashPath: dest });
   }
   return results;
 });
