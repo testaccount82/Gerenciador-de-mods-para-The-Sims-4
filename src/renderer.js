@@ -1299,9 +1299,13 @@ function setupCommonModsEvents(el) {
   el.querySelector('#page-prev')?.addEventListener('click', () => { if (state.galleryPage > 1) { state.galleryPage--; renderMods(); } });
   el.querySelector('#page-next')?.addEventListener('click', () => { state.galleryPage++; renderMods(); });
 
-  // Drag-and-drop overlay
+  // Drag-and-drop overlay — attached only once per page element lifetime
+  // (el.innerHTML changes on each renderMods but el itself persists in the DOM,
+  //  so addEventListener without a guard would accumulate duplicate handlers)
   const dz = el.querySelector('#drop-zone');
-  if (dz) {
+  if (dz && !el._eventsAttached) {
+    el._eventsAttached = true;
+
     let dragDepth = 0;
     el.addEventListener('dragenter', e => {
       e.preventDefault();
@@ -1320,7 +1324,8 @@ function setupCommonModsEvents(el) {
     el.addEventListener('drop', async e => {
       e.preventDefault();
       dragDepth = 0;
-      dz.classList.remove('drop-overlay-show');
+      // Re-query dz each time so we always get the live node after re-renders
+      el.querySelector('#drop-zone')?.classList.remove('drop-overlay-show');
       // Ignore internal DOM drags (card rearranging etc.)
       if (!e.dataTransfer.types.includes('Files')) return;
 
@@ -2359,7 +2364,15 @@ async function doImport(filePaths) {
   if (state.currentPage === 'dashboard') renderDashboard();
   if (result.imported.length > 0) {
     toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
-    logAction('import', { count: result.imported.length });
+    const importedPaths = result.imported; // array of destination paths
+    pushUndo(`Importar ${result.imported.length} arquivo(s)`, async () => {
+      const trashResults = await window.api.trashModsBatch(importedPaths);
+      const ok = trashResults.filter(r => r.success).length;
+      await loadMods();
+      if (state.currentPage === 'mods') renderMods();
+      if (state.currentPage === 'dashboard') renderDashboard();
+      toast(`${ok} arquivo(s) importado(s) removido(s)`, 'info');
+    }, 'import', { count: result.imported.length });
   }
   if (result.errors.length > 0) {
     toast(`${result.errors.length} arquivo(s) com erro ao importar`, 'error');
