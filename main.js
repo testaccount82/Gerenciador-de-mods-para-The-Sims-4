@@ -2086,6 +2086,8 @@ ipcMain.handle('trash:empty', async () => {
 // Filesystem checks
 ipcMain.handle('fs:exists', (_, folderPath) => {
   if (!folderPath || typeof folderPath !== 'string') return false;
+  const roots = getAllowedRoots();
+  if (roots.length && !isPathSafe(folderPath, ...roots)) return false;
   try { return fs.existsSync(folderPath); }
   catch (_) { return false; }
 });

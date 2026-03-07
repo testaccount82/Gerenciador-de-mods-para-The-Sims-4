@@ -268,10 +268,14 @@ describe('IPC fs:exists — inputs inválidos', () => {
     expect(await _ipcHandlers['fs:exists'](fakeEvent, '/caminho/que/nao/existe/xyz')).toBe(false);
   });
 
-  test('retorna true para pasta que existe', async () => {
-    const dir = makeTmpDir();
-    expect(await _ipcHandlers['fs:exists'](fakeEvent, dir)).toBe(true);
-    fs.rmSync(dir, { recursive: true, force: true });
+  test('retorna true para pasta que existe (dentro das raízes permitidas)', async () => {
+    const modsDir = makeTmpDir();
+    const trayDir = makeTmpDir();
+    // Primeiro configura as raízes para que o diretório seja aceito
+    await _ipcHandlers['config:set'](fakeEvent, { modsFolder: modsDir, trayFolder: trayDir });
+    expect(await _ipcHandlers['fs:exists'](fakeEvent, modsDir)).toBe(true);
+    fs.rmSync(modsDir, { recursive: true, force: true });
+    fs.rmSync(trayDir, { recursive: true, force: true });
   });
 });
 
