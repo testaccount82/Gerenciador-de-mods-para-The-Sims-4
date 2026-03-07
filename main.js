@@ -97,11 +97,15 @@ function createWindow() {
     mainWindow.show();
   });
 
+  let _resizeTimer = null;
   mainWindow.on('resize', () => {
-    const [w, h] = mainWindow.getSize();
-    const cfg = readConfig();
-    cfg.windowBounds = { width: w, height: h };
-    writeConfig(cfg);
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => {
+      const [w, h] = mainWindow.getSize();
+      const cfg = readConfig();
+      cfg.windowBounds = { width: w, height: h };
+      writeConfig(cfg);
+    }, 500);
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
@@ -1228,9 +1232,10 @@ ipcMain.handle('config:set', (_, config) => {
     if (field in config && typeof config[field] !== 'string') return false;
   }
   // Impede apontar pastas do jogo para diretórios do sistema ou seus subdirectórios
-  // SEC-01: startsWith bloqueia também subdirectórios (e.g. /etc/cron.d, C:\Windows\System32)
+  // SEC-01: os.homedir() é bloqueado apenas como correspondência EXATA — subdiretórios
+  // (como ~/Documents/Electronic Arts/...) são permitidos normalmente.
+  const homedirExact = path.resolve(os.homedir());
   const BLOCKED = [
-    os.homedir(),
     app.getPath('userData'),
     process.env.SystemRoot || 'C:\\Windows',
     '/etc', '/bin', '/usr', '/sbin', '/var', '/sys', '/proc',
@@ -1239,6 +1244,8 @@ ipcMain.handle('config:set', (_, config) => {
   for (const field of ['modsFolder', 'trayFolder']) {
     if (config[field]) {
       const resolved = path.resolve(config[field]);
+      // Bloqueia: exatamente o homedir, ou subdiretórios de diretórios do sistema
+      if (resolved === homedirExact) return false;
       if (BLOCKED.some(b => resolved === b || resolved.startsWith(b + require('path').sep))) return false;
     }
   }
@@ -1385,11 +1392,14 @@ ipcMain.handle('organize:scan-scattered', (_, modsFolder) => {
 });
 
 ipcMain.handle('organize:scan-empty-folders', (_, modsFolder, trayFolder) => {
+  const roots = getAllowedRoots();
   const results = [];
-  if (modsFolder && typeof modsFolder === 'string' && fs.existsSync(modsFolder)) {
+  if (modsFolder && typeof modsFolder === 'string' && fs.existsSync(modsFolder)
+      && (!roots.length || isPathSafe(modsFolder, ...roots))) {
     results.push(...scanEmptyFolders(modsFolder));
   }
-  if (trayFolder && typeof trayFolder === 'string' && fs.existsSync(trayFolder)) {
+  if (trayFolder && typeof trayFolder === 'string' && fs.existsSync(trayFolder)
+      && (!roots.length || isPathSafe(trayFolder, ...roots))) {
     results.push(...scanEmptyFolders(trayFolder));
   }
   return results;
@@ -1398,6 +1408,7 @@ ipcMain.handle('organize:scan-empty-folders', (_, modsFolder, trayFolder) => {
 ipcMain.handle('organize:scan-invalid', (_, modsFolder, trayFolder) => {
   const roots = getAllowedRoots();
   if (modsFolder && roots.length && !isPathSafe(modsFolder, ...roots)) return [];
+  if (trayFolder && roots.length && !isPathSafe(trayFolder, ...roots)) return [];
   return scanInvalidFiles(modsFolder, trayFolder);
 });
 
@@ -1455,11 +1466,15 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
 // Shell
 ipcMain.handle('shell:open', (_, folderPath) => {
   if (!folderPath || typeof folderPath !== 'string') return;
+  // SEC-01: apenas abrir pastas dentro das raízes permitidas
+  if (!isPathSafe(folderPath, ...getAllowedRoots())) return;
   return shell.openPath(folderPath);
 });
 
 ipcMain.handle('shell:show-item', (_, filePath) => {
   if (!filePath || typeof filePath !== 'string') return;
+  // SEC-01: apenas revelar arquivos dentro das raízes permitidas
+  if (!isPathSafe(filePath, ...getAllowedRoots())) return;
   shell.showItemInFolder(filePath);
 });
 
@@ -1470,9 +1485,15 @@ ipcMain.handle('shell:show-item', (_, filePath) => {
 // Esta função extrai a miniatura de um mod a partir desse cache usando o
 // instance ID do primeiro recurso CAS/Build de qualquer tipo thumbnail do mod.
 
-const LOCALTHUMB_CACHE_PATH = path.join(
-  os.homedir(), 'Documents', 'Electronic Arts', 'The Sims 4', 'localthumbcache.package'
-);
+function getLocalThumbCachePath() {
+  const cfg = readConfig();
+  // localthumbcache.package fica no pai das pastas Mods/Tray (raiz do TS4)
+  const trayParent = cfg.trayFolder ? path.dirname(cfg.trayFolder) : null;
+  const modsParent = cfg.modsFolder ? path.dirname(cfg.modsFolder) : null;
+  const ts4Root = trayParent || modsParent
+    || path.join(os.homedir(), 'Documents', 'Electronic Arts', 'The Sims 4');
+  return path.join(ts4Root, 'localthumbcache.package');
+}
 
 // Tipos de recursos cujo instance ID é usado como chave no localthumbcache
 const INSTANCE_SOURCE_TYPES = new Set([
@@ -1490,7 +1511,7 @@ async function extractThumbnailFromLocalCache(modFilePath) {
   if (!instanceIds.length) return null;
 
   // 2. Abre o localthumbcache.package e procura por esses IDs
-  return await _readDbpfThumbnailByInstances(LOCALTHUMB_CACHE_PATH, instanceIds);
+  return await _readDbpfThumbnailByInstances(getLocalThumbCachePath(), instanceIds);
 }
 
 async function _readDbpfInstanceIds(filePath) {
@@ -1901,9 +1922,12 @@ ipcMain.handle('thumbnail:get', async (_, filePath) => {
   const embedded = await extractThumbnailFromPackage(filePath);
   if (embedded) return embedded;
   // 2. Fallback: busca no localthumbcache.package do jogo
-  return await extractThumbnailFromLocalCache(filePath);
+  return await extractThumbnailFromLocalCache(filePath);});
+ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => {
+  if (!Array.isArray(existingPaths)) return false;
+  purgeThumbnailCache(existingPaths);
+  return true;
 });
-ipcMain.handle('thumbnail:purge-cache', (_, existingPaths) => { purgeThumbnailCache(existingPaths); return true; });
 ipcMain.handle('thumbnail:clear-cache', () => {
   try {
     // QA-02: sempre inicializar com __version para não corromper leituras futuras
@@ -1926,6 +1950,7 @@ ipcMain.handle('icon:get', () => {
 
 // Moves files to internal trash for undo-able deletion from the Mods list
 ipcMain.handle('mods:trash-batch', async (_, filePaths) => {
+  if (!Array.isArray(filePaths)) return [];
   const roots = getAllowedRoots();
   const trashDir = path.join(app.getPath('userData'), 'trash');
   ensureDir(trashDir);
