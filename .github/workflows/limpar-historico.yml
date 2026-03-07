@@ -13,11 +13,16 @@ on:
           - Criar Release
           - Testes
           - Limpar Histórico de Execuções
-      apagar_releases:
-        description: "Apagar releases e tags?"
+      extras:
+        description: "Limpeza extra (além do histórico)?"
         required: false
-        type: boolean
-        default: false
+        type: choice
+        default: Nenhuma
+        options:
+          - Nenhuma
+          - Releases e tags
+          - Artefatos
+          - Releases, tags e artefatos
 
 permissions:
   actions: write
@@ -82,14 +87,13 @@ jobs:
             console.log(`Concluído! ${deletados} deletados, ${ignorados} ignorados.`);
 
       - name: Apagar releases e tags
-        if: ${{ github.event.inputs.apagar_releases == 'true' }}
+        if: contains(github.event.inputs.extras, 'Releases')
         uses: actions/github-script@v7
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Buscar todas as releases
             let releases = [];
             let page = 1;
             while (true) {
@@ -123,3 +127,35 @@ jobs:
             }
 
             console.log(`Concluído! ${relDeletadas} release(s) e ${tagsDeletadas} tag(s) deletadas.`);
+
+      - name: Apagar artefatos
+        if: contains(github.event.inputs.extras, 'Artefatos')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let artifacts = [];
+            let page = 1;
+            while (true) {
+              const { data } = await github.rest.actions.listArtifactsForRepo({ owner, repo, per_page: 100, page });
+              if (data.artifacts.length === 0) break;
+              artifacts = artifacts.concat(data.artifacts);
+              page++;
+            }
+
+            console.log(`Encontrados ${artifacts.length} artefato(s) para deletar.`);
+
+            let deletados = 0;
+            for (const artifact of artifacts) {
+              try {
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
+                console.log(`Artefato deletado: ${artifact.name}`);
+                deletados++;
+              } catch (e) {
+                console.log(`Erro ao deletar artefato ${artifact.name}: ${e.message}`);
+              }
+            }
+
+            console.log(`Concluído! ${deletados} artefato(s) deletados.`);
