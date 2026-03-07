@@ -1726,7 +1726,9 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 #history-table tbody tr:hover { background: var(--elevated); }
 
 .history-row-undone td { opacity: 0.45; text-decoration: line-through; }
+.history-row-undone td > span { text-decoration: line-through; }
 .history-row-undone td:last-child { text-decoration: none; }
+.history-row-undone td:last-child > span { text-decoration: none; }
 
 .history-undo-btn, .history-redo-btn, .history-nav-btn {
   font-size: 11.5px;
