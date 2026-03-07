@@ -1167,6 +1167,30 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const toggleTitle = allEnabled ? 'Desativar grupo' : 'Ativar grupo';
   const statusDotClass = allEnabled ? 'dot-active' : someEnabled ? 'dot-partial' : 'dot-inactive';
 
+  // Build children grid: one child-card per file in the group
+  const childrenHtml = group.files.map(f => {
+    const fCached = state.thumbnailCache[thumbKey(f.path)];
+    const fCanThumb = f.type === 'package' || f.type === 'tray' || (!f.type && /\.(package|trayitem|blueprint|bpi)$/i.test(f.name));
+    const fThumb = (fCached && fCached !== THUMB_LOADING)
+      ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
+      : (fCached === null || !fCanThumb)
+        ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type || 'package')}</div>`
+        : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+    const fEnabled = f.enabled !== false;
+    return `
+      <div class="gallery-card child-card ${!fEnabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}" draggable="false"
+           title="${escapeHtml(f.name)}">
+        ${fThumb}
+        <div class="gallery-info">
+          <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+          <div class="gallery-meta">
+            <span>${formatBytes(f.size || 0)}</span>
+            <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'}"></span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
   return `
     <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${noneEnabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
@@ -1185,7 +1209,10 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
         </div>
         <button class="card-toggle-btn card-toggle-group-btn" ${idAttr}="${escapeHtml(idVal)}"
                 title="${toggleTitle}">${toggleLabel}</button>
+        <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
+                data-tooltip="Ver arquivos do grupo" title="Ver arquivos do grupo">▾</button>
       </div>
+      <div class="group-children-grid" style="display:none">${childrenHtml}</div>
     </div>`;
 }
 
@@ -1770,12 +1797,27 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
+  // Expand button ▾ → toggle children grid
+  el.querySelectorAll('.group-expand-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const wrapper = btn.closest('.group-card-wrapper');
+      if (!wrapper) return;
+      const isExpanded = wrapper.classList.toggle('is-expanded');
+      btn.textContent = isExpanded ? '▴' : '▾';
+      btn.dataset.tooltip = isExpanded ? 'Fechar' : 'Ver arquivos do grupo';
+      const grid = wrapper.querySelector('.group-children-grid');
+      if (grid) grid.style.display = isExpanded ? '' : 'none';
+    });
+  });
+
   // Card click on group → LEFT CLICK = select/deselect, RIGHT CLICK = open overlay
   el.querySelectorAll('.gallery-card.mod-group, .gallery-card.tray-group').forEach(card => {
     // Left click → select
     card.addEventListener('click', e => {
       if (e.target.classList.contains('card-check') || e.target.classList.contains('card-check-group') || e.target.classList.contains('card-check-mod-group')) return;
       if (e.target.closest('.card-toggle-group-btn')) return;
+      if (e.target.closest('.group-expand-btn')) return;
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
       const guid   = card.dataset.trayGuid;
       const prefix = card.dataset.modPrefix;
