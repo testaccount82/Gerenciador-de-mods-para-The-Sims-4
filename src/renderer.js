@@ -2361,29 +2361,59 @@ async function doImport(filePaths) {
     '.zip', '.rar', '.7z'
   ]);
 
-  const supported = filePaths.filter(p => SUPPORTED_EXTS.has(p.slice(p.lastIndexOf('.')).toLowerCase()));
+  // Use getRealExtension logic to handle .disabled files correctly
+  function getImportExt(p) {
+    const base = p.split(/[\\/]/).pop() || '';
+    const withoutDisabled = base.endsWith('.disabled') ? base.slice(0, -'.disabled'.length) : base;
+    const dot = withoutDisabled.lastIndexOf('.');
+    return dot === -1 ? '' : withoutDisabled.slice(dot).toLowerCase();
+  }
 
-  if (!supported.length) return;
+  const supported = filePaths.filter(p => SUPPORTED_EXTS.has(getImportExt(p)));
+  const skipped   = filePaths.length - supported.length;
+
+  if (!supported.length) {
+    toast(
+      skipped === 1
+        ? 'Arquivo não suportado. Use .package, .ts4script, arquivos de Tray ou .zip/.rar/.7z'
+        : `Nenhum arquivo suportado entre os ${skipped} selecionado(s)`,
+      'warning'
+    );
+    return;
+  }
+
+  if (skipped > 0) {
+    toast(`${skipped} arquivo(s) ignorado(s) por formato não suportado`, 'warning');
+  }
 
   toast(`Importando ${supported.length} arquivo(s)...`, 'info', 2000);
-  const result = await window.api.importFiles(supported, state.config.modsFolder, state.config.trayFolder);
-  await loadMods();
-  if (state.currentPage === 'mods') renderMods();
-  if (state.currentPage === 'dashboard') renderDashboard();
-  if (result.imported.length > 0) {
-    toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
-    const importedPaths = result.imported; // array of destination paths
-    pushUndo(`Importar ${result.imported.length} arquivo(s)`, async () => {
-      const trashResults = await window.api.trashModsBatch(importedPaths);
-      const ok = trashResults.filter(r => r.success).length;
-      await loadMods();
-      if (state.currentPage === 'mods') renderMods();
-      if (state.currentPage === 'dashboard') renderDashboard();
-      toast(`${ok} arquivo(s) importado(s) removido(s)`, 'info');
-    }, 'import', { count: result.imported.length });
-  }
-  if (result.errors.length > 0) {
-    toast(`${result.errors.length} arquivo(s) com erro ao importar`, 'error');
+  try {
+    const result = await window.api.importFiles(supported, state.config.modsFolder, state.config.trayFolder);
+    await loadMods();
+    if (state.currentPage === 'mods') renderMods();
+    if (state.currentPage === 'dashboard') renderDashboard();
+
+    if (result.imported.length > 0 && result.errors.length > 0) {
+      toast(`${result.imported.length} importado(s), ${result.errors.length} com erro`, 'warning');
+    } else if (result.imported.length > 0) {
+      toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
+    } else if (result.errors.length > 0) {
+      toast(`Falha ao importar: ${result.errors[0]?.error || 'erro desconhecido'}`, 'error');
+    }
+
+    if (result.imported.length > 0) {
+      const importedPaths = result.imported;
+      pushUndo(`Importar ${result.imported.length} arquivo(s)`, async () => {
+        const trashResults = await window.api.trashModsBatch(importedPaths);
+        const ok = trashResults.filter(r => r.success).length;
+        await loadMods();
+        if (state.currentPage === 'mods') renderMods();
+        if (state.currentPage === 'dashboard') renderDashboard();
+        toast(`${ok} arquivo(s) importado(s) removido(s)`, 'info');
+      }, 'import', { count: result.imported.length });
+    }
+  } catch (e) {
+    toast('Erro ao importar: ' + (e.message || 'falha inesperada'), 'error');
   }
 }
 

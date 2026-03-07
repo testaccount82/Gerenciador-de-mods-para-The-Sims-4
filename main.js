@@ -700,7 +700,7 @@ function moveFile(fromPath, toPath) {
 // ─── Import Files ────────────────────────────────────────────────────────────
 
 function copyModFile(src, modsFolder, trayFolder) {
-  const ext = path.extname(src).toLowerCase();
+  const ext = getRealExtension(src);
   let dest;
   if (MOD_EXTENSIONS.includes(ext)) {
     dest = path.join(modsFolder, path.basename(src));
@@ -713,9 +713,12 @@ function copyModFile(src, modsFolder, trayFolder) {
   let finalDest = dest;
   let counter = 1;
   const MAX_COPIES = 999;
+  const baseName = path.basename(dest);
+  const disabledSuffix = baseName.endsWith(DISABLED_SUFFIX) ? DISABLED_SUFFIX : '';
+  const nameWithoutDisabled = disabledSuffix ? baseName.slice(0, -disabledSuffix.length) : baseName;
+  const stem = path.basename(nameWithoutDisabled, ext);
   while (fs.existsSync(finalDest) && counter <= MAX_COPIES) {
-    const base = path.basename(dest, ext);
-    finalDest = path.join(path.dirname(dest), `${base} (${counter})${ext}`);
+    finalDest = path.join(path.dirname(dest), `${stem} (${counter})${ext}${disabledSuffix}`);
     counter++;
   }
   // QA-09: se ultrapassar o limite, lança erro em vez de loop infinito
@@ -737,7 +740,7 @@ function collectModFiles(dir, found = []) {
     if (entry.isDirectory()) {
       collectModFiles(fullPath, found);
     } else {
-      const ext = path.extname(entry.name).toLowerCase();
+      const ext = getRealExtension(entry.name);
       if ([...MOD_EXTENSIONS, ...TRAY_EXTENSIONS].includes(ext)) {
         found.push(fullPath);
       }
@@ -752,7 +755,7 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
   const sevenZip = findSevenZip();
 
   for (const src of filePaths) {
-    const ext = path.extname(src).toLowerCase();
+    const ext = getRealExtension(src);
 
     if ([...MOD_EXTENSIONS, ...TRAY_EXTENSIONS].includes(ext)) {
       try {
@@ -1382,7 +1385,7 @@ ipcMain.handle('dialog:open-files', async (_, filters) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
     filters: filters || [
-      { name: 'Mods e Arquivos', extensions: ['package', 'ts4script', 'trayitem', 'blueprint', 'zip', 'rar', '7z'] },
+      { name: 'Mods e Arquivos', extensions: ['package', 'ts4script', 'trayitem', 'blueprint', 'bpi', 'hhi', 'sgi', 'householdbinary', 'room', 'rmi', 'zip', 'rar', '7z'] },
       { name: 'Todos os Arquivos', extensions: ['*'] }
     ]
   });
