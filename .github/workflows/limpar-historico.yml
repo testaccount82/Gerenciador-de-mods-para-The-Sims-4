@@ -1,12 +1,13 @@
-name: Limpar Histórico de Execuções
+name: 🧹 Limpar Histórico de Execuções
 
 on:
   workflow_dispatch:
     inputs:
       workflow:
-        description: "Qual histórico limpar?"
+        description: "Histórico a limpar"
         required: true
         type: choice
+        default: Todos
         options:
           - Todos
           - Criar Artefatos
@@ -14,7 +15,7 @@ on:
           - Testes
           - Limpar Histórico de Execuções
       extras:
-        description: "Limpeza extra (além do histórico)?"
+        description: "Limpeza extra"
         required: false
         type: choice
         default: Nenhuma
@@ -30,132 +31,118 @@ permissions:
 
 jobs:
   limpar:
+    name: Limpar repositório
     runs-on: ubuntu-latest
 
+    env:
+      WORKFLOW_ALVO: ${{ github.event.inputs.workflow }}
+      EXTRAS: ${{ github.event.inputs.extras }}
+
     steps:
-      - name: Limpar execuções antigas
+      - name: 🗂️ Limpar histórico de execuções
         uses: actions/github-script@v7
         with:
           script: |
-            const escolha = "${{ github.event.inputs.workflow }}";
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+            const { owner, repo } = context.repo;
+            const alvo = process.env.WORKFLOW_ALVO;
 
-            let runs = [];
-            let page = 1;
-
-            while (true) {
+            // Coleta todas as execuções paginando
+            const runs = [];
+            for (let page = 1; ; page++) {
               const { data } = await github.rest.actions.listWorkflowRunsForRepo({
-                owner,
-                repo,
-                per_page: 100,
-                page,
+                owner, repo, per_page: 100, page,
               });
-
-              if (data.workflow_runs.length === 0) break;
-              runs = runs.concat(data.workflow_runs);
-              page++;
+              if (!data.workflow_runs.length) break;
+              runs.push(...data.workflow_runs);
             }
 
-            if (escolha !== "Todos") {
-              runs = runs.filter(r => r.name === escolha);
-            }
+            // Filtra pelo workflow escolhido; ignora a execução atual e as em andamento
+            const para_deletar = runs.filter(r =>
+              r.id !== context.runId &&
+              r.status === 'completed' &&
+              (alvo === 'Todos' || r.name === alvo)
+            );
 
-            // Só apaga execuções já concluídas e ignora a atual
-            runs = runs.filter(r => r.id !== context.runId && r.status === "completed");
+            console.log(`🔍 ${para_deletar.length} execução(ões) encontrada(s).`);
 
-            console.log(`Encontradas ${runs.length} execuções para deletar.`);
-
-            let deletados = 0;
-            let ignorados = 0;
-
-            for (const run of runs) {
+            let ok = 0, falhou = 0;
+            for (const run of para_deletar) {
               try {
-                await github.rest.actions.deleteWorkflowRun({
-                  owner,
-                  repo,
-                  run_id: run.id,
-                });
-                console.log(`Deletado: [${run.name}] #${run.run_number}`);
-                deletados++;
+                await github.rest.actions.deleteWorkflowRun({ owner, repo, run_id: run.id });
+                console.log(`  ✅ [${run.name}] #${run.run_number}`);
+                ok++;
               } catch (e) {
-                console.log(`Ignorado: [${run.name}] #${run.run_number} — ${e.message}`);
-                ignorados++;
+                console.log(`  ⚠️  [${run.name}] #${run.run_number} — ${e.message}`);
+                falhou++;
               }
             }
 
-            console.log(`Concluído! ${deletados} deletados, ${ignorados} ignorados.`);
+            console.log(`\n📊 ${ok} deletado(s), ${falhou} ignorado(s).`);
 
-      - name: Apagar releases e tags
-        if: contains(github.event.inputs.extras, 'Releases')
+      - name: 🏷️ Apagar releases e tags
+        if: contains(env.EXTRAS, 'Releases')
         uses: actions/github-script@v7
         with:
           script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+            const { owner, repo } = context.repo;
 
-            let releases = [];
-            let page = 1;
-            while (true) {
+            const releases = [];
+            for (let page = 1; ; page++) {
               const { data } = await github.rest.repos.listReleases({ owner, repo, per_page: 100, page });
-              if (data.length === 0) break;
-              releases = releases.concat(data);
-              page++;
+              if (!data.length) break;
+              releases.push(...data);
             }
 
-            console.log(`Encontradas ${releases.length} release(s) para deletar.`);
+            console.log(`🔍 ${releases.length} release(s) encontrada(s).`);
 
-            let relDeletadas = 0;
-            let tagsDeletadas = 0;
-
+            let relOk = 0, tagOk = 0, falhou = 0;
             for (const release of releases) {
               const tag = release.tag_name;
               try {
                 await github.rest.repos.deleteRelease({ owner, repo, release_id: release.id });
-                console.log(`Release deletada: ${release.name || tag}`);
-                relDeletadas++;
+                console.log(`  ✅ Release: ${release.name || tag}`);
+                relOk++;
               } catch (e) {
-                console.log(`Erro ao deletar release ${tag}: ${e.message}`);
+                console.log(`  ⚠️  Release ${tag}: ${e.message}`);
+                falhou++;
               }
               try {
                 await github.rest.git.deleteRef({ owner, repo, ref: `tags/${tag}` });
-                console.log(`Tag deletada: ${tag}`);
-                tagsDeletadas++;
+                console.log(`  ✅ Tag: ${tag}`);
+                tagOk++;
               } catch (e) {
-                console.log(`Erro ao deletar tag ${tag}: ${e.message}`);
+                console.log(`  ⚠️  Tag ${tag}: ${e.message}`);
               }
             }
 
-            console.log(`Concluído! ${relDeletadas} release(s) e ${tagsDeletadas} tag(s) deletadas.`);
+            console.log(`\n📊 ${relOk} release(s) e ${tagOk} tag(s) deletadas, ${falhou} erro(s).`);
 
-      - name: Apagar artefatos
-        if: contains(github.event.inputs.extras, 'Artefatos')
+      - name: 📦 Apagar artefatos
+        if: contains(env.EXTRAS, 'Artefatos')
         uses: actions/github-script@v7
         with:
           script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+            const { owner, repo } = context.repo;
 
-            let artifacts = [];
-            let page = 1;
-            while (true) {
+            const artifacts = [];
+            for (let page = 1; ; page++) {
               const { data } = await github.rest.actions.listArtifactsForRepo({ owner, repo, per_page: 100, page });
-              if (data.artifacts.length === 0) break;
-              artifacts = artifacts.concat(data.artifacts);
-              page++;
+              if (!data.artifacts.length) break;
+              artifacts.push(...data.artifacts);
             }
 
-            console.log(`Encontrados ${artifacts.length} artefato(s) para deletar.`);
+            console.log(`🔍 ${artifacts.length} artefato(s) encontrado(s).`);
 
-            let deletados = 0;
+            let ok = 0, falhou = 0;
             for (const artifact of artifacts) {
               try {
                 await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
-                console.log(`Artefato deletado: ${artifact.name}`);
-                deletados++;
+                console.log(`  ✅ ${artifact.name}`);
+                ok++;
               } catch (e) {
-                console.log(`Erro ao deletar artefato ${artifact.name}: ${e.message}`);
+                console.log(`  ⚠️  ${artifact.name}: ${e.message}`);
+                falhou++;
               }
             }
 
-            console.log(`Concluído! ${deletados} artefato(s) deletados.`);
+            console.log(`\n📊 ${ok} artefato(s) deletado(s), ${falhou} erro(s).`);
