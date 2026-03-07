@@ -885,7 +885,7 @@ function renderMods() {
         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
         <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
       </svg>
-      <span>Arraste arquivos (.package, .ts4script, .trayitem, .blueprint, .bpi, .hhi, .sgi, .householdbinary, .room, .rmi, .zip, .rar, .7z) para importar</span>
+      <span>Arraste arquivos ou pastas (.package, .ts4script, .trayitem, .zip, .rar, .7z) para importar — pastas são percorridas automaticamente</span>
     </div>
 
     <!-- ── Drag overlay (hidden until drag enters) ─────────────────── -->
@@ -1346,14 +1346,24 @@ function setupCommonModsEvents(el) {
 
       let paths = [];
 
-      // Primary: get paths directly from File objects (most reliable in Electron)
-      const directFiles = [...(e.dataTransfer.files || [])];
-      if (directFiles.length > 0) {
-        paths = directFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
+      // Check if any dropped item is a directory — if so, always use the FileSystem
+      // API path so that folders are recursively expanded into their file contents.
+      // The directFiles path cannot handle folders: the folder itself arrives as a
+      // File object with no extension, hits the unsupported-format filter in doImport
+      // and is silently skipped instead of being walked.
+      const items = [...(e.dataTransfer.items || [])];
+      const hasDirectory = items.some(item => item.webkitGetAsEntry?.()?.isDirectory);
+
+      if (!hasDirectory) {
+        // Fast path: all items are plain files — map directly to filesystem paths
+        const directFiles = [...(e.dataTransfer.files || [])];
+        if (directFiles.length > 0) {
+          paths = directFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
+        }
       }
 
-      // Fallback: use FileSystem API to recurse into dropped folders
-      if (!paths.length && e.dataTransfer.items) {
+      // Folder path (or fallback): use FileSystem API to recurse into dropped folders
+      if (!paths.length && items.length > 0) {
         const allFiles = await collectDroppedFiles(e.dataTransfer.items);
         paths = allFiles.map(f => window.api.getPathForFile(f)).filter(Boolean);
       }
@@ -2382,15 +2392,15 @@ async function doImport(filePaths) {
   if (!supported.length) {
     toast(
       skipped === 1
-        ? 'Arquivo não suportado. Use .package, .ts4script, arquivos de Tray ou .zip/.rar/.7z'
-        : `Nenhum arquivo suportado entre os ${skipped} selecionado(s)`,
+        ? 'Nenhum mod encontrado. Use .package, .ts4script, arquivos de Tray ou .zip/.rar/.7z'
+        : `Nenhum mod encontrado entre os ${skipped} arquivo(s) verificado(s). Formatos aceitos: .package, .ts4script, .trayitem, .zip/.rar/.7z`,
       'warning'
     );
     return;
   }
 
   if (skipped > 0) {
-    toast(`${skipped} arquivo(s) ignorado(s) por formato não suportado`, 'warning');
+    toast(`${skipped} arquivo(s) ignorado(s) (formato não suportado) — importando os ${supported.length} válido(s)`, 'info');
   }
 
   toast(`Importando ${supported.length} arquivo(s)...`, 'info', 2000);
