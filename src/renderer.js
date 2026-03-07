@@ -117,7 +117,7 @@ function closeModal() {
 
 // ─── Undo System ─────────────────────────────────────────────────────────────
 
-function pushUndo(label, undoFn, type = 'action', details = {}) {
+function pushUndo(label, undoFn, type = 'action', details = {}, redoFn = null) {
   // Store undoFn in the log entry so History page can expose it
   const entry = {
     id: Date.now() + Math.random(),
@@ -125,6 +125,7 @@ function pushUndo(label, undoFn, type = 'action', details = {}) {
     details: { ...details, label },
     timestamp: new Date(),
     undoFn,
+    redoFn,
     undone: false,
   };
   state.actionLog.unshift(entry);
@@ -1835,10 +1836,11 @@ function setupGalleryEvents(el, mods) {
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split('\\').pop();
-        pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`, async () => {
-          await window.api.toggleMod(result.newPath);
-          await loadMods(); renderMods();
-        }, nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
+        const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
+        pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
+          toggleAgain,
+          nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName },
+          toggleAgain);
       } else toast('Erro ao alternar mod', 'error');
     });
   });
@@ -2209,10 +2211,11 @@ function setupModsEvents(el, mods) {
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split('\\').pop();
-        pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`, async () => {
-          await window.api.toggleMod(result.newPath);
-          await loadMods(); renderMods();
-        }, nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName });
+        const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
+        pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
+          toggleAgain,
+          nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName },
+          toggleAgain);
       } else toast('Erro ao alternar mod: ' + result.error, 'error');
     });
   });
@@ -2555,6 +2558,8 @@ async function runConflictScan(el) {
     }
 
     state.conflicts = result;
+    logAction('scan', { count: result.length, source: 'conflicts',
+      label: result.length ? `${result.length} conflito(s) encontrado(s)` : 'Nenhum conflito encontrado' });
     renderConflictResults(el);
   } catch (e) {
     resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
@@ -2628,8 +2633,11 @@ function renderConflictResults(el) {
   });
 
   el.querySelector('#btn-dismiss-all')?.addEventListener('click', () => {
+    const count = state.conflicts.length;
     state.conflicts = [];
     renderConflictResults(el);
+    if (count > 0) logAction('scan', { count: 0, source: 'conflicts',
+      label: `${count} conflito(s) dispensado(s) manualmente` });
   });
 }
 
@@ -2746,6 +2754,10 @@ async function runOrganizeScan(el) {
       window.api.scanScatteredGroups(state.config.modsFolder),
       window.api.scanInvalidFiles(state.config.modsFolder, state.config.trayFolder),
     ]);
+    const totalIssues = state.misplaced.length + state.emptyFolders.length
+                      + state.scattered.length + state.invalidFiles.length;
+    logAction('scan', { count: totalIssues, source: 'organizer',
+      label: totalIssues ? `${totalIssues} problema(s) encontrado(s)` : 'Tudo organizado' });
     if (state.currentPage === 'organizer' && el) renderOrganizeResults(el);
   } catch (e) {
     if (resultEl) resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
@@ -3281,26 +3293,30 @@ function renderHistory() {
   };
 
   const TYPE_META = {
-    toggle_on:   { label: 'Ativado',           color: 'var(--success)',        icon: '▶'  },
-    toggle_off:  { label: 'Desativado',         color: 'var(--text-secondary)', icon: '⏸' },
-    delete:      { label: 'Excluído',           color: 'var(--danger)',         icon: '🗑' },
-    import:      { label: 'Importado',          color: 'var(--accent)',         icon: '📥' },
-    move:        { label: 'Movido',             color: 'var(--accent-light)',   icon: '📁' },
-    consolidate: { label: 'Consolidado',        color: 'var(--accent-light)',   icon: '📦' },
-    restore:     { label: 'Restaurado',         color: 'var(--warning)',        icon: '↩' },
-    scan:        { label: 'Verificação',        color: 'var(--text-disabled)',  icon: '🔍' },
-    fs_change:   { label: 'Alteração externa',  color: 'var(--warning)',        icon: '🔄' },
-    action:      { label: 'Ação',               color: 'var(--text-secondary)', icon: '•'  },
+    toggle_on:   { label: 'Ativado',          color: 'var(--success)',        icon: '▶',  page: 'mods'      },
+    toggle_off:  { label: 'Desativado',        color: 'var(--text-secondary)', icon: '⏸', page: 'mods'      },
+    delete:      { label: 'Excluído',          color: 'var(--danger)',         icon: '🗑', page: null        },
+    import:      { label: 'Importado',         color: 'var(--accent)',         icon: '📥', page: 'mods'      },
+    move:        { label: 'Movido',            color: 'var(--accent-light)',   icon: '📁', page: 'organizer' },
+    consolidate: { label: 'Consolidado',       color: 'var(--accent-light)',   icon: '📦', page: 'organizer' },
+    restore:     { label: 'Restaurado',        color: 'var(--warning)',        icon: '↩',  page: 'mods'      },
+    scan:        { label: 'Verificação',       color: 'var(--text-disabled)',  icon: '🔍', page: null        },
+    fs_change:   { label: 'Alteração externa', color: 'var(--warning)',        icon: '🔄', page: 'mods'      },
+    action:      { label: 'Ação',              color: 'var(--text-secondary)', icon: '•',  page: null        },
   };
 
+  // Override scan page based on source
+  const scanPage = src => src === 'conflicts' ? 'conflicts' : src === 'organizer' ? 'organizer' : null;
+
   const SOURCE_LABELS = {
-    batch:              'Seleção múltipla',
-    'group-overlay':    'Janela de grupo',
-    conflicts:          'Conflitos',
-    'organizer-fix-all':'Organizar — Corrigir todos',
-    'organizer-fix-one':'Organizar — Corrigir um',
-    'empty-folders':    'Organizar — Pastas vazias',
-    'invalid-files':    'Organizar — Arquivos inválidos',
+    batch:               'Seleção múltipla',
+    'group-overlay':     'Janela de grupo',
+    conflicts:           'Conflitos',
+    organizer:           'Organizar',
+    'organizer-fix-all': 'Organizar — Corrigir todos',
+    'organizer-fix-one': 'Organizar — Corrigir um',
+    'empty-folders':     'Organizar — Pastas vazias',
+    'invalid-files':     'Organizar — Arquivos inválidos',
   };
 
   function buildDetail(entry) {
@@ -3317,6 +3333,21 @@ function renderHistory() {
     return parts.join(' ');
   }
 
+  function getNavPage(entry) {
+    if (entry.type === 'scan') return scanPage(entry.details?.source);
+    const meta = TYPE_META[entry.type];
+    if (!meta?.page) return null;
+    // delete from conflicts → navigate to conflicts
+    if (entry.type === 'delete' && entry.details?.source === 'conflicts') return 'conflicts';
+    if (entry.type === 'delete' && entry.details?.source?.startsWith('organizer')) return 'organizer';
+    if (entry.type === 'delete' && entry.details?.source?.includes('invalid')) return 'organizer';
+    if (entry.type === 'delete' && entry.details?.source === 'empty-folders') return 'organizer';
+    if (entry.type === 'delete') return 'mods';
+    return meta.page;
+  }
+
+  const PAGE_LABELS = { mods: 'Mods', conflicts: 'Conflitos', organizer: 'Organizar', dashboard: 'Início' };
+
   const undoableCount = state.actionLog.filter(e => e.undoFn && !e.undone).length;
 
   const rows = state.actionLog.length === 0
@@ -3332,9 +3363,9 @@ function renderHistory() {
           <thead>
             <tr>
               <th style="width:155px"><div class="th-content">Horário</div></th>
-              <th style="width:120px"><div class="th-content">Ação</div></th>
+              <th style="width:115px"><div class="th-content">Ação</div></th>
               <th><div class="th-content">Detalhes</div></th>
-              <th style="width:100px"><div class="th-content" style="justify-content:center">Desfazer</div></th>
+              <th style="width:195px"><div class="th-content" style="justify-content:center">Ações</div></th>
             </tr>
           </thead>
           <tbody>
@@ -3342,7 +3373,27 @@ function renderHistory() {
               const meta    = TYPE_META[entry.type] || TYPE_META.action;
               const detail  = buildDetail(entry);
               const canUndo = entry.undoFn && !entry.undone;
+              const canRedo = entry.undone  && entry.redoFn;
+              const navPage = getNavPage(entry);
               const undoneRow = entry.undone ? 'history-row-undone' : '';
+
+              const navBtn = navPage
+                ? `<button class="btn btn-sm btn-subtle history-nav-btn" data-page="${navPage}" data-history-idx="${idx}"
+                     title="Ir para aba ${escapeHtml(PAGE_LABELS[navPage] || navPage)}">
+                     → ${escapeHtml(PAGE_LABELS[navPage] || navPage)}
+                   </button>`
+                : '';
+
+              const actionBtn = canRedo
+                ? `<button class="btn btn-sm btn-primary history-redo-btn" data-history-idx="${idx}"
+                     title="Refazer esta ação">↺ Refazer</button>`
+                : canUndo
+                  ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${idx}"
+                       title="${escapeHtml(entry.details?.label || 'Desfazer esta ação')}">↩ Desfazer</button>`
+                  : entry.undone
+                    ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
+                    : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`;
+
               return `
                 <tr class="${undoneRow}" data-history-idx="${idx}">
                   <td style="font-size:12px;color:var(--text-disabled);white-space:nowrap">${formatTime(entry.timestamp)}</td>
@@ -3352,16 +3403,11 @@ function renderHistory() {
                     </span>
                   </td>
                   <td style="font-size:13px;color:var(--text-primary)">${detail}</td>
-                  <td style="text-align:center">
-                    ${entry.undone
-                      ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
-                      : canUndo
-                        ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${idx}"
-                             title="${escapeHtml(entry.details?.label || 'Desfazer esta ação')}">
-                             ↩ Desfazer
-                           </button>`
-                        : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`
-                    }
+                  <td>
+                    <div style="display:flex;gap:5px;align-items:center;justify-content:center;flex-wrap:wrap">
+                      ${actionBtn}
+                      ${navBtn}
+                    </div>
                   </td>
                 </tr>`;
             }).join('')}
@@ -3389,28 +3435,57 @@ function renderHistory() {
     toast('Histórico limpo', 'info', 1500);
   });
 
+  // ── Navigate to related page
+  el.querySelectorAll('.history-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const page = btn.dataset.page;
+      if (!page) return;
+      state.currentPage = page;
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
+      document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
+      const renderers = { dashboard, mods: renderMods, conflicts: renderConflicts,
+                          organizer: renderOrganizer, manual: renderManual,
+                          history: renderHistory, settings: renderSettings };
+      renderers[page]?.();
+    });
+  });
+
   // ── Undo from history row
   el.querySelectorAll('.history-undo-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const idx   = parseInt(btn.dataset.historyIdx);
       const entry = state.actionLog[idx];
       if (!entry || entry.undone || !entry.undoFn) return;
-
-      btn.disabled = true;
-      btn.textContent = '…';
-
+      btn.disabled = true; btn.textContent = '…';
       try {
         await entry.undoFn();
         entry.undone = true;
-        // Remove from undoStack if present
         const stackIdx = state.undoStack.findIndex(s => s.label === (entry.details?.label || entry.type));
         if (stackIdx !== -1) state.undoStack.splice(stackIdx, 1);
         toast('Ação desfeita', 'info');
         renderHistory();
       } catch (e) {
-        btn.disabled = false;
-        btn.textContent = '↩ Desfazer';
+        btn.disabled = false; btn.textContent = '↩ Desfazer';
         toast('Erro ao desfazer: ' + e.message, 'error');
+      }
+    });
+  });
+
+  // ── Redo from history row
+  el.querySelectorAll('.history-redo-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx   = parseInt(btn.dataset.historyIdx);
+      const entry = state.actionLog[idx];
+      if (!entry || !entry.undone || !entry.redoFn) return;
+      btn.disabled = true; btn.textContent = '…';
+      try {
+        await entry.redoFn();
+        entry.undone = false;
+        toast('Ação refeita', 'info');
+        renderHistory();
+      } catch (e) {
+        btn.disabled = false; btn.textContent = '↺ Refazer';
+        toast('Erro ao refazer: ' + e.message, 'error');
       }
     });
   });
