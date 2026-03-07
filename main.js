@@ -699,7 +699,7 @@ function moveFile(fromPath, toPath) {
 
 // ─── Import Files ────────────────────────────────────────────────────────────
 
-async function copyModFile(src, modsFolder, trayFolder) {
+function copyModFile(src, modsFolder, trayFolder) {
   const ext = getRealExtension(src);
   let dest;
   if (MOD_EXTENSIONS.includes(ext)) {
@@ -708,14 +708,6 @@ async function copyModFile(src, modsFolder, trayFolder) {
     dest = path.join(trayFolder, path.basename(src));
   } else {
     return null;
-  }
-
-  // MD5 check: se o arquivo de destino já existe com conteúdo idêntico, pula a cópia
-  if (fs.existsSync(dest)) {
-    try {
-      const [srcHash, destHash] = await Promise.all([getFileHash(src), getFileHash(dest)]);
-      if (srcHash === destHash) return dest; // arquivo idêntico já existe — não reimportar
-    } catch (_) {} // se hash falhar, continua com lógica normal de duplicatas
   }
 
   // Handle duplicate filenames
@@ -768,7 +760,17 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
 
     if ([...MOD_EXTENSIONS, ...TRAY_EXTENSIONS].includes(ext)) {
       try {
-        const dest = await copyModFile(src, modsFolder, trayFolder);
+        // MD5 check: se o destino já existe com conteúdo idêntico, pula a cópia
+        const candidateDest = MOD_EXTENSIONS.includes(ext)
+          ? path.join(modsFolder, path.basename(src))
+          : path.join(trayFolder, path.basename(src));
+        if (fs.existsSync(candidateDest)) {
+          try {
+            const [srcHash, destHash] = await Promise.all([getFileHash(src), getFileHash(candidateDest)]);
+            if (srcHash === destHash) { imported.push(candidateDest); continue; }
+          } catch (_) {} // se hash falhar, continua normalmente
+        }
+        const dest = copyModFile(src, modsFolder, trayFolder);
         if (dest) imported.push(dest);
       } catch (e) {
         errors.push({ file: src, error: e.message });
@@ -780,7 +782,18 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
         await extractArchive(src, tempDir, sevenZip);
         const modFiles = collectModFiles(tempDir);
         for (const mf of modFiles) {
-          const dest = await copyModFile(mf, modsFolder, trayFolder);
+          // MD5 check para cada arquivo extraído do arquivo compactado
+          const mfExt = getRealExtension(mf);
+          const candidateDest = MOD_EXTENSIONS.includes(mfExt)
+            ? path.join(modsFolder, path.basename(mf))
+            : path.join(trayFolder, path.basename(mf));
+          if (fs.existsSync(candidateDest)) {
+            try {
+              const [h1, h2] = await Promise.all([getFileHash(mf), getFileHash(candidateDest)]);
+              if (h1 === h2) { imported.push(candidateDest); continue; }
+            } catch (_) {}
+          }
+          const dest = copyModFile(mf, modsFolder, trayFolder);
           if (dest) imported.push(dest);
         }
       } catch (e) {
