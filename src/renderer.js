@@ -154,10 +154,17 @@ function showUndoBar(label) {
   bar.classList.remove('hidden');
   clearTimeout(bar._timer);
   bar._timer = setTimeout(() => bar.classList.add('hidden'), 6000);
-  document.getElementById('undo-btn').addEventListener('click', () => {
+  document.getElementById('undo-btn').addEventListener('click', async () => {
     const op = state.undoStack.pop();
-    if (op) { op.undoFn(); toast('Operação desfeita', 'info'); }
     bar.classList.add('hidden');
+    if (op) {
+      try {
+        await op.undoFn();
+        toast('Operação desfeita', 'info');
+      } catch (e) {
+        toast('Erro ao desfazer: ' + (e.message || ''), 'error');
+      }
+    }
   });
   document.getElementById('undo-dismiss').addEventListener('click', () => {
     state.undoStack.pop();
@@ -3853,7 +3860,7 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> v1.1.0<br>
+        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> v1.0.0<br>
         Gerenciador de mods para The Sims 4 com interface Fluent 2<br>
         Desenvolvido com Electron
       </div>
@@ -3880,6 +3887,8 @@ function renderSettings() {
     const modsFolder = el.querySelector('#mods-path').value.trim();
     const trayFolder = el.querySelector('#tray-path').value.trim();
     if (!modsFolder || !trayFolder) { toast('Por favor, configure ambas as pastas', 'warning'); return; }
+    // QA-03: impede que Mods e Tray apontem para o mesmo diretório
+    if (modsFolder === trayFolder) { toast('As pastas Mods e Tray não podem ser iguais', 'warning'); return; }
     const autoCheckMisplaced = el.querySelector('#toggle-auto-misplaced')?.checked ?? true;
     const autoCheckDuplicates = el.querySelector('#toggle-auto-duplicates')?.checked ?? false;
     state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates };

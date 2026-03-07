@@ -806,10 +806,16 @@ function extractArchive(archivePath, destDir, sevenZipPath) {
       return;
     }
 
-    execFile(sevenZipPath, ['x', archivePath, `-o${destDir}`, '-y', '-aoa'], (err) => {
+    // SEC-04: timeout de 2 minutos para evitar que um arquivo malicioso trave o processo indefinidamente
+    const child = execFile(sevenZipPath, ['x', archivePath, `-o${destDir}`, '-y', '-aoa'], (err) => {
       if (err) reject(new Error(`Falha na extração: ${err.message}`));
       else resolve();
     });
+    const extractTimeout = setTimeout(() => {
+      try { child.kill('SIGTERM'); } catch (_) {}
+      reject(new Error('Extração cancelada: tempo limite de 2 minutos excedido'));
+    }, 120_000);
+    child.on('close', () => clearTimeout(extractTimeout));
   });
 }
 
@@ -1186,24 +1192,30 @@ function deleteEmptyFolders(folderPaths) {
 // Config
 ipcMain.handle('config:get', () => readConfig());
 ipcMain.handle('config:set', (_, config) => {
-  if (!config || typeof config !== 'object') return false;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return false;
   // Rejeita campos não-string onde string é esperada
   const stringFields = ['modsFolder', 'trayFolder', 'tempFolder', 'theme'];
   for (const field of stringFields) {
     if (field in config && typeof config[field] !== 'string') return false;
   }
-  // Impede apontar pastas do jogo para diretórios do sistema
+  // Impede apontar pastas do jogo para diretórios do sistema ou seus subdirectórios
+  // SEC-01: startsWith bloqueia também subdirectórios (e.g. /etc/cron.d, C:\Windows\System32)
   const BLOCKED = [
     os.homedir(),
     app.getPath('userData'),
     process.env.SystemRoot || 'C:\\Windows',
-    '/etc', '/bin', '/usr', '/sbin',
+    '/etc', '/bin', '/usr', '/sbin', '/var', '/sys', '/proc',
+    'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\Windows',
   ].map(p => p && path.resolve(p)).filter(Boolean);
   for (const field of ['modsFolder', 'trayFolder']) {
     if (config[field]) {
       const resolved = path.resolve(config[field]);
-      if (BLOCKED.some(b => resolved === b)) return false;
+      if (BLOCKED.some(b => resolved === b || resolved.startsWith(b + require('path').sep))) return false;
     }
+  }
+  // QA-03: impede modsFolder e trayFolder de apontarem para o mesmo diretório
+  if (config.modsFolder && config.trayFolder) {
+    if (require('path').resolve(config.modsFolder) === require('path').resolve(config.trayFolder)) return false;
   }
   writeConfig(config);
   return true;
@@ -1219,6 +1231,9 @@ ipcMain.handle('mods:scan', (_, modsFolder) => {
 });
 ipcMain.handle('tray:scan', (_, trayFolder) => {
   if (!trayFolder || typeof trayFolder !== 'string') return [];
+  // SEC-03: validar caminho (consistente com mods:scan)
+  const roots = getAllowedRoots();
+  if (roots.length && !isPathSafe(trayFolder, ...roots)) return [];
   return scanTrayFolder(trayFolder);
 });
 
@@ -1274,7 +1289,9 @@ ipcMain.handle('conflicts:move-to-trash', (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
   const trashDir = path.join(app.getPath('userData'), 'trash');
   ensureDir(trashDir);
-  const slug = `${Date.now()}_${path.basename(filePath)}`;
+  // SEC-02: adicionar componente aleatório ao slug para evitar colisão de nomes
+  // (dois arquivos com mesmo basename enviados para trash no mesmo milissegundo)
+  const slug = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${path.basename(filePath)}`;
   const dest = path.join(trashDir, slug);
   const result = moveFile(filePath, dest);
   if (result.success) {
@@ -1856,7 +1873,7 @@ ipcMain.handle('thumbnail:clear-cache', () => {
 // App icon (returns PNG base64 for use in renderer titlebar)
 ipcMain.handle('icon:get', () => {
   try {
-  const iconPath = path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+    const iconPath = path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
     const img = nativeImage.createFromPath(iconPath);
     const png = img.toPNG();
     if (!png || png.length === 0) return null;
