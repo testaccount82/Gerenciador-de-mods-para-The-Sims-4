@@ -1098,7 +1098,13 @@ function scanScatteredGroups(modsFolder) {
   for (const [prefix, files] of prefixMap) {
     if (files.length < 2) continue;
     const folders = [...new Set(files.map(f => f.folder))];
-    if (folders.length < 2) continue; // todos na mesma pasta — não é disperso
+
+    // Grupos dispersos: arquivos em pastas diferentes
+    const isScattered = folders.length >= 2;
+    // Grupos na raiz: 2+ arquivos todos na raiz sem pasta própria (precisam de pasta)
+    const allAtRoot = folders.length === 1 && folders[0] === '/';
+
+    if (!isScattered && !allAtRoot) continue;
 
     // Pasta de destino: a que tem mais arquivos (ou a mais rasa)
     const folderCount = {};

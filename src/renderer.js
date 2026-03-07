@@ -2906,7 +2906,7 @@ function renderOrganizeResults(el) {
           </button>
         </div>
         <div style="margin-bottom:10px;font-size:12.5px;color:var(--text-secondary)">
-          Grupos de mods com arquivos espalhados em pastas diferentes. Consolidar junta tudo na pasta principal do grupo.
+          Grupos de mods com arquivos espalhados em pastas diferentes, ou agrupados soltos na raiz sem pasta própria. Consolidar organiza tudo numa pasta única.
         </div>
         <div class="organize-rows" id="scattered-list">
           ${state.scattered.map((group, i) => `
@@ -2919,7 +2919,11 @@ function renderOrganizeResults(el) {
                 <div class="misplaced-name" title="${escapeHtml(group.name)}">${escapeHtml(group.prefix)} <span style="color:var(--text-secondary);font-weight:400">(${group.files.length} arquivos)</span></div>
                 <div class="misplaced-issue" style="color:var(--text-disabled)">
                   ${group.folders.map(f => escapeHtml(f === '/' ? '(raiz)' : f)).join(' · ')}
-                  <span style="margin-left:6px;color:var(--accent-light)">→ ${escapeHtml(group.targetFolder === '/' ? '(raiz)' : group.targetFolder)}</span>
+                  <span style="margin-left:6px;color:var(--accent-light)">→ ${escapeHtml(
+                    group.targetFolder === '/' && group.folders.length === 1
+                      ? `pasta "${group.prefix}" (nova)`
+                      : group.targetFolder === '/' ? '(raiz)' : group.targetFolder
+                  )}</span>
                 </div>
               </div>
               <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(group.totalSize)}</span>
