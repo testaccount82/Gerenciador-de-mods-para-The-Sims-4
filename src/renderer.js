@@ -461,6 +461,10 @@ async function renderDashboard() {
         <div class="stat-label">Scripts (.ts4script)</div>
         <div class="stat-value">${state.mods.filter(m => m.type === 'script').length}</div>
       </div>
+      <div class="stat-card tray stat-card-link" data-filter-type="tray" title="Ver itens do Tray">
+        <div class="stat-label">Tray</div>
+        <div class="stat-value">${state.trayFiles.length}</div>
+      </div>
       <div class="stat-card accent">
         <div class="stat-label">Tamanho Total</div>
         <div class="stat-value" style="font-size:18px;letter-spacing:-0.5px">${formatBytes(totalSize)}</div>

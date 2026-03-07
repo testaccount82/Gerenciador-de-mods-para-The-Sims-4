@@ -381,12 +381,14 @@ html, body {
 .stat-card.warning { border-left: 3px solid var(--warning); }
 .stat-card.danger  { border-left: 3px solid var(--danger); }
 .stat-card.info    { border-left: 3px solid var(--info); }
+.stat-card.tray    { border-left: 3px solid #00b4a0; }
 
 .stat-card.accent  .stat-value { color: var(--accent-light); }
 .stat-card.success .stat-value { color: var(--success); }
 .stat-card.warning .stat-value { color: var(--warning); }
 .stat-card.danger  .stat-value { color: var(--danger); }
 .stat-card.info    .stat-value { color: var(--info); }
+.stat-card.tray    .stat-value { color: #00b4a0; }
 
 .stat-card.stat-card-link {
   cursor: pointer;
