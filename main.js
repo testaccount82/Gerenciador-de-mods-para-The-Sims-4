@@ -1087,7 +1087,8 @@ function scanScatteredGroups(modsFolder) {
     const prefix = base.slice(0, idx).toLowerCase();
 
     const relativePath = path.relative(modsFolder, fullPath);
-    const folder = path.dirname(relativePath) || '/';
+    const rawFolder = path.dirname(relativePath);
+    const folder = (!rawFolder || rawFolder === '.') ? '/' : rawFolder;
     const size = (() => { try { return fs.statSync(fullPath).size; } catch(_) { return 0; } })();
 
     if (!prefixMap.has(prefix)) prefixMap.set(prefix, []);
