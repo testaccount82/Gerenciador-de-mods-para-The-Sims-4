@@ -2761,7 +2761,6 @@ async function renderOrganizer() {
         <div>
           <strong>Arquivos mal posicionados</strong> — detecta arquivos no lugar errado: .ts4script muito fundo, arquivos de Tray dentro de Mods e vice-versa.<br>
           <strong>Grupos dispersos</strong> — encontra mods com o mesmo prefixo espalhados em pastas diferentes, ou soltos na raiz sem pasta própria, e oferece consolidá-los.<br>
-          <strong>Conflitos de nome</strong> — identifica arquivos com o mesmo nome em pastas diferentes que podem se sobrescrever.<br>
           <strong>Pastas vazias</strong> — lista subpastas sem nenhum arquivo dentro (incluindo subpastas aninhadas) para remoção.
         </div>
       </div>
