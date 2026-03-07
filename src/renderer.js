@@ -668,10 +668,8 @@ function getFilteredMods() {
     const q = state.searchQuery.toLowerCase();
     mods = mods.filter(m => m.name.toLowerCase().includes(q));
   }
-  if (state.filterStatus !== 'all' && state.filterStatus !== 'partial') {
-    const want = state.filterStatus === 'active';
-    mods = mods.filter(m => m.enabled === want);
-  }
+  // NOTE: active/inactive/partial filters are applied AFTER grouping in renderMods()
+  // so partial groups are never split into "only disabled files" here.
   if (state.filterType !== 'all') {
     mods = mods.filter(m => m.type === state.filterType);
   }
@@ -714,15 +712,25 @@ function renderMods() {
   // Group tray files by GUID, then group mods by prefix before pagination
   let allGrouped = groupModsByPrefix(groupTrayFiles(allFiltered));
 
-  // Apply partial filter after grouping (partial = some enabled, not all)
-  if (state.filterStatus === 'partial') {
+  // Apply status filter after grouping — at the group level, using actual file states.
+  // This prevents partial groups from being split or misclassified.
+  if (state.filterStatus === 'active') {
     allGrouped = allGrouped.filter(m => {
-      if (m._isTrayGroup || m._isModGroup) {
-        const allEnabled = m.files.every(f => f.enabled);
-        const anyEnabled = m.files.some(f => f.enabled);
-        return anyEnabled && !allEnabled;
-      }
-      return false;
+      const files = m._isTrayGroup || m._isModGroup ? m.files : null;
+      return files ? files.every(f => f.enabled) : m.enabled;
+    });
+  } else if (state.filterStatus === 'inactive') {
+    allGrouped = allGrouped.filter(m => {
+      const files = m._isTrayGroup || m._isModGroup ? m.files : null;
+      return files ? !files.some(f => f.enabled) : !m.enabled;
+    });
+  } else if (state.filterStatus === 'partial') {
+    allGrouped = allGrouped.filter(m => {
+      const files = m._isTrayGroup || m._isModGroup ? m.files : null;
+      if (!files) return false;
+      const anyEnabled = files.some(f => f.enabled);
+      const allEnabled = files.every(f => f.enabled);
+      return anyEnabled && !allEnabled;
     });
   }
 
@@ -1145,13 +1153,14 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   const cardClass  = group._isTrayGroup ? 'tray-group' : 'mod-group';
   const allEnabled  = group.files.every(f => f.enabled);
   const someEnabled = !allEnabled && group.files.some(f => f.enabled);
+  const noneEnabled = !allEnabled && !someEnabled;
   const toggleLabel = allEnabled ? '⏸' : '▶';
   const toggleTitle = allEnabled ? 'Desativar grupo' : 'Ativar grupo';
   const statusDotClass = allEnabled ? 'dot-active' : someEnabled ? 'dot-partial' : 'dot-inactive';
 
   return `
     <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
-      <div class="gallery-card ${cardClass} ${!group.enabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
+      <div class="gallery-card ${cardClass} ${noneEnabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
            draggable="false"
            title="Clique para selecionar · Clique direito para gerenciar os ${group.files.length} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
@@ -2006,6 +2015,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
   const isExpanded = state.expandedGroups.has(groupKey);
   const allEnabled  = group.files.every(f => f.enabled);
   const someEnabled = !allEnabled && group.files.some(f => f.enabled);
+  const noneEnabled = !allEnabled && !someEnabled;
 
   const childRows = isExpanded ? group.files.map(f => {
     const fSel = state.selectedMods.has(f.path);
@@ -2044,7 +2054,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
   }).join('') : '';
 
   return `
-    <tr class="group-row ${!group.enabled ? 'disabled' : ''} ${allSel ? 'selected' : ''} ${isExpanded ? 'is-expanded' : ''}"
+    <tr class="group-row ${noneEnabled ? 'disabled' : ''} ${allSel ? 'selected' : ''} ${isExpanded ? 'is-expanded' : ''}"
         data-${idAttr}="${escapeHtml(idVal)}" style="cursor:pointer">
       <td style="text-align:center;padding:9px 6px">
         <input type="checkbox" class="checkbox row-check-group" data-${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
