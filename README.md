@@ -17,24 +17,41 @@ Gerenciador de mods para **The Sims 4** com interface inspirada no **Fluent 2** 
 
 ### 🎮 Gerenciamento de Mods
 - Lista completa de mods com busca, filtros e ordenação
+- Visualização em **lista** ou **grade**
 - Colunas redimensionáveis e ordenáveis por clique
 - Ativar/desativar mods individualmente ou em lote
 - Importar mods por **arrastar e soltar** ou seleção de arquivos
 - Suporte a `.zip`, `.rar`, `.7z` (com 7-Zip instalado), `.package`, `.ts4script` e arquivos de Tray
-- Deletar mods com confirmação
-- **Desfazer** operações em lote
+- Verificação por **hash MD5** para evitar reimportação de arquivos já existentes
+- Mods agrupados por prefixo (ex: `NomeMod_arquivo1`, `NomeMod_arquivo2`)
+- Seleção múltipla por **arrastar** (rubber band) ou checkbox
+- Mover mods para a **lixeira interna** com suporte a restauração
+- **Desfazer** operações (ativar, desativar, excluir, importar, mover)
 
 ### ⚠️ Detecção de Conflitos
 - Detecção de arquivos com **mesmo nome**
 - Detecção de **conteúdo idêntico** por hash MD5
 - Detecção de **duplicatas geradas pelo SO** (ex: `arquivo (2).package`)
-- Opções para deletar arquivos conflitantes
+- Opções para excluir arquivos conflitantes com suporte a desfazer
 
 ### 📁 Organização Automática
 - Detecta `.ts4script` com mais de 1 nível de subpasta
 - Detecta arquivos de Tray dentro da pasta Mods (e vice-versa)
-- Corrige individualmente ou todos de uma vez
-- Suporte a **desfazer** movimentações
+- Detecta **grupos dispersos**: mods com mesmo prefixo em pastas diferentes, ou soltos na raiz sem pasta própria
+- **Consolida** grupos dispersos em uma pasta única (cria subpasta automaticamente quando necessário)
+- Remove **pastas vazias**
+- Corrige individualmente ou tudo de uma vez
+- Suporte a **desfazer** todas as operações
+
+### 🗑️ Lixeira Interna
+- Arquivos excluídos vão para a lixeira interna antes de serem apagados permanentemente
+- Restauração individual ou em lote para o caminho original
+- Badge no menu atualizado em tempo real
+
+### 📜 Histórico
+- Registro de todas as ações da sessão
+- Colunas ordenáveis e redimensionáveis
+- Desfazer ações diretamente pelo histórico
 
 ### ⚙️ Configurações
 - Configuração manual das pastas Mods e Tray
@@ -67,6 +84,9 @@ npm install
 
 # Executar em modo de desenvolvimento
 npm start
+
+# Rodar testes
+npm test
 ```
 
 ### Build (Windows)
@@ -86,6 +106,7 @@ O instalador será gerado em `dist/`.
 │   ├── index.html   # Shell da janela
 │   ├── styles.css   # Estilos Fluent 2
 │   └── renderer.js  # Interface e lógica do frontend
+├── tests/           # Testes unitários (Jest)
 ├── assets/          # Ícones e recursos
 └── package.json
 ```
