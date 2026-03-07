@@ -105,7 +105,10 @@ function openModal(title, bodyHtml, buttons = []) {
     const btn = document.createElement('button');
     btn.className = `btn ${cls || 'btn-secondary'}`;
     btn.textContent = label;
-    btn.addEventListener('click', () => { action(); closeModal(); });
+    btn.addEventListener('click', async () => {
+      closeModal();
+      try { await action(); } catch (e) { console.error('Modal action error:', e); }
+    });
     footer.appendChild(btn);
   });
   document.getElementById('modal-overlay').classList.remove('hidden');
@@ -3621,15 +3624,19 @@ function renderTrashList(el, items) {
       const item = items[parseInt(btn.dataset.trashIdx)];
       if (!item?.originalPath) return;
       btn.disabled = true; btn.textContent = '…';
-      const result = await window.api.trashRestore(item.trashPath, item.originalPath);
-      if (result.success) {
-        await loadMods();
-        toast(`"${item.name}" restaurado`, 'success');
-        const updated = await window.api.trashList();
+      try {
+        const result = await window.api.trashRestore(item.trashPath, item.originalPath);
+        if (result.success) {
+          await loadMods();
+          toast(`"${item.name}" restaurado`, 'success');
+        } else {
+          toast('Erro ao restaurar: ' + (result.error || ''), 'error');
+        }
+      } catch (e) {
+        toast('Erro ao restaurar: ' + (e.message || ''), 'error');
+      } finally {
+        const updated = await window.api.trashList().catch(() => []);
         renderTrashList(el, updated);
-      } else {
-        btn.disabled = false; btn.textContent = '↩ Restaurar';
-        toast('Erro ao restaurar: ' + (result.error || ''), 'error');
       }
     });
   });
@@ -3644,13 +3651,18 @@ function renderTrashList(el, items) {
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Excluir permanentemente', cls: 'btn-danger', action: async () => {
-            const result = await window.api.trashDeletePermanent(item.trashPath);
-            if (result.success) {
-              toast(`"${item.name}" enviado para a lixeira do sistema`, 'info');
-              const updated = await window.api.trashList();
+            try {
+              const result = await window.api.trashDeletePermanent(item.trashPath);
+              if (result.success) {
+                toast(`"${item.name}" enviado para a lixeira do sistema`, 'info');
+              } else {
+                toast('Erro ao excluir: ' + (result.error || ''), 'error');
+              }
+            } catch (e) {
+              toast('Erro ao excluir: ' + (e.message || ''), 'error');
+            } finally {
+              const updated = await window.api.trashList().catch(() => []);
               renderTrashList(el, updated);
-            } else {
-              toast('Erro ao excluir: ' + (result.error || ''), 'error');
             }
           }}
         ]
@@ -3667,16 +3679,25 @@ function renderTrashList(el, items) {
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: 'Restaurar Todos', cls: 'btn-primary', action: async () => {
+          const restoreAllBtn = el.querySelector('#btn-trash-restore-all');
+          const emptyBtn = el.querySelector('#btn-trash-empty');
+          if (restoreAllBtn) { restoreAllBtn.disabled = true; restoreAllBtn.textContent = 'Restaurando…'; }
+          if (emptyBtn) emptyBtn.disabled = true;
           let ok = 0;
-          for (const item of restorable) {
-            const r = await window.api.trashRestore(item.trashPath, item.originalPath);
-            if (r.success) ok++;
+          try {
+            for (const item of restorable) {
+              const r = await window.api.trashRestore(item.trashPath, item.originalPath);
+              if (r.success) ok++;
+            }
+            await loadMods();
+            toast(`${ok} item(ns) restaurado(s)`, 'success');
+            logAction('restore', { count: ok, source: 'trash', label: `Restaurar ${ok} item(ns) da lixeira` });
+          } catch (e) {
+            toast('Erro ao restaurar: ' + (e.message || ''), 'error');
+          } finally {
+            const updated = await window.api.trashList().catch(() => []);
+            renderTrashList(el, updated);
           }
-          await loadMods();
-          toast(`${ok} item(ns) restaurado(s)`, 'success');
-          logAction('restore', { count: ok, source: 'trash', label: `Restaurar ${ok} item(ns) da lixeira` });
-          const updated = await window.api.trashList();
-          renderTrashList(el, updated);
         }}
       ]
     );
@@ -3690,10 +3711,19 @@ function renderTrashList(el, items) {
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: 'Esvaziar Lixeira', cls: 'btn-danger', action: async () => {
-          const result = await window.api.trashEmpty();
-          toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
-          const updated = await window.api.trashList();
-          renderTrashList(el, updated);
+          const emptyBtn = el.querySelector('#btn-trash-empty');
+          const restoreAllBtn = el.querySelector('#btn-trash-restore-all');
+          if (emptyBtn) { emptyBtn.disabled = true; emptyBtn.textContent = 'Esvaziando…'; }
+          if (restoreAllBtn) restoreAllBtn.disabled = true;
+          try {
+            const result = await window.api.trashEmpty();
+            toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
+          } catch (e) {
+            toast('Erro ao esvaziar lixeira', 'error');
+          } finally {
+            const updated = await window.api.trashList().catch(() => []);
+            renderTrashList(el, updated);
+          }
         }}
       ]
     );
