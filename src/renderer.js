@@ -1019,11 +1019,20 @@ function groupTrayFiles(mods) {
 // ─── Mod Prefix Grouping ─────────────────────────────────────────────────────
 
 /**
- * Extracts the prefix from a mod filename (everything before the first "_").
- * Returns null if there's no underscore or the prefix is too short (< 2 chars).
+ * Extracts the prefix from a mod filename.
+ * Priority 1: [Author Name] bracket prefix — groups files from the same creator
+ *   even when filenames use spaces instead of underscores.
+ * Priority 2: everything before the first "_" (original behaviour).
+ * Returns null if no recognisable prefix or the prefix is too short (< 2 chars).
  */
 function getModPrefix(name) {
   const base = name.replace(/\.(disabled)$/i, '').replace(/\.[^.]+$/, '');
+
+  // [Author] or [Author Name] at the start of the filename
+  const bracketMatch = base.match(/^\[([^\]]{2,})\]/i);
+  if (bracketMatch) return bracketMatch[1].toLowerCase().trim();
+
+  // Fallback: underscore-based prefix
   const idx = base.indexOf('_');
   if (idx < 2) return null;
   return base.slice(0, idx).toLowerCase();
@@ -1986,9 +1995,34 @@ async function loadVisibleThumbnails(el) {
   for (const loader of loaders) {
     const filePath = loader.dataset.load;
     const cacheKey = loader.dataset.cacheKey || thumbKey(filePath);
-    if (state.thumbnailCache[cacheKey] !== undefined) continue;
-    state.thumbnailCache[cacheKey] = THUMB_LOADING;
-    toLoad.push({ filePath, cacheKey });
+    const cached = state.thumbnailCache[cacheKey];
+
+    if (cached === undefined) {
+      // Not yet loaded — queue for async fetch
+      state.thumbnailCache[cacheKey] = THUMB_LOADING;
+      toLoad.push({ filePath, cacheKey });
+    } else if (cached !== THUMB_LOADING) {
+      // Already resolved (hit or miss) but this DOM element (e.g. a child
+      // card that was hidden when the parent group card loaded) still shows
+      // the spinner — update it immediately without a new IPC call.
+      if (cached) {
+        const img = document.createElement('img');
+        img.className = 'gallery-thumb';
+        img.src = cached;
+        img.alt = '';
+        img.loading = 'lazy';
+        loader.replaceWith(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'gallery-thumb-placeholder';
+        const allFiles = [...state.mods, ...state.trayFiles];
+        const allIndividual = allFiles.flatMap(m => (m._isModGroup || m._isTrayGroup) ? m.files : [m]);
+        const modEntry = allIndividual.find(m => thumbKey(m.path) === cacheKey);
+        ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
+        loader.replaceWith(ph);
+      }
+    }
+    // if THUMB_LOADING: already in-flight, will be updated when the Promise resolves
   }
 
   // Load all thumbnails in PARALLEL so that a slow file doesn't block the

@@ -969,6 +969,10 @@ tbody tr.disabled td { opacity: 0.5; }
   top: 6px;
   right: 6px;
 }
+/* No modo expandido, desloca o badge de tipo para não sobrepor o botão fechar */
+.group-card-wrapper.is-expanded > .gallery-card .card-type-tag {
+  right: 30px;
+}
 
 /* CSS tooltip for the expand button */
 .group-expand-btn::after {
