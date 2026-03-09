@@ -14,16 +14,16 @@ on:
           - Criar Release
           - Testes
           - Limpar Histórico de Execuções
-      extras:
-        description: "Limpeza extra"
+      apagar_releases:
+        description: "Apagar releases e tags"
         required: false
-        type: choice
-        default: Nenhuma
-        options:
-          - Nenhuma
-          - Releases e tags
-          - Artefatos
-          - Releases, tags e artefatos
+        default: false
+        type: boolean
+      apagar_artefatos:
+        description: "Apagar artefatos"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: write
@@ -36,7 +36,6 @@ jobs:
 
     env:
       WORKFLOW_ALVO: ${{ github.event.inputs.workflow }}
-      EXTRAS: ${{ github.event.inputs.extras }}
 
     steps:
       - name: 🗂️ Limpar histórico de execuções
@@ -80,7 +79,7 @@ jobs:
             console.log(`\n📊 ${ok} deletado(s), ${falhou} ignorado(s).`);
 
       - name: 🏷️ Apagar releases e tags
-        if: contains(env.EXTRAS, 'Releases')
+        if: ${{ github.event.inputs.apagar_releases == 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -118,7 +117,7 @@ jobs:
             console.log(`\n📊 ${relOk} release(s) e ${tagOk} tag(s) deletadas, ${falhou} erro(s).`);
 
       - name: 📦 Apagar artefatos
-        if: contains(env.EXTRAS, 'Artefatos')
+        if: ${{ github.event.inputs.apagar_artefatos == 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
