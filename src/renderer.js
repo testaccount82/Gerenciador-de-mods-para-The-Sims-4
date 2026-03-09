@@ -1220,7 +1220,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
                       data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
               <span class="gallery-status-dot ${statusDotClass} dot-clickable dot-clickable-group"
                     ${idAttr}="${escapeHtml(idVal)}"
-                    data-tooltip="${allEnabled ? 'Todos ativos — clique para desativar o grupo' : someEnabled ? 'Parcialmente ativo — clique para desativar todos' : 'Todos inativos — clique para ativar o grupo'}"></span>
+                    data-tooltip="${allEnabled ? 'Todos ativos — clique para desativar o grupo' : someEnabled ? 'Parcialmente ativo — clique para ativar todos' : 'Todos inativos — clique para ativar o grupo'}"></span>
             </div>
           </div>
         </div>
