@@ -1657,109 +1657,211 @@ function openGroupGridOverlay(group) {
   });
 }
 
-function openGroupOverlay(group) {
+function openGroupOverlay(group, initialView = 'list') {
   const isTray = group._isTrayGroup;
   const displayTitle = isTray
     ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
     : (group.modPrefix || group.name);
 
-  // Check whether files span multiple folders
   const folders = [...new Set(group.files.map(f => f.folder))];
   const multiFolder = folders.length > 1;
   const primaryFolder = group.files[0].folder;
-
-  // Check organize rules before showing consolidate button:
-  // - ts4script files can only be at root or 1 level deep in Mods
   const canConsolidate = multiFolder && group.files.every(f => {
     if (f.type === 'script') return primaryFolder === '/' || (primaryFolder.split(/[/\\]/).length <= 1);
     return true;
   });
 
-  const filesHtml = group.files.map(f => {
-    const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
-    const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
-    return `
-      <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
-        <span class="card-type-tag ${fTypeClass}" style="flex-shrink:0">${fTypeLabel}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
-          <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
-        </div>
-        <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
-        <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
-      </div>`;
-  }).join('');
+  function buildListHtml() {
+    return group.files.map(f => {
+      const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+      const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+      return `
+        <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
+          <span class="card-type-tag ${fTypeClass}" style="flex-shrink:0">${fTypeLabel}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
+            <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
+          </div>
+          <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
+          <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
+        </div>`;
+    }).join('');
+  }
 
-  const consolidateHtml = '';
+  function buildGridHtml() {
+    return group.files.map(f => {
+      const fCached = state.thumbnailCache[thumbKey(f.path)];
+      const fCanThumb = f.type === 'package' || f.type === 'tray' || (!f.type && /\.(package|trayitem|blueprint|bpi)$/i.test(f.name));
+      const fThumb = (fCached && fCached !== THUMB_LOADING)
+        ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
+        : (fCached === null || !fCanThumb)
+          ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type || 'package')}</div>`
+          : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+      const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+      const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+      const fEnabled = f.enabled !== false;
+      return `
+        <div class="gallery-card child-card group-overlay-grid-card ${!fEnabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
+          <span class="card-type-tag ${fTypeClass}">${fTypeLabel}</span>
+          ${fThumb}
+          <div class="gallery-info">
+            <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+            <div class="gallery-meta">
+              <span>${formatBytes(f.size || 0)}</span>
+              <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
+                    data-path="${escapeHtml(f.path)}"
+                    data-tooltip="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  const svgList = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`;
+  const svgGrid = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
 
   const bodyHtml = `
-    <div style="max-height:420px;overflow-y:auto">
-      ${multiFolder && !canConsolidate ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes (consolidação não disponível para este grupo)</div>` : ''}
-      ${consolidateHtml}
-      ${filesHtml}
-    </div>`;
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      ${multiFolder && !canConsolidate ? `<div style="font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes</div>` : '<div></div>'}
+      <div class="view-toggle" id="group-overlay-view-toggle">
+        <button class="view-btn ${initialView === 'list' ? 'active' : ''}" data-view="list" title="Lista">${svgList}</button>
+        <button class="view-btn ${initialView === 'grid' ? 'active' : ''}" data-view="grid" title="Grade">${svgGrid}</button>
+      </div>
+    </div>
+    <div id="group-overlay-content"></div>`;
 
   openModal(`Grupo: ${displayTitle} (${group.files.length} arquivos)`, bodyHtml, [
     { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
   ]);
 
-  // Right-click context menu on group modal rows — includes "Excluir" option
-  document.querySelectorAll('.group-overlay-row').forEach(row => {
-    row.addEventListener('contextmenu', e => {
-      e.preventDefault();
-      const fp = row.dataset.path;
-      showCtxMenu(e.clientX, e.clientY, fp, {
-        onDelete: async (filePath) => {
-          const allMods = [...state.mods, ...state.trayFiles];
-          const f = allMods.find(m => m.path === filePath);
-          const name = f?.name || filePath.split('\\').pop();
-          openModal('Confirmar Exclusão',
-            `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
-            [
-              { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
-              { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
-                const results = await window.api.trashModsBatch([filePath]);
-                if (results[0]?.success) {
-                  const { trashPath, originalPath } = results[0];
-                  closeModal();
-                  await loadMods(); renderMods();
-                  updateTrashBadge();
-                  toast(`"${name}" movido para a lixeira`, 'success');
-                  pushUndo(`Excluir ${name}`, async () => {
-                    await window.api.restoreModFromTrash(trashPath, originalPath);
-                    await loadMods(); renderMods();
-                    toast('Mod restaurado', 'success');
-                    logAction('restore', { name, label: `Restaurar ${name}` });
-                  }, 'delete', { name, source: 'group-overlay' });
-                } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
-              }}
-            ]
-          );
-        }
-      });
+  let currentView = initialView;
+  const contentEl = document.getElementById('group-overlay-content');
+
+  function renderView(view) {
+    currentView = view;
+    document.querySelectorAll('#group-overlay-view-toggle .view-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === view);
     });
+    if (view === 'list') {
+      contentEl.style.cssText = 'max-height:420px;overflow-y:auto';
+      contentEl.innerHTML = buildListHtml();
+      wireListEvents();
+    } else {
+      contentEl.style.cssText = 'max-height:420px;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
+      contentEl.innerHTML = buildGridHtml();
+      wireGridEvents();
+    }
+  }
+
+  document.getElementById('group-overlay-view-toggle').addEventListener('click', e => {
+    const btn = e.target.closest('[data-view]');
+    if (btn && btn.dataset.view !== currentView) renderView(btn.dataset.view);
   });
 
-  // Wire toggle on row click
-  document.querySelectorAll('.group-overlay-row').forEach(row => {
-    row.addEventListener('click', async () => {
-      const fp = row.dataset.path;
-      const result = await window.api.toggleMod(fp);
-      if (result.success) {
-        // Atualiza o data-path para o novo caminho (ex: .package → .package.disabled)
-        // sem isso o segundo clique usa o caminho antigo que já não existe no disco
-        row.dataset.path = result.newPath;
-        await loadMods();
-        // Refresh the badge inside the row
-        const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
-        if (f) {
-          const badge = row.querySelector('.badge');
-          if (badge) { badge.className = `badge ${f.enabled ? 'badge-active' : 'badge-inactive'}`; badge.textContent = f.enabled ? 'Ativo' : 'Inativo'; }
-        }
-        renderMods();
-      } else { toast('Erro ao alternar mod', 'error'); }
+  function wireListEvents() {
+    document.querySelectorAll('.group-overlay-row').forEach(row => {
+      row.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        const fp = row.dataset.path;
+        showCtxMenu(e.clientX, e.clientY, fp, {
+          onDelete: async (filePath) => {
+            const allMods = [...state.mods, ...state.trayFiles];
+            const f = allMods.find(m => m.path === filePath);
+            const name = f?.name || filePath.split('\\').pop();
+            openModal('Confirmar Exclusão',
+              `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+              [
+                { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+                { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+                  const results = await window.api.trashModsBatch([filePath]);
+                  if (results[0]?.success) {
+                    const { trashPath, originalPath } = results[0];
+                    closeModal();
+                    await loadMods(); renderMods();
+                    updateTrashBadge();
+                    toast(`"${name}" movido para a lixeira`, 'success');
+                    pushUndo(`Excluir ${name}`, async () => {
+                      await window.api.restoreModFromTrash(trashPath, originalPath);
+                      await loadMods(); renderMods();
+                      toast('Mod restaurado', 'success');
+                      logAction('restore', { name, label: `Restaurar ${name}` });
+                    }, 'delete', { name, source: 'group-overlay' });
+                  } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+                }}
+              ]
+            );
+          }
+        });
+      });
+      row.addEventListener('click', async () => {
+        const fp = row.dataset.path;
+        const result = await window.api.toggleMod(fp);
+        if (result.success) {
+          row.dataset.path = result.newPath;
+          await loadMods();
+          const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
+          if (f) {
+            const badge = row.querySelector('.badge');
+            if (badge) { badge.className = `badge ${f.enabled ? 'badge-active' : 'badge-inactive'}`; badge.textContent = f.enabled ? 'Ativo' : 'Inativo'; }
+          }
+          renderMods();
+        } else { toast('Erro ao alternar mod', 'error'); }
+      });
     });
-  });
+  }
+
+  function wireGridEvents() {
+    document.querySelectorAll('.group-overlay-grid-card .dot-clickable').forEach(dot => {
+      dot.addEventListener('click', async e => {
+        e.stopPropagation();
+        const card = dot.closest('.group-overlay-grid-card');
+        const fp = card?.dataset.path;
+        if (!fp) return;
+        const result = await window.api.toggleMod(fp);
+        if (result.success) {
+          card.dataset.path = result.newPath;
+          dot.dataset.path  = result.newPath;
+          await loadMods();
+          const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath);
+          if (f) {
+            dot.className = `gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable`;
+            dot.dataset.tooltip = f.enabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar';
+            card.classList.toggle('card-inactive', !f.enabled);
+          }
+          renderMods();
+        } else { toast('Erro ao alternar mod', 'error'); }
+      });
+    });
+    document.querySelectorAll('.group-overlay-grid-card').forEach(card => {
+      card.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        showCtxMenu(e.clientX, e.clientY, card.dataset.path, {
+          onDelete: async (filePath) => {
+            const allMods = [...state.mods, ...state.trayFiles];
+            const f = allMods.find(m => m.path === filePath);
+            const name = f?.name || filePath.split('\\').pop();
+            openModal('Confirmar Exclusão',
+              `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+              [
+                { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+                { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+                  const results = await window.api.trashModsBatch([filePath]);
+                  if (results[0]?.success) {
+                    closeModal();
+                    await loadMods(); renderMods();
+                    updateTrashBadge();
+                    toast(`"${name}" movido para a lixeira`, 'success');
+                  } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+                }}
+              ]
+            );
+          }
+        });
+      });
+    });
+  }
+
+  renderView(initialView);
 }
 
 // ─── Rubber Band Selection ────────────────────────────────────────────────────
