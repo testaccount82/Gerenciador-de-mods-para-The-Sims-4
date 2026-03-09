@@ -4367,7 +4367,8 @@ init();
     const resolved = resolveTooltip(e.target);
     if (!resolved) { hide(); return; }
     const card = e.target.closest('.gallery-card');
-    if (activeCard && activeCard === card) return;
+    // Só ignora se for o mesmo card E o elemento não tem data-tooltip próprio
+    if (activeCard && activeCard === card && !e.target.closest('[data-tooltip]')) return;
     activeCard = card || resolved.anchor;
     showAboveDot(resolved.text, resolved.dot);
   });
