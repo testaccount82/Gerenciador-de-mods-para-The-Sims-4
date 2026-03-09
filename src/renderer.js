@@ -4284,39 +4284,66 @@ init();
   tip.id = 'app-tooltip';
   document.body.appendChild(tip);
 
-  let currentTarget = null;
+  // SVG connector line
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = 'tooltip-connector-svg';
+  document.body.appendChild(svg);
+  const connLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  connLine.id = 'tooltip-connector-line';
+  svg.appendChild(connLine);
 
-  function showAtDot(text, dot) {
+  let activeCard = null;
+
+  function showAboveDot(text, dot) {
     tip.textContent = text;
     tip.classList.add('visible');
-    // Position to the right of the dot, vertically centred on it
     requestAnimationFrame(() => {
-      const rect = dot.getBoundingClientRect();
-      const tw = tip.offsetWidth, th = tip.offsetHeight;
-      const gap = 8;
-      let left = rect.right + gap;
-      let top  = rect.top + (rect.height / 2) - (th / 2);
-      // Flip left if overflows viewport
-      if (left + tw + 4 > window.innerWidth) left = rect.left - tw - gap;
+      const dr  = dot.getBoundingClientRect();
+      const tw  = tip.offsetWidth;
+      const th  = tip.offsetHeight;
+      const gap = 10;
+
+      const dotCX = dr.left + dr.width  / 2;
+      const dotCY = dr.top  + dr.height / 2;
+
+      // Centralizado acima da bolinha
+      let left = dotCX - tw / 2;
+      let top  = dotCY - th - gap;
+
+      const margin = 6;
+      left = Math.max(margin, Math.min(left, window.innerWidth - tw - margin));
+      // Flipa para baixo se não couber no topo
+      const flipped = top < margin;
+      if (flipped) top = dotCY + dr.height + gap;
+
       tip.style.left = left + 'px';
       tip.style.top  = top  + 'px';
+
+      // Linha: do centro da bolinha até a borda mais próxima do tooltip
+      const tipCX = left + tw / 2;
+      const tipCY = flipped ? top : top + th;
+
+      connLine.setAttribute('x1', String(dotCX));
+      connLine.setAttribute('y1', String(dotCY));
+      connLine.setAttribute('x2', String(tipCX));
+      connLine.setAttribute('y2', String(tipCY));
+      connLine.classList.add('visible');
     });
   }
+
   function hide() {
     tip.classList.remove('visible');
-    currentTarget = null;
+    connLine.classList.remove('visible');
+    activeCard = null;
   }
 
-  // Returns { text, dot, anchor } — dot is the bolinha element used for positioning
+  // Returns { text, dot } — dot é a bolinha usada para posicionamento
   function resolveTooltip(el) {
-    // Hovering directly on the dot or expand btn
     const direct = el.closest('[data-tooltip]');
     if (direct) {
-      // For non-dot elements (expand btn) keep positioning near the element itself
       const isDot = direct.classList.contains('gallery-status-dot');
-      return { text: direct.dataset.tooltip, dot: isDot ? direct : direct, anchor: direct };
+      return { text: direct.dataset.tooltip, dot: direct, anchor: isDot ? direct.closest('.gallery-card') || direct : direct };
     }
-    // Hovering anywhere on the card → use dot as anchor
     const card = el.closest('.gallery-card');
     if (card) {
       const dot = card.querySelector('.gallery-status-dot[data-tooltip]');
@@ -4328,15 +4355,17 @@ init();
   document.addEventListener('mouseover', (e) => {
     if (e.target === tip) return;
     const resolved = resolveTooltip(e.target);
-    if (!resolved) return;
-    currentTarget = resolved.anchor;
-    showAtDot(resolved.text, resolved.dot);
+    if (!resolved) { hide(); return; }
+    const card = e.target.closest('.gallery-card');
+    if (activeCard && activeCard === card) return;
+    activeCard = card || resolved.anchor;
+    showAboveDot(resolved.text, resolved.dot);
   });
 
   document.addEventListener('mouseout', (e) => {
-    if (!currentTarget) return;
+    if (!activeCard) return;
     const related = e.relatedTarget;
-    if (related && currentTarget.contains(related)) return;
+    if (related && activeCard.contains(related)) return;
     hide();
   });
 
