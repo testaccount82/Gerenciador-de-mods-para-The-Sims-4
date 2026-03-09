@@ -4284,60 +4284,59 @@ init();
 
   let currentTarget = null;
 
-  function show(text, x, y) {
+  function showAtDot(text, dot) {
     tip.textContent = text;
     tip.classList.add('visible');
-    move(x, y);
+    // Position to the right of the dot, vertically centred on it
+    requestAnimationFrame(() => {
+      const rect = dot.getBoundingClientRect();
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      const gap = 8;
+      let left = rect.right + gap;
+      let top  = rect.top + (rect.height / 2) - (th / 2);
+      // Flip left if overflows viewport
+      if (left + tw + 4 > window.innerWidth) left = rect.left - tw - gap;
+      tip.style.left = left + 'px';
+      tip.style.top  = top  + 'px';
+    });
   }
   function hide() {
     tip.classList.remove('visible');
     currentTarget = null;
   }
-  function move(x, y) {
-    const offset = 14;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const tw = tip.offsetWidth, th = tip.offsetHeight;
-    let left = x + offset;
-    let top  = y + offset;
-    if (left + tw + 8 > vw) left = x - tw - offset;
-    if (top  + th + 8 > vh) top  = y - th - offset;
-    tip.style.left = left + 'px';
-    tip.style.top  = top  + 'px';
-  }
 
-  // Resolve tooltip text: direct data-tooltip OR dot inside a gallery-card
+  // Returns { text, dot, anchor } — dot is the bolinha element used for positioning
   function resolveTooltip(el) {
-    if (el.dataset.tooltip) return { text: el.dataset.tooltip, anchor: el };
+    // Hovering directly on the dot or expand btn
+    const direct = el.closest('[data-tooltip]');
+    if (direct) {
+      // For non-dot elements (expand btn) keep positioning near the element itself
+      const isDot = direct.classList.contains('gallery-status-dot');
+      return { text: direct.dataset.tooltip, dot: isDot ? direct : direct, anchor: direct };
+    }
+    // Hovering anywhere on the card → use dot as anchor
     const card = el.closest('.gallery-card');
     if (card) {
       const dot = card.querySelector('.gallery-status-dot[data-tooltip]');
-      if (dot) return { text: dot.dataset.tooltip, anchor: card };
+      if (dot) return { text: dot.dataset.tooltip, dot, anchor: card };
     }
     return null;
   }
 
-  document.addEventListener('mousemove', (e) => {
-    if (currentTarget) move(e.clientX, e.clientY);
-  });
-
   document.addEventListener('mouseover', (e) => {
-    // Ignore if hovering the tooltip itself
     if (e.target === tip) return;
     const resolved = resolveTooltip(e.target);
     if (!resolved) return;
     currentTarget = resolved.anchor;
-    show(resolved.text, e.clientX, e.clientY);
+    showAtDot(resolved.text, resolved.dot);
   });
 
   document.addEventListener('mouseout', (e) => {
     if (!currentTarget) return;
     const related = e.relatedTarget;
-    // Hide only when leaving the anchor element entirely
     if (related && currentTarget.contains(related)) return;
-    if (related === currentTarget) return;
     hide();
   });
 
-  // Also hide when clicking
   document.addEventListener('mousedown', () => hide());
 })();
