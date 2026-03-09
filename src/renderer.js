@@ -2520,6 +2520,14 @@ function setupModsEvents(el, mods) {
 
   // Click on group row header → expand/collapse
   el.querySelectorAll('tr.group-row').forEach(row => {
+    row.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = row.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === row.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === row.dataset.modPrefix);
+      if (group) openGroupOverlay(group);
+    });
     row.addEventListener('click', e => {
       if (e.target.closest('.toggle-group-btn') || e.target.closest('.row-check-group') || e.target.closest('.delete-group-btn')) return;
       const guid   = row.dataset.trayGuid;
