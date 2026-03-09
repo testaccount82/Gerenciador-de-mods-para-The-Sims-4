@@ -19,27 +19,81 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Checkout código
+      - name: Verificar espaco disponivel para artefatos
+        id: check_storage
+        shell: pwsh
+        run: |
+          # Limite do plano gratuito do GitHub Actions e 500 MB de artefatos
+          # Deixamos uma margem de seguranca de 50 MB para o build
+          $LIMITE_MB            = 500
+          $MARGEM_MB            = 50
+
+          $headers = @{
+            Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"
+            Accept        = "application/vnd.github+json"
+          }
+
+          # Busca todos os artefatos do repositorio (pagina ate esgotar)
+          $totalBytes = 0
+          $page = 1
+          do {
+            $url  = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=100&page=$page"
+            $resp = Invoke-RestMethod -Uri $url -Headers $headers
+            foreach ($artifact in $resp.artifacts) {
+              $totalBytes += $artifact.size_in_bytes
+            }
+            $page++
+          } while ($resp.artifacts.Count -eq 100)
+
+          $usadoMB      = [math]::Round($totalBytes / 1MB, 2)
+          $disponivelMB = [math]::Round($LIMITE_MB - $usadoMB, 2)
+
+          Write-Host "Artefatos usados : $usadoMB MB / $LIMITE_MB MB"
+          Write-Host "Disponivel       : $disponivelMB MB"
+
+          if ($disponivelMB -lt $MARGEM_MB) {
+            Write-Host ""
+            Write-Host "::warning::Espaco insuficiente ($disponivelMB MB disponivel, minimo $MARGEM_MB MB). Workflow cancelado."
+            echo "skip=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Espaco suficiente. Continuando o build."
+            echo "skip=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Cancelar se sem espaco
+        if: steps.check_storage.outputs.skip == 'true'
+        shell: pwsh
+        run: |
+          Write-Host "Encerrando sem erro - espaco de artefatos insuficiente."
+          exit 0
+
+      - name: Checkout codigo
+        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Configurar Node.js
+        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Instalar dependências
+      - name: Instalar dependencias
+        if: steps.check_storage.outputs.skip != 'true'
         run: npm install --legacy-peer-deps
 
       - name: Build do instalador Windows
+        if: steps.check_storage.outputs.skip != 'true'
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Listar arquivos gerados
+        if: steps.check_storage.outputs.skip != 'true'
         run: Get-ChildItem -Recurse dist\
         shell: pwsh
 
       - name: Renomear portable para nome mais descritivo
+        if: steps.check_storage.outputs.skip != 'true'
         shell: pwsh
         run: |
           $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" }
@@ -50,6 +104,7 @@ jobs:
           }
 
       - name: Upload do instalador
+        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: TS4 Mod Manager Instalador Windows
@@ -57,6 +112,7 @@ jobs:
           retention-days: 30
 
       - name: Upload do portable
+        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: TS4 Mod Manager Portable Windows
