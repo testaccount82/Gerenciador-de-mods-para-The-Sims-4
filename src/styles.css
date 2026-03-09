@@ -1071,6 +1071,13 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   pointer-events: none;
   border-radius: var(--r-md) var(--r-md) 0 0;
 }
+
+/* Mosaico de miniaturas para cards de grupo */
+.group-thumb-mosaic {
+  width: 100%; aspect-ratio: 3/4;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  overflow: hidden;
+}
 .gallery-thumb-placeholder {
   width: 100%; aspect-ratio: 3/4;
   display: flex; align-items: center; justify-content: center;

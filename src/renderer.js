@@ -1157,13 +1157,47 @@ function renderGallery(mods) {
 function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeholderIcon, displayName) {
   const allPaths = group.files.map(f => f.path);
   const allSel = allPaths.every(p => state.selectedMods.has(p));
-  const cached = state.thumbnailCache[thumbKey(group.path)];
+
+  // ── Mosaico de miniaturas do grupo ──────────────────────────────────
   const canHaveThumb = group.type === 'package' || group.type === 'tray';
-  const thumbHtml = (canHaveThumb && cached && cached !== THUMB_LOADING)
-    ? `<img class="gallery-thumb" src="${cached}" alt="" loading="lazy">`
-    : (cached === null || !canHaveThumb)
-      ? `<div class="gallery-thumb-placeholder">${placeholderIcon}</div>`
-      : `<div class="gallery-thumb-loading" data-load="${escapeHtml(group.path)}" data-cache-key="${escapeHtml(thumbKey(group.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+  let thumbHtml;
+  if (canHaveThumb) {
+    // Coleta miniaturas já carregadas dos arquivos do grupo
+    const readyThumbs = group.files
+      .map(f => state.thumbnailCache[thumbKey(f.path)])
+      .filter(c => c && c !== THUMB_LOADING);
+
+    // Arquivos ainda aguardando carregamento
+    const loadingFiles = group.files.filter(f => {
+      const c = state.thumbnailCache[thumbKey(f.path)];
+      return c === THUMB_LOADING || c === undefined;
+    });
+
+    if (readyThumbs.length >= 2) {
+      // Mosaico: máx 4 imagens em grade 2×2
+      const slots = readyThumbs.slice(0, 4);
+      const cols  = slots.length <= 2 ? slots.length : 2;
+      const rows  = Math.ceil(slots.length / cols);
+      const imgs  = slots.map(src =>
+        `<img src="${src}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">`
+      ).join('');
+      thumbHtml = `
+        <div class="gallery-thumb group-thumb-mosaic"
+             style="display:grid;grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);gap:1px;background:#000;">
+          ${imgs}
+        </div>`;
+    } else if (readyThumbs.length === 1) {
+      thumbHtml = `<img class="gallery-thumb" src="${readyThumbs[0]}" alt="" loading="lazy">`;
+    } else if (loadingFiles.length > 0) {
+      // Ainda carregando — mostra spinner usando o primeiro arquivo do grupo
+      const firstLoading = loadingFiles[0];
+      thumbHtml = `<div class="gallery-thumb-loading" data-load="${escapeHtml(firstLoading.path)}" data-cache-key="${escapeHtml(thumbKey(firstLoading.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+    } else {
+      thumbHtml = `<div class="gallery-thumb-placeholder">${placeholderIcon}</div>`;
+    }
+  } else {
+    thumbHtml = `<div class="gallery-thumb-placeholder">${placeholderIcon}</div>`;
+  }
 
   const idAttr = group._isTrayGroup ? 'data-tray-guid' : 'data-mod-prefix';
   const idVal  = group._isTrayGroup ? group.trayGuid   : group.modPrefix;
