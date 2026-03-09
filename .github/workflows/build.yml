@@ -23,33 +23,44 @@ jobs:
         id: check_storage
         shell: pwsh
         run: |
-          # Limite do plano gratuito do GitHub Actions e 500 MB de artefatos
-          # Deixamos uma margem de seguranca de 50 MB para o build
-          $LIMITE_MB            = 500
-          $MARGEM_MB            = 50
+          # Plano gratuito: 0,5 GB (512 MB) de Actions storage (artefatos + caches)
+          $LIMITE_MB = 512
+          $MARGEM_MB = 50
 
           $headers = @{
             Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"
             Accept        = "application/vnd.github+json"
           }
 
-          # Busca todos os artefatos do repositorio (pagina ate esgotar)
-          $totalBytes = 0
+          # --- Artefatos (soma paginada) ---
+          $artifactBytes = 0
           $page = 1
           do {
             $url  = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=100&page=$page"
             $resp = Invoke-RestMethod -Uri $url -Headers $headers
-            foreach ($artifact in $resp.artifacts) {
-              $totalBytes += $artifact.size_in_bytes
-            }
+            foreach ($a in $resp.artifacts) { $artifactBytes += $a.size_in_bytes }
             $page++
           } while ($resp.artifacts.Count -eq 100)
 
-          $usadoMB      = [math]::Round($totalBytes / 1MB, 2)
-          $disponivelMB = [math]::Round($LIMITE_MB - $usadoMB, 2)
+          # --- Cache ---
+          $cacheBytes = 0
+          try {
+            $cacheUrl  = "https://api.github.com/repos/${{ github.repository }}/actions/cache/usage"
+            $cacheResp = Invoke-RestMethod -Uri $cacheUrl -Headers $headers
+            $cacheBytes = $cacheResp.active_caches_size_in_bytes
+          } catch {
+            Write-Host "Aviso: nao foi possivel consultar uso de cache. Assumindo 0."
+          }
 
-          Write-Host "Artefatos usados : $usadoMB MB / $LIMITE_MB MB"
-          Write-Host "Disponivel       : $disponivelMB MB"
+          $totalMB      = [math]::Round(($artifactBytes + $cacheBytes) / 1MB, 2)
+          $artefatosMB  = [math]::Round($artifactBytes / 1MB, 2)
+          $cacheMB      = [math]::Round($cacheBytes / 1MB, 2)
+          $disponivelMB = [math]::Round($LIMITE_MB - $totalMB, 2)
+
+          Write-Host "Artefatos : $artefatosMB MB"
+          Write-Host "Cache     : $cacheMB MB"
+          Write-Host "Total     : $totalMB MB / $LIMITE_MB MB"
+          Write-Host "Disponivel: $disponivelMB MB (minimo necessario: $MARGEM_MB MB)"
 
           if ($disponivelMB -lt $MARGEM_MB) {
             Write-Host ""
