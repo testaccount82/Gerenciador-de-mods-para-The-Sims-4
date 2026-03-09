@@ -3,24 +3,47 @@ name: Criar Release
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Versão (ex: v1.2.0)"
+      versao_modo:
+        description: "Versão"
         required: true
-      nome:
-        description: "Nome do release (ex: TS4 Mod Manager v1.2.0)"
-        required: true
-      notas:
-        description: "Notas da versão"
-        required: false
-        default: "Nova versão disponível."
-      prerelease:
-        description: "É um pré-release?"
-        required: false
-        default: "false"
+        default: "automatico"
         type: choice
         options:
-          - "false"
-          - "true"
+          - automatico
+          - manual
+      versao_manual:
+        description: "Versão manual (ex: v1.2.0) — ignorado se modo for automático"
+        required: false
+        default: ""
+      nome_modo:
+        description: "Nome do release"
+        required: true
+        default: "predefinido"
+        type: choice
+        options:
+          - predefinido
+          - manual
+      nome_manual:
+        description: "Nome manual do release — ignorado se modo for predefinido"
+        required: false
+        default: ""
+      changelog_modo:
+        description: "Changelog"
+        required: true
+        default: "automatico"
+        type: choice
+        options:
+          - automatico
+          - manual
+      changelog_manual:
+        description: "Changelog manual — ignorado se modo for automático"
+        required: false
+        default: ""
+      prerelease:
+        description: "Marcar como pré-release?"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -30,8 +53,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout código
+      - name: Checkout código (histórico completo para changelog)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
@@ -40,6 +65,51 @@ jobs:
 
       - name: Instalar dependências
         run: npm install --legacy-peer-deps
+
+      - name: Resolver versão, nome e changelog
+        id: meta
+        shell: pwsh
+        run: |
+          # ── Versão ────────────────────────────────────────────────────
+          if ("${{ github.event.inputs.versao_modo }}" -eq "manual") {
+            $tag = "${{ github.event.inputs.versao_manual }}".Trim()
+            if (-not $tag) { Write-Error "Versão manual não informada."; exit 1 }
+          } else {
+            # Lê versão do package.json e adiciona prefixo v
+            $pkg = Get-Content "package.json" | ConvertFrom-Json
+            $tag = "v$($pkg.version)"
+          }
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+
+          # ── Nome ──────────────────────────────────────────────────────
+          if ("${{ github.event.inputs.nome_modo }}" -eq "manual") {
+            $nome = "${{ github.event.inputs.nome_manual }}".Trim()
+            if (-not $nome) { Write-Error "Nome manual não informado."; exit 1 }
+          } else {
+            $nome = "TS4 Mod Manager $tag"
+          }
+          echo "nome=$nome" >> $env:GITHUB_OUTPUT
+
+          # ── Changelog ─────────────────────────────────────────────────
+          if ("${{ github.event.inputs.changelog_modo }}" -eq "manual") {
+            $changelog = "${{ github.event.inputs.changelog_manual }}"
+            if (-not $changelog) { $changelog = "Nova versão disponível." }
+          } else {
+            # Gera changelog automático com base na diferença desde a última tag
+            $ultimaTag = git describe --tags --abbrev=0 2>$null
+            if ($ultimaTag) {
+              $commits = git log "$ultimaTag..HEAD" --pretty=format:"- %s (%h)" --no-merges
+            } else {
+              $commits = git log --pretty=format:"- %s (%h)" --no-merges -30
+            }
+            if ($commits) {
+              $changelog = "## O que mudou desde $ultimaTag`n`n$($commits -join "`n")"
+            } else {
+              $changelog = "Nova versão disponível."
+            }
+          }
+          # Salva changelog em arquivo para evitar problemas com multiline no output
+          $changelog | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
 
       - name: Build do instalador Windows
         run: npm run build
@@ -59,9 +129,9 @@ jobs:
       - name: Criar Release com o EXE
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          name: ${{ github.event.inputs.nome }}
-          body: ${{ github.event.inputs.notas }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.nome }}
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           files: dist/*.exe
