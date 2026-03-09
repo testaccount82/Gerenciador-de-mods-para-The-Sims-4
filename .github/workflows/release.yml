@@ -111,19 +111,44 @@ jobs:
           # Salva changelog em arquivo para evitar problemas com multiline no output
           $changelog | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
 
+      - name: Sincronizar versão do package.json com a tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}".TrimStart("v")
+          $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
+          if ($pkg.version -ne $tag) {
+            $pkg.version = $tag
+            $pkg | ConvertTo-Json -Depth 10 | Set-Content "package.json" -Encoding utf8
+            Write-Host "package.json atualizado para versão $tag"
+          } else {
+            Write-Host "package.json já está na versão $tag"
+          }
+
       - name: Build do instalador Windows
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Renomear portable para nome mais descritivo
+      - name: Renomear EXEs para incluir versão e tipo
         shell: pwsh
         run: |
-          $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" }
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $version = $tag.TrimStart("v")
+
+          # Portable: qualquer .exe que não seja Setup
+          $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" } | Select-Object -First 1
           if ($portable) {
-            $newName = $portable.Name -replace "^TS4 Mod Manager ", "TS4 Mod Manager Portable "
+            $newName = "TS4.Mod.Manager.Portable.$version.exe"
             Rename-Item -Path $portable.FullName -NewName $newName
-            Write-Host "Renomeado: $($portable.Name) -> $newName"
+            Write-Host "Portable: $($portable.Name) -> $newName"
+          }
+
+          # Installer (Setup)
+          $setup = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -like "*Setup*" } | Select-Object -First 1
+          if ($setup) {
+            $newName = "TS4.Mod.Manager.Setup.$version.exe"
+            Rename-Item -Path $setup.FullName -NewName $newName
+            Write-Host "Setup: $($setup.Name) -> $newName"
           }
 
       - name: Criar Release com o EXE
