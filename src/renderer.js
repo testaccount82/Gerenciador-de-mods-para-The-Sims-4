@@ -4305,22 +4305,37 @@ init();
     tip.style.top  = top  + 'px';
   }
 
+  // Resolve tooltip text: direct data-tooltip OR dot inside a gallery-card
+  function resolveTooltip(el) {
+    if (el.dataset.tooltip) return { text: el.dataset.tooltip, anchor: el };
+    const card = el.closest('.gallery-card');
+    if (card) {
+      const dot = card.querySelector('.gallery-status-dot[data-tooltip]');
+      if (dot) return { text: dot.dataset.tooltip, anchor: card };
+    }
+    return null;
+  }
+
   document.addEventListener('mousemove', (e) => {
     if (currentTarget) move(e.clientX, e.clientY);
   });
 
   document.addEventListener('mouseover', (e) => {
-    const el = e.target.closest('[data-tooltip]');
-    if (!el) return;
-    const text = el.dataset.tooltip;
-    if (!text) return;
-    currentTarget = el;
-    show(text, e.clientX, e.clientY);
+    // Ignore if hovering the tooltip itself
+    if (e.target === tip) return;
+    const resolved = resolveTooltip(e.target);
+    if (!resolved) return;
+    currentTarget = resolved.anchor;
+    show(resolved.text, e.clientX, e.clientY);
   });
 
   document.addEventListener('mouseout', (e) => {
-    const el = e.target.closest('[data-tooltip]');
-    if (el && el === currentTarget) hide();
+    if (!currentTarget) return;
+    const related = e.relatedTarget;
+    // Hide only when leaving the anchor element entirely
+    if (related && currentTarget.contains(related)) return;
+    if (related === currentTarget) return;
+    hide();
   });
 
   // Also hide when clicking
