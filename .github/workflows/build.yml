@@ -11,7 +11,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 jobs:
   build:
@@ -20,92 +20,47 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Verificar espaco disponivel para artefatos
-        id: check_storage
-        shell: pwsh
-        run: |
-          # Plano gratuito: 0,5 GB (512 MB) de Actions storage (artefatos + caches)
-          $LIMITE_MB = 512
-          $MARGEM_MB = 50
+      - name: Deletar artefatos antigos
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const nomesAlvo = [
+              "TS4 Mod Manager Instalador Windows",
+              "TS4 Mod Manager Portable Windows"
+            ];
 
-          $headers = @{
-            Authorization = "Bearer ${{ secrets.GITHUB_TOKEN }}"
-            Accept        = "application/vnd.github+json"
-          }
-
-          # --- Artefatos (soma paginada) ---
-          $artifactBytes = 0
-          $page = 1
-          do {
-            $url  = "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=100&page=$page"
-            $resp = Invoke-RestMethod -Uri $url -Headers $headers
-            foreach ($a in $resp.artifacts) { $artifactBytes += $a.size_in_bytes }
-            $page++
-          } while ($resp.artifacts.Count -eq 100)
-
-          # --- Cache ---
-          $cacheBytes = 0
-          try {
-            $cacheUrl  = "https://api.github.com/repos/${{ github.repository }}/actions/cache/usage"
-            $cacheResp = Invoke-RestMethod -Uri $cacheUrl -Headers $headers
-            $cacheBytes = $cacheResp.active_caches_size_in_bytes
-          } catch {
-            Write-Host "Aviso: nao foi possivel consultar uso de cache. Assumindo 0."
-          }
-
-          $totalMB      = [math]::Round(($artifactBytes + $cacheBytes) / 1MB, 2)
-          $artefatosMB  = [math]::Round($artifactBytes / 1MB, 2)
-          $cacheMB      = [math]::Round($cacheBytes / 1MB, 2)
-          $disponivelMB = [math]::Round($LIMITE_MB - $totalMB, 2)
-
-          Write-Host "Artefatos : $artefatosMB MB"
-          Write-Host "Cache     : $cacheMB MB"
-          Write-Host "Total     : $totalMB MB / $LIMITE_MB MB"
-          Write-Host "Disponivel: $disponivelMB MB (minimo necessario: $MARGEM_MB MB)"
-
-          if ($disponivelMB -lt $MARGEM_MB) {
-            Write-Host ""
-            Write-Host "::warning::Espaco insuficiente ($disponivelMB MB disponivel, minimo $MARGEM_MB MB). Workflow cancelado."
-            echo "skip=true" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Host "Espaco suficiente. Continuando o build."
-            echo "skip=false" >> $env:GITHUB_OUTPUT
-          }
-
-      - name: Cancelar se sem espaco
-        if: steps.check_storage.outputs.skip == 'true'
-        shell: pwsh
-        run: |
-          Write-Host "Encerrando sem erro - espaco de artefatos insuficiente."
-          exit 0
+            for (const nome of nomesAlvo) {
+              const { data } = await github.rest.actions.listArtifactsForRepo({
+                owner, repo, name: nome, per_page: 100
+              });
+              for (const artifact of data.artifacts) {
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
+                console.log(`Deletado: ${artifact.name} (id ${artifact.id})`);
+              }
+            }
 
       - name: Checkout codigo
-        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Configurar Node.js
-        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Instalar dependencias
-        if: steps.check_storage.outputs.skip != 'true'
         run: npm install --legacy-peer-deps
 
       - name: Build do instalador Windows
-        if: steps.check_storage.outputs.skip != 'true'
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Listar arquivos gerados
-        if: steps.check_storage.outputs.skip != 'true'
         run: Get-ChildItem -Recurse dist\
         shell: pwsh
 
       - name: Renomear portable para nome mais descritivo
-        if: steps.check_storage.outputs.skip != 'true'
         shell: pwsh
         run: |
           $portable = Get-ChildItem "dist\*.exe" | Where-Object { $_.Name -notlike "*Setup*" }
@@ -116,7 +71,6 @@ jobs:
           }
 
       - name: Upload do instalador
-        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: TS4 Mod Manager Instalador Windows
@@ -124,7 +78,6 @@ jobs:
           retention-days: 30
 
       - name: Upload do portable
-        if: steps.check_storage.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: TS4 Mod Manager Portable Windows
