@@ -1146,7 +1146,7 @@ function renderGallery(mods) {
               <span>${formatBytes(mod.size)}</span>
               <span class="gallery-status-dot ${mod.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
                     data-path="${escapeHtml(mod.path)}"
-                    title="${mod.enabled ? '● Status: Mod ativo — clique para desativar' : '● Status: Mod inativo — clique para ativar'}"></span>
+                    data-tooltip="${mod.enabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
             </div>
           </div>
         </div>`;
@@ -1196,7 +1196,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
             <span>${formatBytes(f.size || 0)}</span>
             <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
                   data-path="${escapeHtml(f.path)}"
-                  title="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
+                  data-tooltip="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
           </div>
         </div>
       </div>`;
@@ -1215,14 +1215,13 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
           <div class="gallery-meta">
             <span>${formatBytes(group.size)}</span>
+            <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
+                    data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
             <span class="gallery-status-dot ${statusDotClass} dot-clickable dot-clickable-group"
                   ${idAttr}="${escapeHtml(idVal)}"
-                  title="${allEnabled ? '● Status: Todos ativos — clique para desativar o grupo' : someEnabled ? '● Status: Grupo parcialmente ativo — clique para desativar todos' : '● Status: Todos inativos — clique para ativar o grupo'}"></span>
+                  data-tooltip="${allEnabled ? 'Todos ativos — clique para desativar o grupo' : someEnabled ? 'Parcialmente ativo — clique para desativar todos' : 'Todos inativos — clique para ativar o grupo'}"></span>
           </div>
         </div>
-        <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
-                data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}"
-                title="Ver arquivos do grupo">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
       </div>
       <div class="group-children-grid" style="${state.expandedGroups.has(groupKey) ? '' : 'display:none'}">${childrenHtml}</div>
     </div>`;
@@ -4276,3 +4275,54 @@ async function init() {
 }
 
 init();
+
+// ── Mouse-following tooltip engine ───────────────────────────────────────────
+(function initTooltip() {
+  const tip = document.createElement('div');
+  tip.id = 'app-tooltip';
+  document.body.appendChild(tip);
+
+  let currentTarget = null;
+
+  function show(text, x, y) {
+    tip.textContent = text;
+    tip.classList.add('visible');
+    move(x, y);
+  }
+  function hide() {
+    tip.classList.remove('visible');
+    currentTarget = null;
+  }
+  function move(x, y) {
+    const offset = 14;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = x + offset;
+    let top  = y + offset;
+    if (left + tw + 8 > vw) left = x - tw - offset;
+    if (top  + th + 8 > vh) top  = y - th - offset;
+    tip.style.left = left + 'px';
+    tip.style.top  = top  + 'px';
+  }
+
+  document.addEventListener('mousemove', (e) => {
+    if (currentTarget) move(e.clientX, e.clientY);
+  });
+
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest('[data-tooltip]');
+    if (!el) return;
+    const text = el.dataset.tooltip;
+    if (!text) return;
+    currentTarget = el;
+    show(text, e.clientX, e.clientY);
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    const el = e.target.closest('[data-tooltip]');
+    if (el && el === currentTarget) hide();
+  });
+
+  // Also hide when clicking
+  document.addEventListener('mousedown', () => hide());
+})();

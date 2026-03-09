@@ -948,68 +948,19 @@ tbody tr.disabled td { opacity: 0.5; }
 .mod-group-badge::before          { content: '📦 '; }
 .mod-group-badge-script::before   { content: '⚙️ '; }
 
-/* expand button — grid mode */
+/* expand button — inline in gallery-meta, before status dot */
 .group-expand-btn {
-  position: absolute;
-  bottom: 6px; right: 2px; z-index: 4;
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.22);
   border-radius: 50%;
   color: #e0e0e0; font-size: 9px;
-  width: 20px; height: 20px;
+  width: 18px; height: 18px;
+  flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; padding: 0; line-height: 1;
   transition: background var(--transition), color var(--transition);
 }
 .group-expand-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
-
-/* Em modo expandido mantém o botão ▴ no canto inferior direito */
-.group-card-wrapper.is-expanded .group-expand-btn {
-  bottom: 6px;
-  top: auto;
-  right: 6px;
-}
-/* No modo expandido o badge de tipo fica no topo-direito normalmente (botão já não está lá) */
-.group-card-wrapper.is-expanded > .gallery-card .card-type-tag {
-  right: 5px;
-}
-
-/* CSS tooltip for the expand button */
-.group-expand-btn::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 7px);
-  right: 50%;
-  transform: translateX(50%);
-  background: var(--surface-3, #2a2a2a);
-  color: var(--text-primary);
-  font-size: 11px;
-  font-weight: 400;
-  white-space: nowrap;
-  padding: 4px 8px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--border-strong);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  z-index: 100;
-}
-.group-expand-btn::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 2px);
-  right: 50%;
-  transform: translateX(50%);
-  border: 5px solid transparent;
-  border-top-color: var(--border-strong);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  z-index: 100;
-}
-.group-expand-btn:hover::after,
-.group-expand-btn:hover::before { opacity: 1; }
 
 /* wrapper that spans full grid width when expanded */
 .group-card-wrapper { display: contents; }
@@ -1136,11 +1087,6 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 
 .gallery-info { padding: 7px 9px; border-top: 1px solid var(--border); border-radius: 0 0 var(--r-md) var(--r-md); }
 
-/* Prevent expand button from overlapping the status dot in group cards */
-.group-card-wrapper > .gallery-card .gallery-info {
-  padding-right: 28px;
-}
-
 .gallery-name {
   font-size: 11.5px;
   font-weight: 500;
@@ -1167,52 +1113,7 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   transition: box-shadow 0.15s ease, transform 0.15s ease;
   position: relative;
 }
-.gallery-status-dot::after {
-  content: attr(title);
-  position: absolute;
-  bottom: calc(100% + 7px);
-  right: 50%;
-  transform: translateX(50%);
-  background: var(--surface-3, #2a2a2a);
-  color: var(--text-primary);
-  font-size: 11px;
-  font-weight: 400;
-  white-space: nowrap;
-  padding: 4px 8px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--border-strong);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  z-index: 100;
-}
-.gallery-status-dot::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 2px);
-  right: 50%;
-  transform: translateX(50%);
-  border: 5px solid transparent;
-  border-top-color: var(--border-strong);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  z-index: 100;
-}
-.gallery-status-dot:hover::after,
-.gallery-status-dot:hover::before { opacity: 1; }
 
-/* Mostra tooltip da bolinha ao passar o mouse sobre o card inteiro */
-.gallery-card:hover .gallery-status-dot::after,
-.gallery-card:hover .gallery-status-dot::before { opacity: 1; }
-
-/* Card-level dot hint — aparece ao hover no card em modo grade */
-.gallery-card:hover .gallery-status-dot::after {
-  bottom: calc(100% + 7px);
-  white-space: nowrap;
-  z-index: 200;
-}
 .dot-active   { background: var(--success); }
 .dot-inactive { background: var(--elevated-2); border: 1px solid rgba(255,255,255,0.2); }
 .dot-partial  { background: var(--warning); }
@@ -1837,3 +1738,24 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   pointer-events: none;
   line-height: 1;
 }
+
+/* ─── Mouse-following tooltip ──────────────────────────────────────── */
+#app-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--surface-3, #2a2a2a);
+  color: var(--text-primary, #f0f0f0);
+  font-size: 11px;
+  font-family: var(--font, system-ui, sans-serif);
+  font-weight: 400;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--r-sm, 5px);
+  border: 1px solid var(--border-strong, rgba(255,255,255,0.14));
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  user-select: none;
+}
+#app-tooltip.visible { opacity: 1; }
