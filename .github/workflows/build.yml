@@ -2,6 +2,12 @@ name: Criar Artefatos
 
 on:
   workflow_dispatch:
+    inputs:
+      criar_artefatos:
+        description: "Criar artefatos após o build?"
+        required: true
+        default: true
+        type: boolean
   workflow_run:
     workflows: ["Testes"]
     types:
@@ -71,6 +77,8 @@ jobs:
           }
 
       - name: Upload do instalador
+        # Executado automaticamente (workflow_run) ou se criar_artefatos for true
+        if: ${{ github.event_name == 'workflow_run' || github.event.inputs.criar_artefatos == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: TS4 Mod Manager Instalador Windows
@@ -78,6 +86,7 @@ jobs:
           retention-days: 30
 
       - name: Upload do portable
+        if: ${{ github.event_name == 'workflow_run' || github.event.inputs.criar_artefatos == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: TS4 Mod Manager Portable Windows
