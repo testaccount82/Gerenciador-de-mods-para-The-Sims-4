@@ -4145,7 +4145,7 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> v1.0.0<br>
+        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> <span id="about-version"></span><br>
         Gerenciador de mods para The Sims 4 com interface Fluent 2<br>
         Desenvolvido com Electron
       </div>
@@ -4266,6 +4266,15 @@ async function init() {
   // Load config & mods
   state.config = await window.api.getConfig();
   await loadMods();
+
+  // Versão dinâmica — lida do package.json via Electron
+  try {
+    const version = await window.api.getAppVersion();
+    const el = document.getElementById('sidebar-version');
+    if (el) el.textContent = `v${version}`;
+    const about = document.getElementById('about-version');
+    if (about) about.textContent = `v${version}`;
+  } catch (_) { /* mantém vazio se falhar */ }
 
   // Load app icon from main process and set in titlebar (replaces SVG placeholder)
   try {

@@ -1223,6 +1223,9 @@ function deleteEmptyFolders(folderPaths) {
 
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
 
+// App
+ipcMain.handle('app:version', () => app.getVersion());
+
 // Config
 ipcMain.handle('config:get', () => readConfig());
 ipcMain.handle('config:set', (_, config) => {

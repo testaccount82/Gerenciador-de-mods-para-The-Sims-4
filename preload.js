@@ -72,6 +72,9 @@ contextBridge.exposeInMainWorld('api', {
   // App icon (for titlebar)
   getIcon: () => ipcRenderer.invoke('icon:get'),
 
+  // App version
+  getAppVersion: () => ipcRenderer.invoke('app:version'),
+
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
