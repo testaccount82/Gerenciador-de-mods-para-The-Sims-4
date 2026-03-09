@@ -2115,7 +2115,7 @@ function setupGalleryEvents(el, mods) {
       if (cb) cb.checked = !allSel;
       refreshSelBar(el);
     });
-    // Right click → context menu com opções do grupo
+    // Right click → abre interface com toggle lista/grade
     card.addEventListener('contextmenu', e => {
       e.preventDefault();
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
@@ -2124,8 +2124,7 @@ function setupGalleryEvents(el, mods) {
       const group = guid
         ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid)
         : allGrouped.find(g => g._isModGroup  && g.modPrefix === prefix);
-      if (!group) return;
-      showGroupCtxMenu(e.clientX, e.clientY, group);
+      if (group) openGroupOverlay(group);
     });
   });
 
