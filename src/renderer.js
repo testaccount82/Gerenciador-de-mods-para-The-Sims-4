@@ -4301,7 +4301,7 @@ init();
       const dr  = dot.getBoundingClientRect();
       const tw  = tip.offsetWidth;
       const th  = tip.offsetHeight;
-      const gap = 10;
+      const gap = 18;
 
       const dotCX = dr.left + dr.width  / 2;
       const dotCY = dr.top  + dr.height / 2;
