@@ -1203,7 +1203,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   }).join('');
 
   return `
-    <div class="group-card-wrapper" ${idAttr}="${escapeHtml(idVal)}">
+    <div class="group-card-wrapper ${state.expandedGroups.has(groupKey) ? 'is-expanded' : ''}" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${noneEnabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
            draggable="false"
            title="Clique para selecionar · Clique direito para gerenciar os ${group.files.length} itens do grupo">
@@ -1221,9 +1221,10 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
         <button class="card-toggle-btn card-toggle-group-btn" ${idAttr}="${escapeHtml(idVal)}"
                 title="${toggleTitle}">${toggleLabel}</button>
         <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
-                data-tooltip="Ver arquivos do grupo" title="Ver arquivos do grupo">▾</button>
+                data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}"
+                title="Ver arquivos do grupo">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
       </div>
-      <div class="group-children-grid" style="display:none">${childrenHtml}</div>
+      <div class="group-children-grid" style="${state.expandedGroups.has(groupKey) ? '' : 'display:none'}">${childrenHtml}</div>
     </div>`;
 }
 
@@ -1820,9 +1821,13 @@ function setupGalleryEvents(el, mods) {
       const grid = wrapper.querySelector('.group-children-grid');
       if (grid) {
         grid.style.display = isExpanded ? '' : 'none';
-        // Carrega thumbs dos child-cards agora que estão visíveis
         if (isExpanded) loadVisibleThumbnails(el);
       }
+      // Persist expanded state so re-renders (toggle, filter, etc.) keep the group open
+      const guid   = wrapper.dataset.trayGuid;
+      const prefix = wrapper.dataset.modPrefix;
+      const key = guid ? 'tray:' + guid : (prefix ? 'mod:' + prefix : null);
+      if (key) { isExpanded ? state.expandedGroups.add(key) : state.expandedGroups.delete(key); }
     });
   });
 

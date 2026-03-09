@@ -967,7 +967,14 @@ tbody tr.disabled td { opacity: 0.5; }
 .group-card-wrapper.is-expanded .group-expand-btn {
   bottom: 6px;
   top: auto;
-  right: 36px;
+  right: 30px;
+}
+/* Play/pause do grupo ancorado no canto em modo expandido */
+.group-card-wrapper.is-expanded > .gallery-card .card-toggle-group-btn {
+  bottom: 6px;
+  top: auto;
+  right: 6px;
+  opacity: 1;
 }
 /* No modo expandido o badge de tipo fica no topo-direito normalmente (botão já não está lá) */
 .group-card-wrapper.is-expanded > .gallery-card .card-type-tag {
