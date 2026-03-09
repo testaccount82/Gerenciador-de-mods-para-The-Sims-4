@@ -951,7 +951,7 @@ tbody tr.disabled td { opacity: 0.5; }
 /* expand button — grid mode */
 .group-expand-btn {
   position: absolute;
-  bottom: 6px; right: 30px; z-index: 4;
+  bottom: 6px; right: 36px; z-index: 4;
   background: rgba(255,255,255,0.15);
   border: 1px solid rgba(255,255,255,0.25);
   border-radius: 50%;
