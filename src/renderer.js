@@ -3725,12 +3725,12 @@ function renderManual() {
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         <strong style="color:var(--text-primary)">Cards individuais</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona o card<br>
-        · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta)<br>
-        · <strong>Botão ▶ / ⏸</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br><br>
+        · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta, excluir)<br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br><br>
         <strong style="color:var(--text-primary)">Cards de grupo</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona todos os arquivos do grupo<br>
-        · <strong>Clique direito</strong> — abre a janela de gerenciamento do grupo (visualizar, alternar e excluir arquivos individuais)<br>
-        · <strong>Botão ▶ / ⏸</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
+        · <strong>Clique direito</strong> — abre a janela do grupo com toggle lista/grade<br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
         · <strong>Arrastar sobre a grade</strong> — seleção por área (rubber band selection)
       </div>
     </div>
@@ -3755,10 +3755,12 @@ function renderManual() {
         · <code>TURBO_careers_EP01.package</code><br>
         → Agrupados sob o grupo <em>turbo</em><br><br>
         Arquivos de Tray são agrupados pelo GUID (código hexadecimal após o <code>!</code> no nome).<br><br>
-        <strong style="color:var(--text-primary)">Janela de gerenciamento do grupo</strong> (clique direito no card ou em "Ver detalhes"):<br>
-        · Ativa/desativa arquivos individualmente com um clique<br>
-        · Oferece opção de <strong>Consolidar</strong> se os arquivos estiverem em pastas diferentes<br>
-        · Menu de contexto (botão direito) em cada linha do grupo para excluir arquivos individualmente
+        <strong style="color:var(--text-primary)">Janela do grupo</strong> (clique direito no card):<br>
+        · Abre automaticamente em <strong>grade</strong> se o grupo tiver miniaturas, ou em <strong>lista</strong> caso contrário<br>
+        · Alterne entre lista e grade pelo toggle no canto superior direito da janela<br>
+        · Clique em um item da lista para ativar/desativar individualmente<br>
+        · Na grade, use a bolinha colorida para ativar/desativar<br>
+        · Botão direito em qualquer item para abrir pasta ou excluir
       </div>
     </div>
 
