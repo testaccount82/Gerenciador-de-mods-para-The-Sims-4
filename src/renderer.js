@@ -1215,11 +1215,13 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
           <div class="gallery-meta">
             <span>${formatBytes(group.size)}</span>
-            <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
-                    data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
-            <span class="gallery-status-dot ${statusDotClass} dot-clickable dot-clickable-group"
-                  ${idAttr}="${escapeHtml(idVal)}"
-                  data-tooltip="${allEnabled ? 'Todos ativos — clique para desativar o grupo' : someEnabled ? 'Parcialmente ativo — clique para desativar todos' : 'Todos inativos — clique para ativar o grupo'}"></span>
+            <div class="gallery-meta-actions">
+              <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
+                      data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
+              <span class="gallery-status-dot ${statusDotClass} dot-clickable dot-clickable-group"
+                    ${idAttr}="${escapeHtml(idVal)}"
+                    data-tooltip="${allEnabled ? 'Todos ativos — clique para desativar o grupo' : someEnabled ? 'Parcialmente ativo — clique para desativar todos' : 'Todos inativos — clique para ativar o grupo'}"></span>
+            </div>
           </div>
         </div>
       </div>

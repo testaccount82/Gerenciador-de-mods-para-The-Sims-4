@@ -1105,6 +1105,12 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   color: var(--text-disabled);
 }
 
+.gallery-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .gallery-status-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
