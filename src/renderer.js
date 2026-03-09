@@ -1532,6 +1532,131 @@ function refreshSelBar(el) {
  * Opens a modal overlay showing all files inside a group (tray or mod-prefix).
  * Allows toggling individual files, and consolidating them to one folder when needed.
  */
+function showGroupCtxMenu(x, y, group) {
+  closeCtxMenu();
+
+  const svgList = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`;
+  const svgGrid = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
+
+  const menu = document.createElement('div');
+  menu.id = 'ctx-menu';
+  menu.innerHTML = `
+    <div class="ctx-item" id="ctx-group-list">${svgList} Ver arquivos do grupo</div>
+    <div class="ctx-item" id="ctx-group-grid">${svgGrid} Ver em modo grade</div>`;
+
+  document.body.appendChild(menu);
+  _ctxMenu = menu;
+
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const ww = window.innerWidth,  wh = window.innerHeight;
+  menu.style.left = (x + mw > ww ? ww - mw - 6 : x) + 'px';
+  menu.style.top  = (y + mh > wh ? wh - mh - 6 : y) + 'px';
+
+  menu.querySelector('#ctx-group-list').addEventListener('click', () => {
+    closeCtxMenu();
+    openGroupOverlay(group);
+  });
+  menu.querySelector('#ctx-group-grid').addEventListener('click', () => {
+    closeCtxMenu();
+    openGroupGridOverlay(group);
+  });
+}
+
+function openGroupGridOverlay(group) {
+  const isTray = group._isTrayGroup;
+  const displayTitle = isTray
+    ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
+    : (group.modPrefix || group.name);
+
+  const cardsHtml = group.files.map(f => {
+    const fCached = state.thumbnailCache[thumbKey(f.path)];
+    const fCanThumb = f.type === 'package' || f.type === 'tray' || (!f.type && /\.(package|trayitem|blueprint|bpi)$/i.test(f.name));
+    const fThumb = (fCached && fCached !== THUMB_LOADING)
+      ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
+      : (fCached === null || !fCanThumb)
+        ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type || 'package')}</div>`
+        : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+    const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+    const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+    const fEnabled = f.enabled !== false;
+    return `
+      <div class="gallery-card child-card group-grid-card ${!fEnabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
+        <span class="card-type-tag ${fTypeClass}">${fTypeLabel}</span>
+        ${fThumb}
+        <div class="gallery-info">
+          <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+          <div class="gallery-meta">
+            <span>${formatBytes(f.size || 0)}</span>
+            <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
+                  data-path="${escapeHtml(f.path)}"
+                  data-tooltip="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const bodyHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:480px;overflow-y:auto;padding:2px">
+      ${cardsHtml}
+    </div>`;
+
+  openModal(`Grupo: ${displayTitle} (${group.files.length} arquivos)`, bodyHtml, [
+    { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
+  ]);
+
+  // Dot toggle dentro do modal
+  document.querySelectorAll('.group-grid-card .dot-clickable').forEach(dot => {
+    dot.addEventListener('click', async e => {
+      e.stopPropagation();
+      const card = dot.closest('.group-grid-card');
+      const fp = card?.dataset.path;
+      if (!fp) return;
+      const result = await window.api.toggleMod(fp);
+      if (result.success) {
+        card.dataset.path = result.newPath;
+        dot.dataset.path  = result.newPath;
+        await loadMods();
+        const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath);
+        if (f) {
+          dot.className = `gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable`;
+          dot.dataset.tooltip = f.enabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar';
+          card.classList.toggle('card-inactive', !f.enabled);
+        }
+        renderMods();
+      } else { toast('Erro ao alternar mod', 'error'); }
+    });
+  });
+
+  // Contexto individual nos cards da grade do modal
+  document.querySelectorAll('.group-grid-card').forEach(card => {
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      showCtxMenu(e.clientX, e.clientY, card.dataset.path, {
+        onDelete: async (filePath) => {
+          const allMods = [...state.mods, ...state.trayFiles];
+          const f = allMods.find(m => m.path === filePath);
+          const name = f?.name || filePath.split('\\').pop();
+          openModal('Confirmar Exclusão',
+            `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+            [
+              { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+              { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+                const results = await window.api.trashModsBatch([filePath]);
+                if (results[0]?.success) {
+                  closeModal();
+                  await loadMods(); renderMods();
+                  updateTrashBadge();
+                  toast(`"${name}" movido para a lixeira`, 'success');
+                } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+              }}
+            ]
+          );
+        }
+      });
+    });
+  });
+}
+
 function openGroupOverlay(group) {
   const isTray = group._isTrayGroup;
   const displayTitle = isTray
@@ -1888,7 +2013,7 @@ function setupGalleryEvents(el, mods) {
       if (cb) cb.checked = !allSel;
       refreshSelBar(el);
     });
-    // Right click → open group management overlay
+    // Right click → context menu com opções do grupo
     card.addEventListener('contextmenu', e => {
       e.preventDefault();
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
@@ -1897,7 +2022,8 @@ function setupGalleryEvents(el, mods) {
       const group = guid
         ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === guid)
         : allGrouped.find(g => g._isModGroup  && g.modPrefix === prefix);
-      if (group) openGroupOverlay(group);
+      if (!group) return;
+      showGroupCtxMenu(e.clientX, e.clientY, group);
     });
   });
 
