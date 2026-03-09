@@ -4355,7 +4355,7 @@ init();
       return { text: direct.dataset.tooltip, dot: direct, anchor: isDot ? direct.closest('.gallery-card') || direct : direct };
     }
     const card = el.closest('.gallery-card');
-    // Em cards filhos (grupo expandido) só mostra ao hover direto na bolinha
+    // Em cards filhos (grupo expandido) não dispara tooltip pelo hover no card inteiro
     if (card && card.classList.contains('child-card')) return null;
     if (card) {
       const dot = card.querySelector('.gallery-status-dot[data-tooltip]');
