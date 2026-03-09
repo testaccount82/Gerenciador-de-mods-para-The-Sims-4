@@ -62,6 +62,7 @@ const dialog = {
 const shell = {
   trashItem: jest.fn(() => Promise.resolve()),
   openPath:  jest.fn(() => Promise.resolve()),
+  showItemInFolder: jest.fn(),
 };
 
 module.exports = {

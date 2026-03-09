@@ -780,7 +780,7 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
         errors.push({ file: src, error: e.message });
       }
     } else if (ARCHIVE_EXTENSIONS.includes(ext)) {
-      const tempDir = path.join(DEFAULT_CONFIG.tempFolder, `extract_${Date.now()}`);
+      const tempDir = path.join(readConfig().tempFolder, `extract_${Date.now()}`);
       ensureDir(tempDir);
       try {
         await extractArchive(src, tempDir, sevenZip);
@@ -948,7 +948,7 @@ function scanMisplaced(modsFolder, trayFolder) {
   function safeDestFor(fullPath, destFolder) {
     const baseName = path.basename(fullPath); // keep .disabled suffix if present
     let dest = path.join(destFolder, baseName);
-    let counter = 1;
+    let counter = 0;
     while ((fs.existsSync(dest) && dest !== fullPath) || assignedDests.has(dest)) {
       const ext = path.extname(baseName);
       const stem = baseName.slice(0, baseName.length - ext.length);
@@ -1022,7 +1022,8 @@ function scanInvalidFiles(modsFolder, trayFolder) {
   const ALL_VALID = new Set([
     ...MOD_EXTENSIONS,
     ...TRAY_EXTENSIONS,
-    ...ARCHIVE_EXTENSIONS, // tratados separadamente mas ainda "detectados"
+    // ARCHIVE_EXTENSIONS não estão aqui: arquivos compactados são reportados como
+    // category='archive' para alertar o usuário que esqueceu de extrair o mod.
   ]);
   const SYSTEM_IGNORE = new Set([
     'thumbs.db', 'desktop.ini', '.ds_store', '.localized',
@@ -1407,9 +1408,10 @@ ipcMain.handle('organize:scan-empty-folders', (_, modsFolder, trayFolder) => {
 
 ipcMain.handle('organize:scan-invalid', (_, modsFolder, trayFolder) => {
   const roots = getAllowedRoots();
-  if (modsFolder && roots.length && !isPathSafe(modsFolder, ...roots)) return [];
-  if (trayFolder && roots.length && !isPathSafe(trayFolder, ...roots)) return [];
-  return scanInvalidFiles(modsFolder, trayFolder);
+  // Bloqueia individualmente cada pasta fora das roots — não aborta o lote inteiro
+  const safeMods = (modsFolder && typeof modsFolder === 'string' && (!roots.length || isPathSafe(modsFolder, ...roots))) ? modsFolder : null;
+  const safeTray = (trayFolder && typeof trayFolder === 'string' && (!roots.length || isPathSafe(trayFolder, ...roots))) ? trayFolder : null;
+  return scanInvalidFiles(safeMods, safeTray);
 });
 
 ipcMain.handle('organize:delete-invalid', async (_, filePaths) => {
@@ -2116,12 +2118,14 @@ if (process.env.NODE_ENV === 'test') {
     readUInt24BE, internalDecompression,
     // Thumbnail
     generateTrayThumbnailSvg, purgeThumbnailCache, loadThumbnailCache,
-    extractThumbnailFromPackage,
+    extractThumbnailFromPackage, parseTrayItemInfo, extractThumbnailFromBpi,
     // File scanning
     walkFolder, buildModObject, scanModsFolder, scanTrayFolder,
     // Mod operations
-    toggleMod, moveFile, copyModFile, collectModFiles,
+    toggleMod, toggleFolder, moveFile, copyModFile, collectModFiles, importFiles,
     // Conflict & organizer
     scanConflicts, scanMisplaced, fixMisplaced,
+    scanInvalidFiles, scanScatteredGroups,
+    scanEmptyFolders, deleteEmptyFolders, hasAnyFile,
   };
 }
