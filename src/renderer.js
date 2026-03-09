@@ -1657,7 +1657,14 @@ function openGroupGridOverlay(group) {
   });
 }
 
-function openGroupOverlay(group, initialView = 'list') {
+function openGroupOverlay(group) {
+  // Auto-detectar: se algum arquivo já tem miniatura carregada → grade, senão → lista
+  const hasThumbs = group.files.some(f => {
+    const c = state.thumbnailCache[thumbKey(f.path)];
+    return c && c !== THUMB_LOADING;
+  });
+  const initialView = hasThumbs ? 'grid' : 'list';
+
   const isTray = group._isTrayGroup;
   const displayTitle = isTray
     ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
@@ -1750,6 +1757,8 @@ function openGroupOverlay(group, initialView = 'list') {
       contentEl.style.cssText = 'max-height:420px;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
       contentEl.innerHTML = buildGridHtml();
       wireGridEvents();
+      // Carrega thumbnails pendentes dentro do modal
+      loadVisibleThumbnails(document.getElementById('modal-body'));
     }
   }
 
