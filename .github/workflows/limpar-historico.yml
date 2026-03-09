@@ -24,6 +24,11 @@ on:
         required: false
         default: false
         type: boolean
+      apagar_caches:
+        description: "Apagar caches"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: write
@@ -45,7 +50,6 @@ jobs:
             const { owner, repo } = context.repo;
             const alvo = process.env.WORKFLOW_ALVO;
 
-            // Coleta todas as execuções paginando
             const runs = [];
             for (let page = 1; ; page++) {
               const { data } = await github.rest.actions.listWorkflowRunsForRepo({
@@ -55,7 +59,6 @@ jobs:
               runs.push(...data.workflow_runs);
             }
 
-            // Filtra pelo workflow escolhido; ignora a execução atual e as em andamento
             const para_deletar = runs.filter(r =>
               r.id !== context.runId &&
               r.status === 'completed' &&
@@ -145,3 +148,33 @@ jobs:
             }
 
             console.log(`\n📊 ${ok} artefato(s) deletado(s), ${falhou} erro(s).`);
+
+      - name: 🗑️ Apagar caches
+        if: ${{ github.event.inputs.apagar_caches == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            const caches = [];
+            for (let page = 1; ; page++) {
+              const { data } = await github.rest.actions.getActionsCacheList({ owner, repo, per_page: 100, page });
+              if (!data.actions_caches.length) break;
+              caches.push(...data.actions_caches);
+            }
+
+            console.log(`🔍 ${caches.length} cache(s) encontrado(s).`);
+
+            let ok = 0, falhou = 0;
+            for (const cache of caches) {
+              try {
+                await github.rest.actions.deleteActionsCacheById({ owner, repo, cache_id: cache.id });
+                console.log(`  ✅ ${cache.key}`);
+                ok++;
+              } catch (e) {
+                console.log(`  ⚠️  ${cache.key}: ${e.message}`);
+                falhou++;
+              }
+            }
+
+            console.log(`\n📊 ${ok} cache(s) deletado(s), ${falhou} erro(s).`);
