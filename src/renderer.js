@@ -4319,12 +4319,22 @@ init();
       tip.style.left = left + 'px';
       tip.style.top  = top  + 'px';
 
-      // Linha: do centro da bolinha até a borda mais próxima do tooltip
+      // Linha: parte da borda da bolinha (não do centro) até a borda do tooltip
       const tipCX = left + tw / 2;
       const tipCY = flipped ? top : top + th;
 
-      connLine.setAttribute('x1', String(dotCX));
-      connLine.setAttribute('y1', String(dotCY));
+      // Vetor do centro do dot até o tooltip
+      const dx = tipCX - dotCX;
+      const dy = tipCY - dotCY;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const dotRadius = dr.width / 2;
+
+      // Ponto na borda do dot na direção do tooltip
+      const startX = dotCX + (dx / dist) * dotRadius;
+      const startY = dotCY + (dy / dist) * dotRadius;
+
+      connLine.setAttribute('x1', String(startX));
+      connLine.setAttribute('y1', String(startY));
       connLine.setAttribute('x2', String(tipCX));
       connLine.setAttribute('y2', String(tipCY));
       connLine.classList.add('visible');
