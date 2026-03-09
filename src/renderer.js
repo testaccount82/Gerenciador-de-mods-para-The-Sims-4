@@ -1146,7 +1146,7 @@ function renderGallery(mods) {
               <span>${formatBytes(mod.size)}</span>
               <span class="gallery-status-dot ${mod.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
                     data-path="${escapeHtml(mod.path)}"
-                    title="${mod.enabled ? 'Desativar' : 'Ativar'}"></span>
+                    title="${mod.enabled ? '● Status: Mod ativo — clique para desativar' : '● Status: Mod inativo — clique para ativar'}"></span>
             </div>
           </div>
         </div>`;
@@ -1196,7 +1196,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
             <span>${formatBytes(f.size || 0)}</span>
             <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
                   data-path="${escapeHtml(f.path)}"
-                  title="${fEnabled ? 'Desativar' : 'Ativar'}"></span>
+                  title="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
           </div>
         </div>
       </div>`;
@@ -1217,7 +1217,7 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
             <span>${formatBytes(group.size)}</span>
             <span class="gallery-status-dot ${statusDotClass} dot-clickable dot-clickable-group"
                   ${idAttr}="${escapeHtml(idVal)}"
-                  title="${allEnabled ? 'Desativar todos' : someEnabled ? 'Desativar todos' : 'Ativar todos'}"></span>
+                  title="${allEnabled ? '● Status: Todos ativos — clique para desativar o grupo' : someEnabled ? '● Status: Grupo parcialmente ativo — clique para desativar todos' : '● Status: Todos inativos — clique para ativar o grupo'}"></span>
           </div>
         </div>
         <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"

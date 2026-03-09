@@ -918,7 +918,7 @@ tbody tr.disabled td { opacity: 0.5; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  overflow: hidden;
+  overflow: visible;
   cursor: pointer;
   position: relative;
   transition: border-color var(--transition), transform 0.12s ease, box-shadow var(--transition);
@@ -951,7 +951,7 @@ tbody tr.disabled td { opacity: 0.5; }
 /* expand button — grid mode */
 .group-expand-btn {
   position: absolute;
-  bottom: 6px; right: 36px; z-index: 4;
+  bottom: 6px; right: 2px; z-index: 4;
   background: rgba(255,255,255,0.15);
   border: 1px solid rgba(255,255,255,0.25);
   border-radius: 50%;
@@ -967,7 +967,7 @@ tbody tr.disabled td { opacity: 0.5; }
 .group-card-wrapper.is-expanded .group-expand-btn {
   bottom: 6px;
   top: auto;
-  right: 36px;
+  right: 6px;
 }
 /* No modo expandido o badge de tipo fica no topo-direito normalmente (botão já não está lá) */
 .group-card-wrapper.is-expanded > .gallery-card .card-type-tag {
@@ -1118,20 +1118,28 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   -webkit-user-drag: none;
   user-select: none;
   pointer-events: none;
+  border-radius: var(--r-md) var(--r-md) 0 0;
 }
 .gallery-thumb-placeholder {
   width: 100%; aspect-ratio: 3/4;
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-2);
   font-size: 30px;
+  border-radius: var(--r-md) var(--r-md) 0 0;
 }
 .gallery-thumb-loading {
   width: 100%; aspect-ratio: 3/4;
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-2);
+  border-radius: var(--r-md) var(--r-md) 0 0;
 }
 
-.gallery-info { padding: 7px 9px; border-top: 1px solid var(--border); }
+.gallery-info { padding: 7px 9px; border-top: 1px solid var(--border); border-radius: 0 0 var(--r-md) var(--r-md); }
+
+/* Prevent expand button from overlapping the status dot in group cards */
+.group-card-wrapper > .gallery-card .gallery-info {
+  padding-right: 28px;
+}
 
 .gallery-name {
   font-size: 11.5px;
@@ -1158,6 +1166,52 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   cursor: pointer;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
   position: relative;
+}
+.gallery-status-dot::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  right: 50%;
+  transform: translateX(50%);
+  background: var(--surface-3, #2a2a2a);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+.gallery-status-dot::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  right: 50%;
+  transform: translateX(50%);
+  border: 5px solid transparent;
+  border-top-color: var(--border-strong);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+.gallery-status-dot:hover::after,
+.gallery-status-dot:hover::before { opacity: 1; }
+
+/* Mostra tooltip da bolinha ao passar o mouse sobre o card inteiro */
+.gallery-card:hover .gallery-status-dot::after,
+.gallery-card:hover .gallery-status-dot::before { opacity: 1; }
+
+/* Card-level dot hint — aparece ao hover no card em modo grade */
+.gallery-card:hover .gallery-status-dot::after {
+  bottom: calc(100% + 7px);
+  white-space: nowrap;
+  z-index: 200;
 }
 .dot-active   { background: var(--success); }
 .dot-inactive { background: var(--elevated-2); border: 1px solid rgba(255,255,255,0.2); }
