@@ -963,15 +963,15 @@ tbody tr.disabled td { opacity: 0.5; }
 }
 .group-expand-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-/* Em modo expandido o card vira flex-row — move o botão para top-right para não sobrepor o play/pause */
+/* Em modo expandido mantém o botão na mesma linha do play/pause (bottom-right) */
 .group-card-wrapper.is-expanded .group-expand-btn {
-  bottom: auto;
-  top: 6px;
-  right: 6px;
+  bottom: 6px;
+  top: auto;
+  right: 36px;
 }
-/* No modo expandido, desloca o badge de tipo para não sobrepor o botão fechar */
+/* No modo expandido o badge de tipo fica no topo-direito normalmente (botão já não está lá) */
 .group-card-wrapper.is-expanded > .gallery-card .card-type-tag {
-  right: 30px;
+  right: 5px;
 }
 
 /* CSS tooltip for the expand button */
