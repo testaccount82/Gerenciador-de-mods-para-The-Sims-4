@@ -1144,11 +1144,11 @@ function renderGallery(mods) {
             <div class="gallery-name" title="${escapeHtml(mod.name)}">${escapeHtml(mod.name)}</div>
             <div class="gallery-meta">
               <span>${formatBytes(mod.size)}</span>
-              <span class="gallery-status-dot ${mod.enabled ? 'dot-active' : 'dot-inactive'}"></span>
+              <span class="gallery-status-dot ${mod.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
+                    data-path="${escapeHtml(mod.path)}"
+                    title="${mod.enabled ? 'Desativar' : 'Ativar'}"></span>
             </div>
           </div>
-          <button class="card-toggle-btn" data-path="${escapeHtml(mod.path)}"
-                  title="${mod.enabled ? 'Desativar mod' : 'Ativar mod'}">${mod.enabled ? '⏸' : '▶'}</button>
         </div>`;
     }).join('')}
   </div>`;
@@ -1194,11 +1194,11 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
           <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
           <div class="gallery-meta">
             <span>${formatBytes(f.size || 0)}</span>
-            <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'}"></span>
+            <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
+                  data-path="${escapeHtml(f.path)}"
+                  title="${fEnabled ? 'Desativar' : 'Ativar'}"></span>
           </div>
         </div>
-        <button class="card-toggle-btn" data-path="${escapeHtml(f.path)}"
-                title="${fEnabled ? 'Desativar mod' : 'Ativar mod'}">${fEnabled ? '⏸' : '▶'}</button>
       </div>`;
   }).join('');
 
@@ -1215,11 +1215,11 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
           <div class="gallery-meta">
             <span>${formatBytes(group.size)}</span>
-            <span class="gallery-status-dot ${statusDotClass}"></span>
+            <span class="gallery-status-dot ${statusDotClass} dot-clickable dot-clickable-group"
+                  ${idAttr}="${escapeHtml(idVal)}"
+                  title="${allEnabled ? 'Desativar todos' : someEnabled ? 'Desativar todos' : 'Ativar todos'}"></span>
           </div>
         </div>
-        <button class="card-toggle-btn card-toggle-group-btn" ${idAttr}="${escapeHtml(idVal)}"
-                title="${toggleTitle}">${toggleLabel}</button>
         <button class="group-expand-btn" ${idAttr}="${escapeHtml(idVal)}"
                 data-tooltip="${state.expandedGroups.has(groupKey) ? 'Fechar' : 'Ver arquivos do grupo'}"
                 title="Ver arquivos do grupo">${state.expandedGroups.has(groupKey) ? '▴' : '▾'}</button>
@@ -1836,7 +1836,7 @@ function setupGalleryEvents(el, mods) {
     // Left click → select
     card.addEventListener('click', e => {
       if (e.target.classList.contains('card-check') || e.target.classList.contains('card-check-group') || e.target.classList.contains('card-check-mod-group')) return;
-      if (e.target.closest('.card-toggle-group-btn')) return;
+      if (e.target.classList.contains('dot-clickable')) return;
       if (e.target.closest('.group-expand-btn')) return;
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
       const guid   = card.dataset.trayGuid;
@@ -1870,15 +1870,13 @@ function setupGalleryEvents(el, mods) {
   // Ctrl/Meta = add/remove from multi-select; plain click = toggle this card's selection
   el.querySelectorAll('.gallery-card:not(.tray-group):not(.mod-group)').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.classList.contains('card-check') || e.target.closest('.card-toggle-btn')) return;
+      if (e.target.classList.contains('card-check') || e.target.classList.contains('dot-clickable')) return;
       const p = card.dataset.path;
       if (!p) return;
       const isSelected = state.selectedMods.has(p);
       if (e.ctrlKey || e.metaKey) {
-        // Multi-select: toggle just this one
         isSelected ? state.selectedMods.delete(p) : state.selectedMods.add(p);
       } else {
-        // Plain click: toggle this card
         isSelected ? state.selectedMods.delete(p) : state.selectedMods.add(p);
       }
       card.classList.toggle('selected', state.selectedMods.has(p));
@@ -1888,11 +1886,11 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card toggle button → enable/disable individual mod
-  el.querySelectorAll('.card-toggle-btn:not(.card-toggle-group-btn)').forEach(btn => {
-    btn.addEventListener('click', async e => {
+  // Status dot → enable/disable individual mod (individual cards + child cards)
+  el.querySelectorAll('.dot-clickable:not(.dot-clickable-group)').forEach(dot => {
+    dot.addEventListener('click', async e => {
       e.stopPropagation();
-      const result = await window.api.toggleMod(btn.dataset.path);
+      const result = await window.api.toggleMod(dot.dataset.path);
       if (result.success) {
         await loadMods(); renderMods();
         const allMods = [...state.mods, ...state.trayFiles];
@@ -1908,20 +1906,17 @@ function setupGalleryEvents(el, mods) {
     });
   });
 
-  // Card toggle button → enable/disable all files in a group
-  el.querySelectorAll('.card-toggle-group-btn').forEach(btn => {
-    btn.addEventListener('click', async e => {
+  // Status dot → enable/disable all files in a group
+  el.querySelectorAll('.dot-clickable-group').forEach(dot => {
+    dot.addEventListener('click', async e => {
       e.stopPropagation();
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
-      const group = btn.dataset.trayGuid
-        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === btn.dataset.trayGuid)
-        : allGrouped.find(g => g._isModGroup  && g.modPrefix === btn.dataset.modPrefix);
+      const group = dot.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === dot.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === dot.dataset.modPrefix);
       if (!group) return;
       try {
         const allEnabled = group.files.every(f => f.enabled);
-        const prevPaths = group.files
-          .filter(f => allEnabled ? f.enabled : !f.enabled)
-          .map(f => f.path);
         const results = [];
         for (const f of group.files) {
           if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));

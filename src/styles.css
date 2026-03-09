@@ -963,18 +963,11 @@ tbody tr.disabled td { opacity: 0.5; }
 }
 .group-expand-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-/* Em modo expandido mantém o botão na mesma linha do play/pause (bottom-right) */
+/* Em modo expandido mantém o botão ▴ no canto inferior direito */
 .group-card-wrapper.is-expanded .group-expand-btn {
   bottom: 6px;
   top: auto;
-  right: 30px;
-}
-/* Play/pause do grupo ancorado no canto em modo expandido */
-.group-card-wrapper.is-expanded > .gallery-card .card-toggle-group-btn {
-  bottom: 6px;
-  top: auto;
   right: 6px;
-  opacity: 1;
 }
 /* No modo expandido o badge de tipo fica no topo-direito normalmente (botão já não está lá) */
 .group-card-wrapper.is-expanded > .gallery-card .card-type-tag {
@@ -1166,6 +1159,17 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 .dot-active   { background: var(--success); }
 .dot-inactive { background: var(--elevated-2); }
 .dot-partial  { background: var(--warning); }
+
+/* Clickable dot — replaces play/pause button in gallery mode */
+.dot-clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  position: relative;
+}
+.dot-clickable:hover {
+  transform: scale(1.5);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.25);
+}
 
 /* checkbox — shows on hover / selection */
 .gallery-card .card-check {
