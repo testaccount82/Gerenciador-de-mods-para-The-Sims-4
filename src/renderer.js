@@ -1750,11 +1750,11 @@ function openGroupOverlay(group) {
       btn.classList.toggle('active', btn.dataset.view === view);
     });
     if (view === 'list') {
-      contentEl.style.cssText = 'max-height:420px;overflow-y:auto';
+      contentEl.style.cssText = '';
       contentEl.innerHTML = buildListHtml();
       wireListEvents();
     } else {
-      contentEl.style.cssText = 'max-height:420px;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
+      contentEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
       contentEl.innerHTML = buildGridHtml();
       wireGridEvents();
       // Carrega thumbnails pendentes dentro do modal
