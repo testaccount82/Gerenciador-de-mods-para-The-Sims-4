@@ -17,7 +17,7 @@
     "electron",
     "fluent2"
   ],
-  "author": "indefinido",
+  "author": "Indefinido",
   "license": "MIT",
   "dependencies": {
     "extract-zip": "^2.0.1"
