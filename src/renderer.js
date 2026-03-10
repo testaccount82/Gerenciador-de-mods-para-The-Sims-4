@@ -3997,28 +3997,22 @@ function renderManual() {
         <strong style="color:var(--text-primary)">Cards individuais</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona o card<br>
         · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta, excluir)<br>
-        · <strong>Bolinha colorida</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br><br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br>
+        · <strong>Passar o mouse</strong> — exibe dica "Clique para selecionar · Clique direito para opções" e destaca a bolinha com anel azul<br><br>
         <strong style="color:var(--text-primary)">Cards de grupo</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona todos os arquivos do grupo<br>
         · <strong>Clique direito</strong> — abre a janela do grupo com toggle lista/grade<br>
         · <strong>Bolinha colorida</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
-        · <strong>Arrastar sobre a grade</strong> — seleção por área (rubber band selection)
+        · <strong>Miniatura</strong> — exibe mosaico com até 9 imagens (grade 3×3) dos arquivos do grupo<br><br>
+        <strong style="color:var(--text-primary)">Seleção por área (Rubber Band)</strong><br>
+        · <strong>Arrastar na grade</strong> — desenha um retângulo azul e seleciona todos os cards que ele interceptar<br>
+        · <strong>Ctrl + clique</strong> — adiciona ou remove um card da seleção sem limpar os demais<br>
+        · Novo arrastar limpa a seleção anterior (a menos que Ctrl esteja pressionado)
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">⏮️ Sistema de Desfazer (Undo)</div>
-      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        A barra de desfazer aparece na parte inferior da tela após ações reversíveis:<br>
-        · Ativar / desativar mods (inclusive via botões Play ▶ e Pause ⏸)<br>
-        · Exclusão de arquivos (mods individuais e grupos)<br>
-        · Organização automática (mover arquivos)<br><br>
-        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter a última ação, ou em <strong>✕</strong> para dispensar.
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📦 Grupos de Mods</div>
+      <div class="card-title">📦 Grupos de Mods — Janela de Detalhes</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome (tudo antes do primeiro <code>_</code>).<br><br>
         <strong style="color:var(--text-primary)">Exemplo:</strong><br>
@@ -4029,9 +4023,37 @@ function renderManual() {
         <strong style="color:var(--text-primary)">Janela do grupo</strong> (clique direito no card):<br>
         · Abre automaticamente em <strong>grade</strong> se o grupo tiver miniaturas, ou em <strong>lista</strong> caso contrário<br>
         · Alterne entre lista e grade pelo toggle no canto superior direito da janela<br>
-        · Clique em um item da lista para ativar/desativar individualmente<br>
-        · Na grade, use a bolinha colorida para ativar/desativar<br>
+        · <strong>Seleção por área</strong> — arraste para selecionar múltiplos itens (lista: arraste no espaço vazio; grade: arraste em qualquer lugar)<br>
+        · <strong>Ctrl + clique</strong> — adiciona/remove itens individualmente da seleção<br><br>
+        <strong style="color:var(--text-primary)">Barra de ações</strong> (aparece ao selecionar itens):<br>
+        · <strong>✓ Ativar</strong> — ativa todos os inativos da seleção (com Desfazer)<br>
+        · <strong>— Desativar</strong> — desativa todos os ativos da seleção (com Desfazer)<br>
+        · <strong>🗑 Lixeira</strong> — move os selecionados para a lixeira após confirmação (com Desfazer)<br><br>
+        · Clique em item individual (sem seleção) para ativar/desativar<br>
         · Botão direito em qualquer item para abrir pasta ou excluir
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">☑️ Seleção Múltipla e Barra de Ações</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        Com um ou mais cards selecionados na grade ou lista principal, aparece a <strong>barra de seleção</strong> na parte inferior da tela com as ações:<br><br>
+        · <strong>✓ Ativar</strong> — ativa os mods inativos da seleção<br>
+        · <strong>— Desativar</strong> — desativa os mods ativos da seleção<br>
+        · <strong>🗑 Deletar</strong> — move os selecionados para a lixeira após confirmação<br>
+        · <strong>✕</strong> — cancela a seleção<br><br>
+        Todas as ações suportam <strong>Desfazer</strong>. Cards de grupo selecionados incluem todos os seus arquivos nas ações em lote.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⏮️ Sistema de Desfazer (Undo)</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        A barra de desfazer aparece na parte inferior da tela após ações reversíveis:<br>
+        · Ativar / desativar mods (individual, grupo, ou em lote)<br>
+        · Exclusão de arquivos (individual, grupo, ou em lote — inclusive da janela de grupo)<br>
+        · Organização automática (mover arquivos)<br><br>
+        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter a última ação, ou em <strong>✕</strong> para dispensar.
       </div>
     </div>
 
