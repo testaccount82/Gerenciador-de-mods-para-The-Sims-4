@@ -2700,6 +2700,20 @@ async function loadVisibleThumbnails(el) {
     return !hiddenGrid || hiddenGrid.style.display !== 'none';
   });
 
+  // Bug fix: group cards only put a spinner for the FIRST file, so the rest
+  // of the group's files never get queued. Collect all file paths from visible
+  // group cards (data-group-files) and add any uncached ones as DOM-less loads.
+  // This lets updateGroupMosaics build the mosaic once they resolve.
+  const groupFilesToLoad = new Set();
+  el.querySelectorAll('.gallery-card[data-group-files]').forEach(card => {
+    // Skip if the card itself is inside a hidden grid
+    const hiddenGrid = card.closest('.group-children-grid');
+    if (hiddenGrid && hiddenGrid.style.display === 'none') return;
+    try {
+      JSON.parse(card.dataset.groupFiles).forEach(p => groupFilesToLoad.add(p));
+    } catch { /* ignore malformed */ }
+  });
+
   // Collect all files that still need loading, marking them as in-progress
   // atomically before any await — this prevents duplicate IPC calls across
   // concurrent loadVisibleThumbnails instances that can be triggered by rapid
@@ -2711,6 +2725,7 @@ async function loadVisibleThumbnails(el) {
     const filePath = loader.dataset.load;
     const cacheKey = loader.dataset.cacheKey || thumbKey(filePath);
     const cached = state.thumbnailCache[cacheKey];
+    groupFilesToLoad.delete(filePath); // already handled via DOM loader
 
     if (cached === undefined) {
       // Not yet loaded — queue for async fetch
@@ -2739,6 +2754,17 @@ async function loadVisibleThumbnails(el) {
       updateGroupMosaics(filePath);
     }
     // if THUMB_LOADING: already in-flight, will be updated when the Promise resolves
+  }
+
+  // Enqueue remaining group files that had no DOM loader (the hidden child-card
+  // spinners were filtered out). Loading them in background lets updateGroupMosaics
+  // build the mosaic correctly without requiring the user to open the group grid.
+  for (const filePath of groupFilesToLoad) {
+    const cacheKey = thumbKey(filePath);
+    if (state.thumbnailCache[cacheKey] === undefined) {
+      state.thumbnailCache[cacheKey] = THUMB_LOADING;
+      toLoad.push({ filePath, cacheKey });
+    }
   }
 
   // Load all thumbnails in PARALLEL so that a slow file doesn't block the
