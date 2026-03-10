@@ -909,7 +909,7 @@ function renderMods() {
     ${isGrid ? renderGallery(mods) : renderTable(mods)}
 
     <!-- ── Pagination ─────────────────────────────────────────────── -->
-    ${totalPages > 1 ? renderPagination(state.galleryPage, totalPages, allFiltered.length) : ''}
+    ${totalPages > 1 ? renderPagination(state.galleryPage, totalPages, allGrouped.length) : ''}
 
     <!-- ── Floating selection bar ─────────────────────────────────── -->
     <div class="sel-bar ${selCount > 0 ? 'sel-bar-show' : ''}" id="sel-bar">
@@ -1673,7 +1673,7 @@ function openGroupGridOverlay(group) {
         onDelete: async (filePath) => {
           const allMods = [...state.mods, ...state.trayFiles];
           const f = allMods.find(m => m.path === filePath);
-          const name = f?.name || filePath.split('\\').pop();
+          const name = f?.name || filePath.split(/[\/]/).pop();
           openModal('Confirmar Exclusão',
             `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
             [
@@ -2027,7 +2027,7 @@ function openGroupOverlay(group) {
           onDelete: async (filePath) => {
             const allMods = [...state.mods, ...state.trayFiles];
             const f = allMods.find(m => m.path === filePath);
-            const name = f?.name || filePath.split('\\').pop();
+            const name = f?.name || filePath.split(/[\/]/).pop();
             openModal('Confirmar Exclusão',
               `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
               [
@@ -2110,7 +2110,7 @@ function openGroupOverlay(group) {
           onDelete: async (filePath) => {
             const allMods = [...state.mods, ...state.trayFiles];
             const f = allMods.find(m => m.path === filePath);
-            const name = f?.name || filePath.split('\\').pop();
+            const name = f?.name || filePath.split(/[\/]/).pop();
             openModal('Confirmar Exclusão',
               `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
               [
@@ -2429,7 +2429,7 @@ function setupGalleryEvents(el, mods) {
         const allMods = [...state.mods, ...state.trayFiles];
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
-        const modName = mod?.name || result.newPath.split('\\').pop();
+        const modName = mod?.name || result.newPath.split(/[\/]/).pop();
         const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
           toggleAgain,
@@ -2885,7 +2885,7 @@ function setupModsEvents(el, mods) {
         const allMods = [...state.mods, ...state.trayFiles];
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
-        const modName = mod?.name || result.newPath.split('\\').pop();
+        const modName = mod?.name || result.newPath.split(/[\/]/).pop();
         const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
           toggleAgain,
@@ -3342,7 +3342,7 @@ function renderConflictResults(el) {
     btn.addEventListener('click', async () => {
       const filePath = btn.dataset.path;
       const idx = parseInt(btn.dataset.conflict);
-      const fileName = filePath.split('\\').pop() || filePath.split('/').pop();
+      const fileName = filePath.split(/[/\\]/).pop() || filePath;
       openModal('Confirmar Exclusão',
         `<p>Deletar o arquivo:<br><strong>${escapeHtml(filePath)}</strong>?</p>`,
         [

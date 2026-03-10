@@ -1256,12 +1256,12 @@ ipcMain.handle('config:set', (_, config) => {
       const resolved = path.resolve(config[field]);
       // Bloqueia: exatamente o homedir, ou subdiretórios de diretórios do sistema
       if (resolved === homedirExact) return false;
-      if (BLOCKED.some(b => resolved === b || resolved.startsWith(b + require('path').sep))) return false;
+      if (BLOCKED.some(b => resolved === b || resolved.startsWith(b + path.sep))) return false;
     }
   }
   // QA-03: impede modsFolder e trayFolder de apontarem para o mesmo diretório
   if (config.modsFolder && config.trayFolder) {
-    if (require('path').resolve(config.modsFolder) === require('path').resolve(config.trayFolder)) return false;
+    if (path.resolve(config.modsFolder) === path.resolve(config.trayFolder)) return false;
   }
   writeConfig(config);
   return true;
