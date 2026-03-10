@@ -1732,9 +1732,12 @@ function openGroupOverlay(group) {
   const bodyHtml = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       ${multiFolder && !canConsolidate ? `<div style="font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes</div>` : '<div></div>'}
-      <div class="view-toggle" id="group-overlay-view-toggle">
-        <button class="view-btn ${initialView === 'list' ? 'active' : ''}" data-view="list" title="Lista">${svgList}</button>
-        <button class="view-btn ${initialView === 'grid' ? 'active' : ''}" data-view="grid" title="Grade">${svgGrid}</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="group-overlay-sel-count" style="display:none;font-size:11.5px;color:var(--text-accent);font-weight:600"></span>
+        <div class="view-toggle" id="group-overlay-view-toggle">
+          <button class="view-btn ${initialView === 'list' ? 'active' : ''}" data-view="list" title="Lista">${svgList}</button>
+          <button class="view-btn ${initialView === 'grid' ? 'active' : ''}" data-view="grid" title="Grade">${svgGrid}</button>
+        </div>
       </div>
     </div>
     <div id="group-overlay-content"></div>`;
@@ -1746,8 +1749,136 @@ function openGroupOverlay(group) {
   let currentView = initialView;
   const contentEl = document.getElementById('group-overlay-content');
 
+  // ── Local selection state for the modal ──────────────────────────────
+  const modalSelected = new Set(); // Set<filePath>
+
+  function updateSelCount() {
+    const el = document.getElementById('group-overlay-sel-count');
+    if (!el) return;
+    if (modalSelected.size === 0) {
+      el.style.display = 'none';
+    } else {
+      el.style.display = '';
+      el.textContent = `${modalSelected.size} selecionado${modalSelected.size > 1 ? 's' : ''}`;
+    }
+  }
+
+  function selectOverlayItem(el, add = true) {
+    const fp = el.dataset.path;
+    if (!fp) return;
+    if (add) {
+      modalSelected.add(fp);
+      el.classList.add('selected');
+    } else {
+      modalSelected.delete(fp);
+      el.classList.remove('selected');
+    }
+    updateSelCount();
+  }
+
+  function clearOverlaySelection() {
+    modalSelected.clear();
+    contentEl.querySelectorAll('.group-overlay-row.selected, .group-overlay-grid-card.selected').forEach(el => el.classList.remove('selected'));
+    updateSelCount();
+  }
+
+  // Rubber band for the modal — reuses the shared _rubberBand state
+  function initModalRubberBand(allowOnItems) {
+    const scrollEl = document.getElementById('modal-body');
+
+    function ensureRect() {
+      if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
+        _rubberBand.rect = document.createElement('div');
+        _rubberBand.rect.className = 'rubber-band-rect';
+        scrollEl.style.position = 'relative';
+        scrollEl.appendChild(_rubberBand.rect);
+      }
+    }
+
+    const onMousedown = e => {
+      if (e.button !== 0) return;
+      if (e.target.closest('button, input, a')) return;
+      // In list mode, don't start drag on the row itself (only on empty space)
+      if (!allowOnItems && e.target.closest('.group-overlay-row, .group-overlay-grid-card')) return;
+
+      const cr = scrollEl.getBoundingClientRect();
+      const startX = e.clientX - cr.left + scrollEl.scrollLeft;
+      const startY = e.clientY - cr.top  + scrollEl.scrollTop;
+      let started = false;
+      const THRESHOLD = 6;
+
+      const onMove = ev => {
+        const r = scrollEl.getBoundingClientRect();
+        const curX = ev.clientX - r.left + scrollEl.scrollLeft;
+        const curY = ev.clientY - r.top  + scrollEl.scrollTop;
+
+        if (!started) {
+          if (Math.abs(curX - startX) < THRESHOLD && Math.abs(curY - startY) < THRESHOLD) return;
+          started = true;
+          _rubberBand.active = true;
+          _rubberBand.startX = startX;
+          _rubberBand.startY = startY;
+          _rubberBand.didSelect = false;
+          if (!e.ctrlKey && !e.metaKey) clearOverlaySelection();
+          ensureRect();
+        }
+
+        const x = Math.min(curX, _rubberBand.startX);
+        const y = Math.min(curY, _rubberBand.startY);
+        const w = Math.abs(curX - _rubberBand.startX);
+        const h = Math.abs(curY - _rubberBand.startY);
+        if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      };
+
+      const onUp = ev => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (!started || !_rubberBand.active) return;
+        _rubberBand.active = false;
+        if (_rubberBand.rect) _rubberBand.rect.style.display = 'none';
+
+        const r = scrollEl.getBoundingClientRect();
+        const curX = ev.clientX - r.left + scrollEl.scrollLeft;
+        const curY = ev.clientY - r.top  + scrollEl.scrollTop;
+        const selL = Math.min(curX, _rubberBand.startX), selR = Math.max(curX, _rubberBand.startX);
+        const selT = Math.min(curY, _rubberBand.startY), selB = Math.max(curY, _rubberBand.startY);
+
+        const selector = currentView === 'list' ? '.group-overlay-row' : '.group-overlay-grid-card';
+        contentEl.querySelectorAll(selector).forEach(item => {
+          const ir = item.getBoundingClientRect();
+          const iL = ir.left - r.left + scrollEl.scrollLeft;
+          const iT = ir.top  - r.top  + scrollEl.scrollTop;
+          const iR = iL + ir.width, iB = iT + ir.height;
+          if (iL < selR && iR > selL && iT < selB && iB > selT) {
+            selectOverlayItem(item, true);
+          }
+        });
+        _rubberBand.didSelect = true;
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    };
+
+    scrollEl.addEventListener('mousedown', onMousedown);
+
+    // Ghost-click prevention
+    scrollEl.addEventListener('click', e => {
+      if (_rubberBand.didSelect) {
+        _rubberBand.didSelect = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
+
+    return () => scrollEl.removeEventListener('mousedown', onMousedown);
+  }
+
+  let _removeModalRubberBand = null;
+
   function renderView(view) {
     currentView = view;
+    clearOverlaySelection();
     document.querySelectorAll('#group-overlay-view-toggle .view-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === view);
     });
@@ -1759,9 +1890,11 @@ function openGroupOverlay(group) {
       contentEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
       contentEl.innerHTML = buildGridHtml();
       wireGridEvents();
-      // Carrega thumbnails pendentes dentro do modal
       loadVisibleThumbnails(document.getElementById('modal-body'));
     }
+    // Re-attach rubber band after content swap
+    if (_removeModalRubberBand) _removeModalRubberBand();
+    _removeModalRubberBand = initModalRubberBand(view === 'grid');
   }
 
   document.getElementById('group-overlay-view-toggle').addEventListener('click', e => {
@@ -1804,7 +1937,18 @@ function openGroupOverlay(group) {
           }
         });
       });
-      row.addEventListener('click', async () => {
+      row.addEventListener('click', async e => {
+        // Ctrl/Meta+click → toggle selection, no toggle
+        if (e.ctrlKey || e.metaKey) {
+          selectOverlayItem(row, !modalSelected.has(row.dataset.path));
+          return;
+        }
+        // Click on already-selected row with others selected → clear selection
+        if (modalSelected.size > 1 && modalSelected.has(row.dataset.path)) {
+          clearOverlaySelection();
+          return;
+        }
+        // Plain click with no drag → toggle mod
         const fp = row.dataset.path;
         const result = await window.api.toggleMod(fp);
         if (result.success) {

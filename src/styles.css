@@ -1026,6 +1026,16 @@ tbody tr.disabled td { opacity: 0.5; }
   border-left: 2px solid var(--accent-light) !important;
 }
 
+/* Selected state inside group overlay modal */
+.group-overlay-row.selected {
+  background: var(--accent-subtle) !important;
+  outline: 1px solid var(--accent);
+}
+.group-overlay-grid-card.selected {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-subtle2);
+}
+
 /* expand arrow — list mode — pushed to the right of the name cell */
 .group-expand-arrow { margin-left: auto; padding-left: 8px; color: #666; font-size: 11px; flex-shrink: 0; }
 tr.group-row.is-expanded .group-expand-arrow { color: #4da6ff; }
