@@ -1568,7 +1568,7 @@ function openGroupOverlay(group) {
   const consolidateHtml = '';
 
   const bodyHtml = `
-    <div>
+    <div style="max-height:420px;overflow-y:auto">
       ${multiFolder && !canConsolidate ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes (consolidação não disponível para este grupo)</div>` : ''}
       ${consolidateHtml}
       ${filesHtml}
