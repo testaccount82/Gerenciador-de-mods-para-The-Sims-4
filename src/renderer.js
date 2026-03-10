@@ -151,6 +151,28 @@ function clearUndoBar() {
   if (bar) { clearTimeout(bar._timer); bar.classList.add('hidden'); }
   state.undoStack.length = 0;
 }
+
+// Marca entradas do histórico como permanentemente não-desfazíveis quando os
+// trashPaths correspondentes foram enviados à lixeira do sistema ou esvaziados.
+// Sem isso, o botão "↩ Desfazer" continua visível no histórico mas não tem efeito.
+function invalidateUndoForTrashPaths(trashPaths) {
+  if (!trashPaths || !trashPaths.length) return;
+  const pathSet = new Set(trashPaths);
+  let changed = false;
+  state.actionLog.forEach(entry => {
+    if (!entry.undoFn || entry.undone) return;
+    const entryPaths = entry.details?.trashPaths;
+    if (!entryPaths) return;
+    const overlaps = entryPaths.some(p => pathSet.has(p));
+    if (overlaps) {
+      entry.undoFn  = null;
+      entry.redoFn  = null;
+      entry.details.permanent = true; // flag para exibir label no histórico
+      changed = true;
+    }
+  });
+  if (changed && state.currentPage === 'history') renderHistory();
+}
 function showUndoBar(label) {
   let bar = document.getElementById('undo-bar');
   if (!bar) {
@@ -1525,7 +1547,7 @@ function setupCommonModsEvents(el) {
               await loadMods(); renderMods();
               toast(`${trashed.length} mod(s) restaurados`, 'success');
               logAction('restore', { count: trashed.length, source: 'batch', label: 'Restaurar exclusão em lote' });
-            }, 'delete', { count: deleted, source: 'batch' });
+            }, 'delete', { count: deleted, source: 'batch', trashPaths: trashed.map(r => r.trashPath) });
           }
         }}
       ]
@@ -1878,7 +1900,7 @@ function openGroupOverlay(group) {
                 for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
                 await loadMods(); renderMods();
                 toast(`${trashed.length} arquivo(s) restaurados`, 'success');
-              }, 'delete', { count: deleted, source: 'group-modal' });
+              }, 'delete', { count: deleted, source: 'group-modal', trashPaths: trashed.map(r => r.trashPath) });
             }
             // Refresh modal content to reflect removed items
             renderView(currentView);
@@ -2116,7 +2138,7 @@ function openGroupOverlay(group) {
                       await loadMods(); renderMods();
                       toast('Mod restaurado', 'success');
                       logAction('restore', { name, label: `Restaurar ${name}` });
-                    }, 'delete', { name, source: 'group-overlay' });
+                    }, 'delete', { name, source: 'group-overlay', trashPaths: [trashPath] });
                   } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
                 }}
               ]
@@ -3089,7 +3111,7 @@ function setupModsEvents(el, mods) {
                 await loadMods(); renderMods();
                 toast('Mod restaurado', 'success');
                 logAction('restore', { name, label: `Restaurar ${name}` });
-              }, 'delete', { name });
+              }, 'delete', { name, trashPaths: [trashPath] });
             } else {
               toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
             }
@@ -3129,7 +3151,7 @@ function setupModsEvents(el, mods) {
                 await loadMods(); renderMods();
                 toast(`${trashed.length} arquivo(s) restaurados`, 'success');
                 logAction('restore', { count: trashed.length, name: group.name, label: `Restaurar grupo ${group.name}` });
-              }, 'delete', { count: deleted, name: group.name, type: 'group' });
+              }, 'delete', { count: deleted, name: group.name, type: 'group', trashPaths: trashed.map(r => r.trashPath) });
             }
           }}
         ]
@@ -3540,7 +3562,7 @@ function renderConflictResults(el) {
               renderConflictResults(el);
               toast('Arquivo restaurado', 'success');
               logAction('restore', { name: fileName, label: `Restaurar ${fileName}` });
-            }, 'delete', { name: fileName, source: 'conflicts' });
+            }, 'delete', { name: fileName, source: 'conflicts', trashPaths: [trashPath] });
           }}
         ]
       );
@@ -3904,7 +3926,7 @@ function renderOrganizeResults(el) {
               if (state.currentPage === 'organizer') renderOrganizeResults(el);
               updateTrashBadge();
               logAction('restore', { count: ok, label: `Restaurar ${ok} arquivo(s) inválido(s)` });
-            }, 'delete', { count: ok, source: 'invalid-files' });
+            }, 'delete', { count: ok, source: 'invalid-files', trashPaths: trashed.filter(r => r.trashPath).map(r => r.trashPath) });
           }
         }}
       ]
@@ -3935,7 +3957,7 @@ function renderOrganizeResults(el) {
           if (state.currentPage === 'organizer') renderOrganizeResults(el);
           updateTrashBadge();
           logAction('restore', { name: item.name, label: `Restaurar "${item.name}"` });
-        }, 'delete', { name: item.name, source: 'invalid-files' });
+        }, 'delete', { name: item.name, source: 'invalid-files', trashPaths: [trashPath] });
       } else {
         toast('Erro ao mover para lixeira: ' + (results[0]?.error || ''), 'error');
       }
@@ -4547,9 +4569,11 @@ function renderHistory() {
                 : canUndo
                   ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${origIdx}"
                        title="${escapeHtml(entry.details?.label || 'Desfazer esta ação')}">↩ Desfazer</button>`
-                  : entry.undone
-                    ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
-                    : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`;
+                  : entry.details?.permanent
+                    ? `<span style="font-size:11px;color:var(--danger)" title="Item enviado para a lixeira do sistema">🗑 permanente</span>`
+                    : entry.undone
+                      ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
+                      : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`;
 
               return `
                 <tr class="${undoneRow}" data-history-idx="${origIdx}">
@@ -4867,6 +4891,7 @@ function renderTrashList(el, items) {
               if (result.success) {
                 toast(`"${item.name}" enviado para a lixeira do sistema`, 'info');
                 clearUndoBar(); // itens já na lixeira do sistema não podem ser desfeitos
+                invalidateUndoForTrashPaths([item.trashPath]);
               } else {
                 toast('Erro ao excluir: ' + (result.error || ''), 'error');
               }
@@ -4934,9 +4959,14 @@ function renderTrashList(el, items) {
           // evitar condição de corrida enquanto o esvaziamento está em execução
           container.querySelectorAll('.trash-restore-btn, .trash-delete-btn').forEach(b => { b.disabled = true; });
           try {
+            // Captura os trashPaths antes de esvaziar para poder invalidar o histórico
+            const allTrashPaths = items.map(i => i.trashPath).filter(Boolean);
             const result = await window.api.trashEmpty();
             toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
-            if (result.ok > 0) clearUndoBar(); // itens já enviados para o sistema não podem ser desfeitos
+            if (result.ok > 0) {
+              clearUndoBar(); // itens já enviados para o sistema não podem ser desfeitos
+              invalidateUndoForTrashPaths(allTrashPaths);
+            }
           } catch (e) {
             toast('Erro ao esvaziar lixeira', 'error');
           } finally {
