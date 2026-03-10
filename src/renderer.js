@@ -1174,9 +1174,9 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
     });
 
     if (readyThumbs.length >= 2) {
-      // Mosaico: máx 4 imagens em grade 2×2
-      const slots = readyThumbs.slice(0, 4);
-      const cols  = slots.length <= 2 ? slots.length : 2;
+      // Mosaico: máx 9 imagens em grade 3×3
+      const slots = readyThumbs.slice(0, 9);
+      const cols  = slots.length <= 2 ? slots.length : slots.length <= 4 ? 2 : 3;
       const rows  = Math.ceil(slots.length / cols);
       const imgs  = slots.map(src =>
         `<img src="${src}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">`
@@ -2271,10 +2271,10 @@ async function loadVisibleThumbnails(el) {
       if (!existing) return;
       // Don't replace if it's already a mosaic with the same count
       if (existing.classList.contains('group-thumb-mosaic') &&
-          existing.querySelectorAll('img').length === Math.min(readyThumbs.length, 4)) return;
+          existing.querySelectorAll('img').length === Math.min(readyThumbs.length, 9)) return;
 
-      const slots = readyThumbs.slice(0, 4);
-      const cols  = slots.length <= 2 ? slots.length : 2;
+      const slots = readyThumbs.slice(0, 9);
+      const cols  = slots.length <= 2 ? slots.length : slots.length <= 4 ? 2 : 3;
       const rows  = Math.ceil(slots.length / cols);
       const mosaic = document.createElement('div');
       mosaic.className = 'gallery-thumb group-thumb-mosaic';
