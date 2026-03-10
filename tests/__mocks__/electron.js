@@ -33,6 +33,7 @@ const app = {
   quit:                       jest.fn(),
   on:                         jest.fn(),
   requestSingleInstanceLock:  jest.fn(() => true), // always returns true (sole instance) in tests
+  getVersion:                 jest.fn(() => '1.1.0'),
 };
 
 const nativeImage = {

@@ -40,6 +40,7 @@ const state = {
   itemsPerPage: 30,
   thumbnailCache: {},     // path -> base64 | null
   expandedGroups: new Set(), // group keys currently expanded
+  appVersion: null,        // cached app version string (populated in init())
 };
 
 // Prevents runStartupChecks() from being called more than once per session
@@ -4422,7 +4423,7 @@ function renderTrashList(el, items) {
     return;
   }
 
-  const SOURCE_LABEL = { mods: 'Mods', conflicts: 'Conflitos', unknown: '—' };
+  const SOURCE_LABEL = { mods: 'Mods', conflicts: 'Conflitos', 'invalid-files': 'Arquivos inválidos', unknown: '—' };
   const pad = n => String(n).padStart(2, '0');
   const formatDate = iso => {
     if (!iso) return '—';
@@ -4676,7 +4677,7 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> <span id="about-version"></span><br>
+        <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> <span id="about-version">${state.appVersion ? 'v' + escapeHtml(String(state.appVersion)) : ''}</span><br>
         Gerenciador de mods para The Sims 4 com interface Fluent 2<br>
         Desenvolvido com Electron
       </div>
@@ -4801,6 +4802,7 @@ async function init() {
   // Versão dinâmica — lida do package.json via Electron
   try {
     const version = await window.api.getAppVersion();
+    state.appVersion = version;
     const el = document.getElementById('sidebar-version');
     if (el) el.textContent = `v${version}`;
     const about = document.getElementById('about-version');
