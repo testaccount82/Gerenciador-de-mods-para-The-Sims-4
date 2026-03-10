@@ -1463,6 +1463,8 @@ function setupCommonModsEvents(el) {
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && !m.enabled; });
     if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+    // Desabilita todos os botões da sel-bar durante a operação para evitar condição de corrida
+    el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
@@ -1484,6 +1486,8 @@ function setupCommonModsEvents(el) {
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && m.enabled; });
     if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+    // Desabilita todos os botões da sel-bar durante a operação para evitar condição de corrida
+    el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
@@ -1818,6 +1822,10 @@ function openGroupOverlay(group) {
       const allMods = [...state.mods, ...state.trayFiles];
       const targets = [...modalSelected].filter(p => { const m = allMods.find(m => m.path === p); return m && !m.enabled; });
       if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+      // Desabilita botões de ação do overlay durante a operação
+      ['group-overlay-btn-enable','group-overlay-btn-disable','group-overlay-btn-trash'].forEach(id => {
+        const b = document.getElementById(id); if (b) b.disabled = true;
+      });
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); renderMods();
@@ -1834,6 +1842,10 @@ function openGroupOverlay(group) {
       const allMods = [...state.mods, ...state.trayFiles];
       const targets = [...modalSelected].filter(p => { const m = allMods.find(m => m.path === p); return m && m.enabled; });
       if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+      // Desabilita botões de ação do overlay durante a operação
+      ['group-overlay-btn-enable','group-overlay-btn-disable','group-overlay-btn-trash'].forEach(id => {
+        const b = document.getElementById(id); if (b) b.disabled = true;
+      });
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); renderMods();
@@ -3792,6 +3804,11 @@ function renderOrganizeResults(el) {
     });
   });
   el.querySelector('#btn-fix-all')?.addEventListener('click', async () => {
+    // Desabilita todos os botões de correção durante a operação
+    const fixAllBtn = el.querySelector('#btn-fix-all');
+    if (fixAllBtn) { fixAllBtn.disabled = true; fixAllBtn.textContent = 'Corrigindo…'; }
+    el.querySelectorAll('.fix-one-btn').forEach(b => { b.disabled = true; });
+    try {
     const results = await window.api.fixMisplaced(state.misplaced);
     const ok = results.filter(r => r.success).length;
     state.misplaced = state.misplaced.filter((_, i) => !results[i]?.success);
@@ -3806,12 +3823,21 @@ function renderOrganizeResults(el) {
       renderOrganizeResults(el);
       logAction('restore', { count: ok, label: `Desfazer correção de ${ok} arquivo(s)` });
     }, 'move', { count: ok, source: 'organizer-fix-all' });
+    } catch (e) {
+      toast('Erro ao corrigir arquivos: ' + (e.message || ''), 'error');
+      if (fixAllBtn) { fixAllBtn.disabled = false; fixAllBtn.textContent = 'Corrigir Tudo'; }
+      el.querySelectorAll('.fix-one-btn').forEach(b => { b.disabled = false; });
+    }
   });
 
   el.querySelectorAll('.fix-one-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const fixAllBtn = el.querySelector('#btn-fix-all');
+      if (fixAllBtn) fixAllBtn.disabled = true;
       const idx = parseInt(btn.dataset.index);
       const item = state.misplaced[idx];
+      try {
       const result = await window.api.fixOneMisplaced(item);
       if (result.success) {
         const from = result.from; const to = result.to;
@@ -3827,6 +3853,13 @@ function renderOrganizeResults(el) {
         }, 'move', { name: item.name, source: 'organizer-fix-one' });
       } else {
         toast('Erro ao mover arquivo: ' + (result.error || ''), 'error');
+        btn.disabled = false;
+        if (fixAllBtn) fixAllBtn.disabled = false;
+      }
+      } catch (e) {
+        toast('Erro ao mover arquivo: ' + (e.message || ''), 'error');
+        btn.disabled = false;
+        if (fixAllBtn) fixAllBtn.disabled = false;
       }
     });
   });
@@ -4649,6 +4682,12 @@ function renderTrashList(el, items) {
       const item = sortedItems[parseInt(btn.dataset.trashIdx)];
       if (!item?.originalPath) return;
       btn.disabled = true; btn.textContent = '…';
+      // Desabilita também os botões do cabeçalho para evitar conflito durante a restauração
+      const restoreAllBtn = el.querySelector('#btn-trash-restore-all');
+      const emptyBtn = el.querySelector('#btn-trash-empty');
+      if (restoreAllBtn) restoreAllBtn.disabled = true;
+      if (emptyBtn) emptyBtn.disabled = true;
+      container.querySelectorAll('.trash-restore-btn, .trash-delete-btn').forEach(b => { b.disabled = true; });
       try {
         const result = await window.api.trashRestore(item.trashPath, item.originalPath);
         if (result.success) {
