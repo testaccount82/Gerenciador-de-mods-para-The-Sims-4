@@ -1298,6 +1298,7 @@ ipcMain.handle('mods:toggle-folder', (_, folderPath, modsFolder) => {
   return toggleFolder(folderPath, modsFolder);
 });
 ipcMain.handle('mods:delete', async (_, filePaths) => {
+  if (!Array.isArray(filePaths)) return [];
   const roots = getAllowedRoots();
   const results = [];
   for (const fp of filePaths) {
@@ -1328,6 +1329,9 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) => {
 // Conflicts
 ipcMain.handle('conflicts:scan', async (event, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
+  // SEC-03: bloqueia pastas fora das raízes permitidas (consistente com mods:scan)
+  const roots = getAllowedRoots();
+  if (roots.length && !isPathSafe(modsFolder, ...roots)) return [];
   // Create a fresh token for this scan, invalidating any previous one
   const token = { cancelled: false };
   _conflictCancelToken = token;
@@ -1369,6 +1373,9 @@ ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
 ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
   if (!trayFolder || typeof trayFolder !== 'string') return [];
+  // SEC-03: bloqueia pastas fora das raízes permitidas (consistente com organize:scan-scattered)
+  const roots = getAllowedRoots();
+  if (roots.length && (!isPathSafe(modsFolder, ...roots) || !isPathSafe(trayFolder, ...roots))) return [];
   return scanMisplaced(modsFolder, trayFolder);
 });
 ipcMain.handle('organize:fix', (_, items) => {
