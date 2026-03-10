@@ -1686,7 +1686,7 @@ function openGroupOverlay(group) {
       const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
       return `
         <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
-          <span class="card-type-tag ${fTypeClass}" style="flex-shrink:0">${fTypeLabel}</span>
+          <span class="${fTypeClass}" style="flex-shrink:0;font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:3px">${fTypeLabel}</span>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
             <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
