@@ -4710,6 +4710,8 @@ function renderTrashList(el, items) {
           const emptyBtn = el.querySelector('#btn-trash-empty');
           if (restoreAllBtn) { restoreAllBtn.disabled = true; restoreAllBtn.textContent = 'Restaurando…'; }
           if (emptyBtn) emptyBtn.disabled = true;
+          // Desabilita todos os botões individuais para evitar condição de corrida
+          container.querySelectorAll('.trash-restore-btn, .trash-delete-btn').forEach(b => { b.disabled = true; });
           let ok = 0;
           try {
             for (const item of restorable) {
@@ -4743,6 +4745,9 @@ function renderTrashList(el, items) {
           const restoreAllBtn = el.querySelector('#btn-trash-restore-all');
           if (emptyBtn) { emptyBtn.disabled = true; emptyBtn.textContent = 'Esvaziando…'; }
           if (restoreAllBtn) restoreAllBtn.disabled = true;
+          // Desabilita todos os botões individuais de restaurar e excluir para
+          // evitar condição de corrida enquanto o esvaziamento está em execução
+          container.querySelectorAll('.trash-restore-btn, .trash-delete-btn').forEach(b => { b.disabled = true; });
           try {
             const result = await window.api.trashEmpty();
             toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
