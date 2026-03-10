@@ -1935,7 +1935,52 @@ function openGroupOverlay(group) {
       let started = false;
       const THRESHOLD = 6;
 
+      // Auto-scroll state
+      const SCROLL_ZONE  = 40;
+      const SCROLL_SPEED = 10;
+      let lastMouseClientX = e.clientX;
+      let lastMouseClientY = e.clientY;
+      let autoScrollRaf = null;
+
+      const updateRect = () => {
+        if (!started || !_rubberBand.active) return;
+        const r = scrollEl.getBoundingClientRect();
+        const curX = lastMouseClientX - r.left + scrollEl.scrollLeft;
+        const curY = lastMouseClientY - r.top  + scrollEl.scrollTop;
+        const x = Math.min(curX, _rubberBand.startX);
+        const y = Math.min(curY, _rubberBand.startY);
+        const w = Math.abs(curX - _rubberBand.startX);
+        const h = Math.abs(curY - _rubberBand.startY);
+        if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      };
+
+      const autoScrollStep = () => {
+        const r = scrollEl.getBoundingClientRect();
+        const relY = lastMouseClientY - r.top;
+        const relX = lastMouseClientX - r.left;
+        let dy = 0, dx = 0;
+        if (relY < SCROLL_ZONE)                dy = -SCROLL_SPEED * (1 - relY / SCROLL_ZONE);
+        else if (relY > r.height - SCROLL_ZONE) dy =  SCROLL_SPEED * (1 - (r.height - relY) / SCROLL_ZONE);
+        if (relX < SCROLL_ZONE)                dx = -SCROLL_SPEED * (1 - relX / SCROLL_ZONE);
+        else if (relX > r.width  - SCROLL_ZONE) dx =  SCROLL_SPEED * (1 - (r.width  - relX) / SCROLL_ZONE);
+        if (dx || dy) {
+          scrollEl.scrollLeft += dx;
+          scrollEl.scrollTop  += dy;
+          updateRect();
+          autoScrollRaf = requestAnimationFrame(autoScrollStep);
+        } else {
+          autoScrollRaf = null;
+        }
+      };
+
+      const stopAutoScroll = () => {
+        if (autoScrollRaf) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null; }
+      };
+
       const onMove = ev => {
+        lastMouseClientX = ev.clientX;
+        lastMouseClientY = ev.clientY;
+
         const r = scrollEl.getBoundingClientRect();
         const curX = ev.clientX - r.left + scrollEl.scrollLeft;
         const curY = ev.clientY - r.top  + scrollEl.scrollTop;
@@ -1947,20 +1992,32 @@ function openGroupOverlay(group) {
           _rubberBand.startX = startX;
           _rubberBand.startY = startY;
           _rubberBand.didSelect = false;
+          document.body.style.userSelect = 'none';
           if (!e.ctrlKey && !e.metaKey) clearOverlaySelection();
           ensureRect();
         }
 
-        const x = Math.min(curX, _rubberBand.startX);
-        const y = Math.min(curY, _rubberBand.startY);
-        const w = Math.abs(curX - _rubberBand.startX);
-        const h = Math.abs(curY - _rubberBand.startY);
-        if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+        updateRect();
+
+        const r2 = scrollEl.getBoundingClientRect();
+        const relY = ev.clientY - r2.top;
+        const relX = ev.clientX - r2.left;
+        const nearEdge = relY < SCROLL_ZONE || relY > r2.height - SCROLL_ZONE ||
+                         relX < SCROLL_ZONE || relX > r2.width  - SCROLL_ZONE;
+        if (nearEdge && !autoScrollRaf) autoScrollRaf = requestAnimationFrame(autoScrollStep);
+        if (!nearEdge) stopAutoScroll();
       };
+
+      const onScroll = () => { if (started) updateRect(); };
+      scrollEl.addEventListener('scroll', onScroll);
 
       const onUp = ev => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        scrollEl.removeEventListener('scroll', onScroll);
+        stopAutoScroll();
+        document.body.style.userSelect = '';
+
         if (!started || !_rubberBand.active) return;
         _rubberBand.active = false;
         if (_rubberBand.rect) _rubberBand.rect.style.display = 'none';
@@ -2164,13 +2221,14 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
   // The element that actually scrolls — .page in grid mode, the container itself in list mode
   function getScrollEl() { return container.closest('.page') || container; }
 
-  // Create (or reuse) the rubber band rect, appended to the scroll element so it
-  // stays correctly positioned during scroll.
-  function ensureRect() {
-    if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
+  // Create (or reuse) the rubber band rect, appended to the correct scroll element.
+  // Bug fix: also checks that the rect belongs to THIS scroll element, not a stale one
+  // left behind by a modal or a previous initRubberBand call.
+  function ensureRect(scrollEl) {
+    if (!_rubberBand.rect || !_rubberBand.rect.isConnected || !scrollEl.contains(_rubberBand.rect)) {
+      if (_rubberBand.rect && _rubberBand.rect.isConnected) _rubberBand.rect.remove();
       _rubberBand.rect = document.createElement('div');
       _rubberBand.rect.className = 'rubber-band-rect';
-      const scrollEl = getScrollEl();
       scrollEl.style.position = 'relative'; // ensure positioned ancestor
       scrollEl.appendChild(_rubberBand.rect);
     }
@@ -2194,7 +2252,54 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
     let started = false; // becomes true once drag threshold is crossed
     const THRESHOLD = 6; // px
 
+    // Auto-scroll state
+    const SCROLL_ZONE  = 40; // px from edge to start auto-scrolling
+    const SCROLL_SPEED = 10; // px per animation frame
+    let lastMouseClientX = e.clientX;
+    let lastMouseClientY = e.clientY;
+    let autoScrollRaf = null;
+
+    // Redraws the rubber-band rect from current scroll + last known mouse position
+    const updateRect = () => {
+      if (!started || !_rubberBand.active) return;
+      const r = scrollEl.getBoundingClientRect();
+      const curX = lastMouseClientX - r.left + scrollEl.scrollLeft;
+      const curY = lastMouseClientY - r.top  + scrollEl.scrollTop;
+      const x = Math.min(curX, _rubberBand.startX);
+      const y = Math.min(curY, _rubberBand.startY);
+      const w = Math.abs(curX - _rubberBand.startX);
+      const h = Math.abs(curY - _rubberBand.startY);
+      if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    };
+
+    // Auto-scroll loop: scrolls the container when the cursor is near its edge
+    const autoScrollStep = () => {
+      const r = scrollEl.getBoundingClientRect();
+      const relY = lastMouseClientY - r.top;
+      const relX = lastMouseClientX - r.left;
+      let dy = 0, dx = 0;
+      if (relY < SCROLL_ZONE)           dy = -SCROLL_SPEED * (1 - relY / SCROLL_ZONE);
+      else if (relY > r.height - SCROLL_ZONE) dy =  SCROLL_SPEED * (1 - (r.height - relY) / SCROLL_ZONE);
+      if (relX < SCROLL_ZONE)           dx = -SCROLL_SPEED * (1 - relX / SCROLL_ZONE);
+      else if (relX > r.width  - SCROLL_ZONE) dx =  SCROLL_SPEED * (1 - (r.width  - relX) / SCROLL_ZONE);
+      if (dx || dy) {
+        scrollEl.scrollLeft += dx;
+        scrollEl.scrollTop  += dy;
+        updateRect();
+        autoScrollRaf = requestAnimationFrame(autoScrollStep);
+      } else {
+        autoScrollRaf = null;
+      }
+    };
+
+    const stopAutoScroll = () => {
+      if (autoScrollRaf) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null; }
+    };
+
     const onMove = ev => {
+      lastMouseClientX = ev.clientX;
+      lastMouseClientY = ev.clientY;
+
       const r = scrollEl.getBoundingClientRect();
       const curX = ev.clientX - r.left + scrollEl.scrollLeft;
       const curY = ev.clientY - r.top  + scrollEl.scrollTop;
@@ -2208,6 +2313,9 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
         _rubberBand.startY = startY;
         _rubberBand.didSelect = false;
 
+        // Bug fix: prevent text selection during drag
+        document.body.style.userSelect = 'none';
+
         // Clear selection when rubber band starts (unless Ctrl/Meta held)
         if (!e.ctrlKey && !e.metaKey) {
           state.selectedMods.clear();
@@ -2219,19 +2327,31 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
           refreshSelBar(document.getElementById('page-mods'));
         }
 
-        ensureRect();
+        ensureRect(scrollEl);
       }
 
-      const x = Math.min(curX, _rubberBand.startX);
-      const y = Math.min(curY, _rubberBand.startY);
-      const w = Math.abs(curX - _rubberBand.startX);
-      const h = Math.abs(curY - _rubberBand.startY);
-      if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      updateRect();
+
+      // Kick off auto-scroll if cursor is near the edge
+      const r2 = scrollEl.getBoundingClientRect();
+      const relY = ev.clientY - r2.top;
+      const relX = ev.clientX - r2.left;
+      const nearEdge = relY < SCROLL_ZONE || relY > r2.height - SCROLL_ZONE ||
+                       relX < SCROLL_ZONE || relX > r2.width  - SCROLL_ZONE;
+      if (nearEdge && !autoScrollRaf) autoScrollRaf = requestAnimationFrame(autoScrollStep);
+      if (!nearEdge) stopAutoScroll();
     };
+
+    // Sync rect when the user scrolls manually (mouse wheel / trackpad) during drag
+    const onScroll = () => { if (started) updateRect(); };
+    scrollEl.addEventListener('scroll', onScroll);
 
     const onUp = ev => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      scrollEl.removeEventListener('scroll', onScroll);
+      stopAutoScroll();
+      document.body.style.userSelect = '';
 
       if (!started || !_rubberBand.active) return;
       _rubberBand.active = false;
