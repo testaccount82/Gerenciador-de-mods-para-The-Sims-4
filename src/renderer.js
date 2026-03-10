@@ -1740,6 +1740,12 @@ function openGroupOverlay(group) {
         </div>
       </div>
     </div>
+    <div id="group-overlay-sel-bar" style="display:none;align-items:center;gap:6px;margin-bottom:10px;padding:7px 10px;border-radius:var(--r-sm);background:var(--accent-subtle);border:1px solid var(--accent-subtle2)">
+      <span id="group-overlay-sel-bar-label" style="font-size:12px;font-weight:600;color:var(--text-accent);flex:1"></span>
+      <button class="btn btn-secondary" id="group-overlay-btn-enable" style="padding:3px 10px;font-size:11.5px">▶ Ativar</button>
+      <button class="btn btn-secondary" id="group-overlay-btn-disable" style="padding:3px 10px;font-size:11.5px">⏸ Desativar</button>
+      <button class="btn btn-danger"    id="group-overlay-btn-trash"   style="padding:3px 10px;font-size:11.5px">🗑 Lixeira</button>
+    </div>
     <div id="group-overlay-content"></div>`;
 
   openModal(`Grupo: ${displayTitle} (${group.files.length} arquivos)`, bodyHtml, [
@@ -1753,15 +1759,86 @@ function openGroupOverlay(group) {
   const modalSelected = new Set(); // Set<filePath>
 
   function updateSelCount() {
-    const el = document.getElementById('group-overlay-sel-count');
-    if (!el) return;
+    const countEl = document.getElementById('group-overlay-sel-count');
+    const bar     = document.getElementById('group-overlay-sel-bar');
+    const barLabel= document.getElementById('group-overlay-sel-bar-label');
+    if (!countEl || !bar) return;
     if (modalSelected.size === 0) {
-      el.style.display = 'none';
+      countEl.style.display = 'none';
+      bar.style.display = 'none';
     } else {
-      el.style.display = '';
-      el.textContent = `${modalSelected.size} selecionado${modalSelected.size > 1 ? 's' : ''}`;
+      const n = modalSelected.size;
+      const label = `${n} selecionado${n > 1 ? 's' : ''}`;
+      countEl.style.display = '';
+      countEl.textContent = label;
+      bar.style.display = 'flex';
+      if (barLabel) barLabel.textContent = label;
     }
   }
+
+  // Wire action buttons (attached once after openModal)
+  setTimeout(() => {
+    document.getElementById('group-overlay-btn-enable')?.addEventListener('click', async () => {
+      const allMods = [...state.mods, ...state.trayFiles];
+      const targets = [...modalSelected].filter(p => { const m = allMods.find(m => m.path === p); return m && !m.enabled; });
+      if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+      const results = [];
+      for (const p of targets) results.push(await window.api.toggleMod(p));
+      await loadMods(); renderMods();
+      clearOverlaySelection();
+      toast(`${targets.length} mod(s) ativados`, 'success');
+      const newPaths = results.filter(r => r.success).map(r => r.newPath);
+      pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
+        for (const p of newPaths) await window.api.toggleMod(p);
+        await loadMods(); renderMods();
+      }, 'toggle_on', { count: newPaths.length, source: 'group-modal' });
+    });
+
+    document.getElementById('group-overlay-btn-disable')?.addEventListener('click', async () => {
+      const allMods = [...state.mods, ...state.trayFiles];
+      const targets = [...modalSelected].filter(p => { const m = allMods.find(m => m.path === p); return m && m.enabled; });
+      if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+      const results = [];
+      for (const p of targets) results.push(await window.api.toggleMod(p));
+      await loadMods(); renderMods();
+      clearOverlaySelection();
+      toast(`${targets.length} mod(s) desativados`, 'success');
+      const newPaths = results.filter(r => r.success).map(r => r.newPath);
+      pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
+        for (const p of newPaths) await window.api.toggleMod(p);
+        await loadMods(); renderMods();
+      }, 'toggle_off', { count: newPaths.length, source: 'group-modal' });
+    });
+
+    document.getElementById('group-overlay-btn-trash')?.addEventListener('click', () => {
+      const sel = [...modalSelected];
+      if (!sel.length) return;
+      openModal('Confirmar Exclusão em Lote',
+        `<p>Mover <strong>${sel.length}</strong> arquivo(s) para a lixeira?</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: `Mover ${sel.length} para lixeira`, cls: 'btn-danger', action: async () => {
+            const results = await window.api.trashModsBatch(sel);
+            const failed  = results.filter(r => !r.success).length;
+            const deleted = results.length - failed;
+            await loadMods(); renderMods(); updateTrashBadge();
+            clearOverlaySelection();
+            toast(`${deleted} arquivo(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+            if (deleted > 0) {
+              const trashed = results.filter(r => r.success);
+              pushUndo(`Excluir ${deleted} arquivo(s)`, async () => {
+                for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+                await loadMods(); renderMods();
+                toast(`${trashed.length} arquivo(s) restaurados`, 'success');
+              }, 'delete', { count: deleted, source: 'group-modal' });
+            }
+            // Refresh modal content to reflect removed items
+            renderView(currentView);
+          }}
+        ]
+      );
+    });
+  }, 0);
 
   function selectOverlayItem(el, add = true) {
     const fp = el.dataset.path;
