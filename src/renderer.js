@@ -4028,113 +4028,176 @@ function renderOrganizeResults(el) {
 
 function renderManual() {
   const el = document.getElementById('page-manual');
+
+  // Reutilizável: cabeçalho de seção com separador visual
+  function sectionLabel(text) {
+    return `<div style="margin:28px 0 12px;display:flex;align-items:center;gap:10px">
+      <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-disabled)">${text}</span>
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+    </div>`;
+  }
+
   el.innerHTML = `
     <div class="page-header">
       <div>
         <div class="page-title">Manual</div>
-        <div class="page-subtitle">Guia dos recursos não intuitivos do gerenciador</div>
+        <div class="page-subtitle">Guia de referência dos recursos do gerenciador</div>
       </div>
     </div>
 
+    ${sectionLabel('Aba Mods')}
+
+    <!-- ── Grade e Lista ──────────────────────────────────────────────── -->
     <div class="card">
-      <div class="card-title">🖱️ Modo Grade — Interações com o Mouse</div>
+      <div class="card-title">🖱️ Interações com Cards — Grade e Lista</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        <strong style="color:var(--text-primary)">Cards individuais</strong><br>
+
+        <strong style="color:var(--text-primary)">Cards individuais (Grade)</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona o card<br>
-        · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta, excluir)<br>
-        · <strong>Bolinha colorida</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br>
-        · <strong>Passar o mouse</strong> — exibe dica "Clique para selecionar · Clique direito para opções" e destaca a bolinha com anel azul<br><br>
-        <strong style="color:var(--text-primary)">Cards de grupo</strong><br>
-        · <strong>Clique esquerdo</strong> — seleciona/deseleciona todos os arquivos do grupo<br>
-        · <strong>Clique direito</strong> — abre a janela do grupo com toggle lista/grade<br>
-        · <strong>Bolinha colorida</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
-        · <strong>Miniatura</strong> — exibe mosaico com até 9 imagens (grade 3×3) dos arquivos do grupo<br><br>
+        · <strong>Clique direito</strong> — menu de contexto: abrir pasta ou excluir<br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa o mod (suporta Desfazer)<br><br>
+
+        <strong style="color:var(--text-primary)">Linhas individuais (Lista)</strong><br>
+        · <strong>Clique na linha</strong> — ativa ou desativa o mod diretamente<br>
+        · <strong>Clique na checkbox</strong> — adiciona/remove da seleção sem alterar o estado<br>
+        · <strong>Clique direito</strong> — menu de contexto: abrir pasta ou excluir<br>
+        · <strong>Botões ▶ / ⏸</strong> — ativa/desativa; <strong>🗑</strong> move para a lixeira<br><br>
+
         <strong style="color:var(--text-primary)">Seleção por área (Rubber Band)</strong><br>
-        · <strong>Arrastar na grade</strong> — desenha um retângulo azul e seleciona todos os cards que ele interceptar<br>
-        · <strong>Ctrl + clique</strong> — adiciona ou remove um card da seleção sem limpar os demais<br>
-        · Novo arrastar limpa a seleção anterior (a menos que Ctrl esteja pressionado)
+        · <strong>Grade:</strong> arraste em qualquer lugar — seleciona todos os cards que o retângulo tocar<br>
+        · <strong>Lista:</strong> arraste no espaço vazio entre linhas para selecionar um intervalo<br>
+        · <strong>Ctrl + clique</strong> — adiciona ou remove um item da seleção sem limpá-la<br>
+        · Um novo arraste limpa a seleção anterior (exceto com Ctrl pressionado)
       </div>
     </div>
 
+    <!-- ── Grupos ─────────────────────────────────────────────────────── -->
     <div class="card">
-      <div class="card-title">📦 Grupos de Mods — Janela de Detalhes</div>
+      <div class="card-title">📦 Grupos de Mods</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome (tudo antes do primeiro <code>_</code>) ou mesmo autor entre colchetes.<br><br>
-        <strong style="color:var(--text-primary)">Exemplo por sublinhado:</strong><br>
-        · <code>ModFicticio_roupas_v1.package</code><br>
-        · <code>ModFicticio_roupas_addon.package</code><br>
-        → Agrupados sob o grupo <em>modficticio</em><br><br>
-        <strong style="color:var(--text-primary)">Exemplo por colchetes:</strong><br>
-        · <code>[CriadorExemplo] cabelos naturais.package</code><br>
-        · <code>[CriadorExemplo] cabelos cacheados.package</code><br>
-        → Agrupados sob o grupo <em>CriadorExemplo</em><br><br>
-        Arquivos de Tray são agrupados pelo GUID (código hexadecimal após o <code>!</code> no nome).<br><br>
-        <strong style="color:var(--text-primary)">Janela do grupo</strong> (clique direito no card):<br>
-        · Abre automaticamente em <strong>grade</strong> se o grupo tiver miniaturas, ou em <strong>lista</strong> caso contrário<br>
-        · Alterne entre lista e grade pelo toggle no canto superior direito da janela<br>
-        · <strong>Seleção por área</strong> — arraste para selecionar múltiplos itens (lista: arraste no espaço vazio; grade: arraste em qualquer lugar)<br>
-        · <strong>Ctrl + clique</strong> — adiciona/remove itens individualmente da seleção<br><br>
-        <strong style="color:var(--text-primary)">Barra de ações</strong> (aparece ao selecionar itens):<br>
-        · <strong>✓ Ativar</strong> — ativa todos os inativos da seleção (com Desfazer)<br>
-        · <strong>— Desativar</strong> — desativa todos os ativos da seleção (com Desfazer)<br>
-        · <strong>🗑 Lixeira</strong> — move os selecionados para a lixeira após confirmação (com Desfazer)<br><br>
-        · Clique em item individual (sem seleção) para ativar/desativar<br>
-        · Botão direito em qualquer item para abrir pasta ou excluir
+
+        Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome.<br><br>
+
+        <strong style="color:var(--text-primary)">Critérios de agrupamento</strong><br>
+        · <strong>Prefixo por sublinhado</strong> — tudo antes do primeiro <code>_</code> no nome:<br>
+        <span style="margin-left:16px"><code>ModFicticio_roupas_v1.package</code> + <code>ModFicticio_addon.package</code> → grupo <em>modficticio</em></span><br>
+        · <strong>Prefixo por colchetes</strong> — <code>[Autor]</code> no início do nome:<br>
+        <span style="margin-left:16px"><code>[CriadorExemplo] cabelos naturais.package</code> + <code>[CriadorExemplo] olhos.package</code> → grupo <em>CriadorExemplo</em></span><br>
+        · <strong>Arquivos de Tray</strong> — agrupados pelo GUID (código hexadecimal após <code>!</code> no nome)<br><br>
+
+        <strong style="color:var(--text-primary)">Interações com cards de grupo</strong><br>
+        · <strong>Clique esquerdo</strong> — seleciona/deseleciona todos os arquivos do grupo<br>
+        · <strong>Clique direito</strong> — abre a janela de detalhes do grupo<br>
+        · <strong>Botão ▾ / ▴</strong> (Grade) — expande/colapsa os cards filhos em linha<br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa o grupo inteiro (suporta Desfazer)<br>
+        · <strong>Miniatura</strong> — mosaico com até 9 imagens (grade 3×3) dos arquivos do grupo<br><br>
+
+        <strong style="color:var(--text-primary)">Janela de detalhes do grupo</strong> (clique direito no card)<br>
+        · Abre em <strong>grade</strong> se o grupo tiver miniaturas, ou em <strong>lista</strong> caso contrário<br>
+        · Toggle lista/grade no canto superior direito da janela<br>
+        · Clique em um item individual (sem seleção ativa) para ativar/desativar<br>
+        · Clique direito em qualquer item para abrir a pasta ou excluir<br>
+        · Seleção por área e Ctrl + clique funcionam dentro da janela<br><br>
+
+        <strong style="color:var(--text-primary)">Barra de ações da janela</strong> (aparece ao selecionar itens)<br>
+        · <strong>✓ Ativar</strong> — ativa os inativos selecionados (com Desfazer)<br>
+        · <strong>— Desativar</strong> — desativa os ativos selecionados (com Desfazer)<br>
+        · <strong>🗑 Lixeira</strong> — move os selecionados para a lixeira após confirmação (com Desfazer)
       </div>
     </div>
 
+    <!-- ── Seleção múltipla ───────────────────────────────────────────── -->
     <div class="card">
       <div class="card-title">☑️ Seleção Múltipla e Barra de Ações</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        Com um ou mais cards selecionados na grade ou lista principal, aparece a <strong>barra de seleção</strong> na parte inferior da tela com as ações:<br><br>
-        · <strong>✓ Ativar</strong> — ativa os mods inativos da seleção<br>
-        · <strong>— Desativar</strong> — desativa os mods ativos da seleção<br>
+        Com um ou mais itens selecionados na grade ou lista, a <strong>barra de seleção</strong> aparece na parte inferior da tela:<br><br>
+        · <strong>✓ Ativar</strong> — ativa todos os mods inativos da seleção<br>
+        · <strong>— Desativar</strong> — desativa todos os mods ativos da seleção<br>
         · <strong>🗑 Deletar</strong> — move os selecionados para a lixeira após confirmação<br>
         · <strong>✕</strong> — cancela a seleção<br><br>
-        Todas as ações suportam <strong>Desfazer</strong>. Cards de grupo selecionados incluem todos os seus arquivos nas ações em lote.
+        Todas as ações em lote suportam <strong>Desfazer</strong>. Grupos selecionados incluem automaticamente todos os seus arquivos nas ações.
       </div>
     </div>
 
+    ${sectionLabel('Recursos Gerais')}
+
+    <!-- ── Desfazer ───────────────────────────────────────────────────── -->
     <div class="card">
-      <div class="card-title">⏮️ Sistema de Desfazer (Undo)</div>
+      <div class="card-title">⏮️ Sistema de Desfazer</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        A barra de desfazer aparece na parte inferior da tela após ações reversíveis:<br>
-        · Ativar / desativar mods (individual, grupo, ou em lote)<br>
-        · Exclusão de arquivos (individual, grupo, ou em lote — inclusive da janela de grupo)<br>
-        · Organização automática (mover arquivos)<br><br>
-        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter a última ação, ou em <strong>✕</strong> para dispensar.
+        A barra de desfazer aparece automaticamente na parte inferior da tela após ações reversíveis. Ações suportadas:<br><br>
+        · Ativar / desativar mods — individual, grupo ou em lote<br>
+        · Exclusão de arquivos — individual, grupo, em lote ou pela janela de grupo<br>
+        · Organização e consolidação — mover arquivos entre pastas<br>
+        · Importação de mods<br><br>
+        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter, ou <strong>✕</strong> para dispensar.<br>
+        A barra é ocultada automaticamente quando itens são enviados à lixeira do sistema (ação permanente).
       </div>
     </div>
 
+    <!-- ── Filtros ────────────────────────────────────────────────────── -->
     <div class="card">
-      <div class="card-title">🔄 Sincronização em Tempo Real</div>
+      <div class="card-title">🔍 Filtros e Busca</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        O gerenciador detecta alterações externas nos arquivos (edições feitas por outro programa ou pelo Windows Explorer):<br>
-        · Ao volcar o foco para a janela após estar em segundo plano<br>
-        · Periodicamente a cada 30 segundos enquanto a aba Mods estiver aberta<br><br>
-        Quando uma mudança é detectada, a lista é recarregada automaticamente. Ações que causaram o reload ficam registradas na aba <strong>Histórico</strong>.
+        <strong style="color:var(--text-primary)">Filtro de status</strong><br>
+        · <strong>Ativos / Inativos</strong> — exibe apenas mods no estado selecionado<br>
+        · <strong>Parciais</strong> — exibe grupos onde parte dos arquivos está ativa e parte inativa; útil para identificar configurações inconsistentes<br><br>
+        <strong style="color:var(--text-primary)">Filtro de tipo</strong> — .package, Script ou Tray<br><br>
+        <strong style="color:var(--text-primary)">Filtro de pasta</strong> — exibe apenas mods de uma subpasta específica dentro da pasta Mods<br><br>
+        <strong style="color:var(--text-primary)">Busca</strong> — filtra por nome em tempo real; compatível com todos os outros filtros simultaneamente
       </div>
     </div>
 
+    ${sectionLabel('Organização')}
+
+    <!-- ── Grupos dispersos ──────────────────────────────────────────── -->
     <div class="card">
       <div class="card-title">📁 Consolidar Grupos Dispersos</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        Um grupo "disperso" é aquele cujos arquivos estão distribuídos em pastas diferentes dentro da pasta Mods.<br><br>
-        <strong style="color:var(--text-primary)">Formas de consolidar:</strong><br>
-        · <strong>Modo Lista →</strong> botão <em>Consolidar</em> no cabeçalho de ações<br>
-        · <strong>Janela do grupo →</strong> botão <em>Consolidar</em> na barra de aviso interna<br>
-        · <strong>Aba Organizar →</strong> seção "Grupos dispersos"<br><br>
-        A consolidação move os arquivos para a pasta do arquivo principal do grupo. Esta ação suporta Desfazer.
+        Um grupo é considerado "disperso" quando seus arquivos estão distribuídos em pastas diferentes dentro da pasta Mods. A consolidação os reúne em uma única pasta.<br><br>
+        <strong style="color:var(--text-primary)">Como consolidar</strong><br>
+        · <strong>Aba Organizar</strong> — seção "Grupos dispersos": botão <em>Consolidar</em> individual ou <em>Consolidar Todos</em><br>
+        · <strong>Janela do grupo</strong> (clique direito no card) — botão <em>Consolidar</em> na barra de aviso interna, exibida quando os arquivos estão em pastas diferentes<br><br>
+        Os arquivos são movidos para a pasta onde está o maior número de arquivos do grupo. Se todos estiverem na raiz, uma subpasta com o nome do prefixo é criada automaticamente. Esta ação suporta Desfazer.
       </div>
     </div>
 
+    <!-- ── Sincronização ─────────────────────────────────────────────── -->
     <div class="card">
-      <div class="card-title">🔍 Filtros Avançados</div>
+      <div class="card-title">🔄 Sincronização em Tempo Real</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        <strong style="color:var(--text-primary)">Filtro "Parciais"</strong> — exibe somente grupos onde alguns arquivos estão ativos e outros inativos. Útil para identificar grupos com configuração inconsistente.<br><br>
-        <strong style="color:var(--text-primary)">Filtro de pasta</strong> — filtra mods por subpasta dentro da pasta Mods.<br><br>
-        <strong style="color:var(--text-primary)">Formatos suportados na importação:</strong><br>
-        <code>.package</code> · <code>.ts4script</code> · <code>.trayitem</code> · <code>.blueprint</code> · <code>.bpi</code> · <code>.hhi</code> · <code>.sgi</code> · <code>.householdbinary</code> · <code>.room</code> · <code>.rmi</code> · <code>.zip</code> · <code>.rar</code> · <code>.7z</code>
+        O gerenciador detecta automaticamente alterações feitas por programas externos (Explorer, extratores, etc.) em dois momentos:<br><br>
+        · Ao retornar o foco para a janela após ela ter ficado em segundo plano<br>
+        · Periodicamente a cada 30 segundos enquanto a aba Mods estiver aberta<br><br>
+        Quando uma mudança é detectada, a lista é recarregada sem interromper o uso. O evento fica registrado na aba <strong>Histórico</strong> com o número de arquivos adicionados ou removidos.
+      </div>
+    </div>
+
+    ${sectionLabel('Referência')}
+
+    <!-- ── Formatos ──────────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-title">📥 Formatos Suportados na Importação</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        Arraste arquivos ou pastas para a aba Mods, ou use o botão <strong>Importar</strong>. Pastas são percorridas automaticamente (todos os subníveis).<br><br>
+        <strong style="color:var(--text-primary)">Mods</strong><br>
+        <code>.package</code> · <code>.ts4script</code><br><br>
+        <strong style="color:var(--text-primary)">Tray</strong><br>
+        <code>.trayitem</code> · <code>.blueprint</code> · <code>.bpi</code> · <code>.hhi</code> · <code>.sgi</code> · <code>.householdbinary</code> · <code>.room</code> · <code>.rmi</code><br><br>
+        <strong style="color:var(--text-primary)">Compactados (extraídos automaticamente)</strong><br>
+        <code>.zip</code> · <code>.rar</code> · <code>.7z</code>
+      </div>
+    </div>
+
+    <!-- ── Regras do TS4 ─────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-title">📋 Regras de Subpastas do The Sims 4</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        O jogo impõe limites de profundidade de pasta que o gerenciador leva em conta ao verificar a organização:<br><br>
+        · <strong>.package</strong> — aceitos em até 5 níveis de subpasta dentro de Mods<br>
+        · <strong>.ts4script</strong> — aceitos em no máximo 1 nível de subpasta (ex: <code>Mods\Scripts\mod.ts4script</code>)<br>
+        · <strong>Tray</strong> — devem estar na pasta Tray, não em Mods<br>
+        · Não crie uma pasta chamada <code>Mods</code> dentro da pasta Mods
       </div>
     </div>
   `;
