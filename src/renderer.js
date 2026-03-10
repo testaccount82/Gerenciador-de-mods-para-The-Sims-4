@@ -1136,7 +1136,8 @@ function renderGallery(mods) {
 
       return `
         <div class="gallery-card ${sel ? 'selected' : ''} ${!mod.enabled ? 'card-inactive' : ''}"
-             data-path="${escapeHtml(mod.path)}" draggable="false">
+             data-path="${escapeHtml(mod.path)}" draggable="false"
+             title="Clique para selecionar · Clique direito para opções">
           <input type="checkbox" class="card-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}>
           <span class="card-type-tag ${typeClass}">${typeLabel}</span>
           ${thumbHtml}
