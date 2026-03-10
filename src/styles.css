@@ -1142,11 +1142,11 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 
 /* Contorno da bolinha ao hover no card inteiro */
 .gallery-card:hover .dot-clickable {
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.35);
+  box-shadow: 0 0 0 2px rgba(0,120,212,0.7);
 }
 .gallery-card:hover .dot-clickable:hover {
   transform: scale(1.25);
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
+  box-shadow: 0 0 0 2px rgba(0,120,212,0.9);
 }
 
 /* checkbox — shows on hover / selection */
@@ -1792,7 +1792,7 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   overflow: visible;
 }
 #tooltip-connector-line {
-  stroke: rgba(255,255,255,0.35);
+  stroke: rgba(0,120,212,0.7);
   stroke-width: 1;
   fill: none;
 
