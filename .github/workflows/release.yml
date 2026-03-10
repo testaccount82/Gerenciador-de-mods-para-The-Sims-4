@@ -39,6 +39,18 @@ on:
         description: "Changelog manual — ignorado se modo for automático"
         required: false
         default: ""
+      criador_modo:
+        description: "Criador do release"
+        required: true
+        default: "predefinido"
+        type: choice
+        options:
+          - predefinido
+          - manual
+      criador_manual:
+        description: "Criador manual — ignorado se modo for predefinido"
+        required: false
+        default: ""
       prerelease:
         description: "Marcar como pré-release?"
         required: false
@@ -148,17 +160,39 @@ jobs:
           # Salva changelog em arquivo para evitar problemas com multiline no output
           $changelog | Out-File -FilePath "RELEASE_NOTES.md" -Encoding utf8
 
-      - name: Sincronizar versão do package.json com a tag
+          # ── Criador ───────────────────────────────────────────────────
+          if ("${{ github.event.inputs.criador_modo }}" -eq "manual") {
+            $criador = "${{ github.event.inputs.criador_manual }}".Trim()
+            if (-not $criador) { Write-Error "Criador manual não informado."; exit 1 }
+          } else {
+            $pkg = Get-Content "package.json" | ConvertFrom-Json
+            $criador = $pkg.author
+          }
+          echo "criador=$criador" >> $env:GITHUB_OUTPUT
+
+      - name: Sincronizar versão e criador do package.json com a tag
         shell: pwsh
         run: |
           $tag = "${{ steps.meta.outputs.tag }}".TrimStart("v")
+          $criador = "${{ steps.meta.outputs.criador }}"
           $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
+          $changed = $false
           if ($pkg.version -ne $tag) {
             $pkg.version = $tag
-            $pkg | ConvertTo-Json -Depth 10 | Set-Content "package.json" -Encoding utf8
-            Write-Host "package.json atualizado para versão $tag"
+            $changed = $true
+            Write-Host "package.json: versão atualizada para $tag"
           } else {
-            Write-Host "package.json já está na versão $tag"
+            Write-Host "package.json: versão já está em $tag"
+          }
+          if ($criador -and $pkg.author -ne $criador) {
+            $pkg.author = $criador
+            $changed = $true
+            Write-Host "package.json: criador atualizado para '$criador'"
+          } else {
+            Write-Host "package.json: criador já está como '$($pkg.author)'"
+          }
+          if ($changed) {
+            $pkg | ConvertTo-Json -Depth 10 | Set-Content "package.json" -Encoding utf8
           }
 
       - name: Build do instalador Windows
