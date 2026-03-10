@@ -1136,7 +1136,8 @@ function renderGallery(mods) {
 
       return `
         <div class="gallery-card ${sel ? 'selected' : ''} ${!mod.enabled ? 'card-inactive' : ''}"
-             data-path="${escapeHtml(mod.path)}" draggable="false">
+             data-path="${escapeHtml(mod.path)}" draggable="false"
+             title="Clique para selecionar · Clique direito para opções">
           <input type="checkbox" class="card-check" data-path="${escapeHtml(mod.path)}" ${sel ? 'checked' : ''}>
           <span class="card-type-tag ${typeClass}">${typeLabel}</span>
           ${thumbHtml}
@@ -1174,9 +1175,9 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
     });
 
     if (readyThumbs.length >= 2) {
-      // Mosaico: máx 4 imagens em grade 2×2
-      const slots = readyThumbs.slice(0, 4);
-      const cols  = slots.length <= 2 ? slots.length : 2;
+      // Mosaico: máx 9 imagens em grade 3×3
+      const slots = readyThumbs.slice(0, 9);
+      const cols  = slots.length <= 2 ? slots.length : slots.length <= 4 ? 2 : 3;
       const rows  = Math.ceil(slots.length / cols);
       const imgs  = slots.map(src =>
         `<img src="${src}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">`
@@ -1236,10 +1237,12 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
       </div>`;
   }).join('');
 
+  const groupFilePaths = JSON.stringify(group.files.map(f => f.path));
   return `
     <div class="group-card-wrapper ${state.expandedGroups.has(groupKey) ? 'is-expanded' : ''}" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${noneEnabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
            draggable="false"
+           data-group-files="${escapeHtml(groupFilePaths)}"
            title="Clique para selecionar · Clique direito para gerenciar os ${group.files.length} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
@@ -1532,58 +1535,106 @@ function refreshSelBar(el) {
  * Opens a modal overlay showing all files inside a group (tray or mod-prefix).
  * Allows toggling individual files, and consolidating them to one folder when needed.
  */
-function openGroupOverlay(group) {
+function showGroupCtxMenu(x, y, group) {
+  closeCtxMenu();
+
+  const svgList = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`;
+  const svgGrid = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
+
+  const menu = document.createElement('div');
+  menu.id = 'ctx-menu';
+  menu.innerHTML = `
+    <div class="ctx-item" id="ctx-group-list">${svgList} Ver arquivos do grupo</div>
+    <div class="ctx-item" id="ctx-group-grid">${svgGrid} Ver em modo grade</div>`;
+
+  document.body.appendChild(menu);
+  _ctxMenu = menu;
+
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const ww = window.innerWidth,  wh = window.innerHeight;
+  menu.style.left = (x + mw > ww ? ww - mw - 6 : x) + 'px';
+  menu.style.top  = (y + mh > wh ? wh - mh - 6 : y) + 'px';
+
+  menu.querySelector('#ctx-group-list').addEventListener('click', () => {
+    closeCtxMenu();
+    openGroupOverlay(group);
+  });
+  menu.querySelector('#ctx-group-grid').addEventListener('click', () => {
+    closeCtxMenu();
+    openGroupGridOverlay(group);
+  });
+}
+
+function openGroupGridOverlay(group) {
   const isTray = group._isTrayGroup;
   const displayTitle = isTray
     ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
     : (group.modPrefix || group.name);
 
-  // Check whether files span multiple folders
-  const folders = [...new Set(group.files.map(f => f.folder))];
-  const multiFolder = folders.length > 1;
-  const primaryFolder = group.files[0].folder;
-
-  // Check organize rules before showing consolidate button:
-  // - ts4script files can only be at root or 1 level deep in Mods
-  const canConsolidate = multiFolder && group.files.every(f => {
-    if (f.type === 'script') return primaryFolder === '/' || (primaryFolder.split(/[/\\]/).length <= 1);
-    return true;
-  });
-
-  const filesHtml = group.files.map(f => {
+  const cardsHtml = group.files.map(f => {
+    const fCached = state.thumbnailCache[thumbKey(f.path)];
+    const fCanThumb = f.type === 'package' || f.type === 'tray' || (!f.type && /\.(package|trayitem|blueprint|bpi)$/i.test(f.name));
+    const fThumb = (fCached && fCached !== THUMB_LOADING)
+      ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
+      : (fCached === null || !fCanThumb)
+        ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type || 'package')}</div>`
+        : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
     const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
     const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+    const fEnabled = f.enabled !== false;
     return `
-      <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
-        <span class="card-type-tag ${fTypeClass}" style="flex-shrink:0">${fTypeLabel}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
-          <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
+      <div class="gallery-card child-card group-grid-card ${!fEnabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
+        <span class="card-type-tag ${fTypeClass}">${fTypeLabel}</span>
+        ${fThumb}
+        <div class="gallery-info">
+          <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+          <div class="gallery-meta">
+            <span>${formatBytes(f.size || 0)}</span>
+            <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
+                  data-path="${escapeHtml(f.path)}"
+                  data-tooltip="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
+          </div>
         </div>
-        <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
-        <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
       </div>`;
   }).join('');
 
-  const consolidateHtml = '';
-
   const bodyHtml = `
-    <div style="max-height:420px;overflow-y:auto">
-      ${multiFolder && !canConsolidate ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes (consolidação não disponível para este grupo)</div>` : ''}
-      ${consolidateHtml}
-      ${filesHtml}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:480px;overflow-y:auto;padding:2px">
+      ${cardsHtml}
     </div>`;
 
   openModal(`Grupo: ${displayTitle} (${group.files.length} arquivos)`, bodyHtml, [
     { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
   ]);
 
-  // Right-click context menu on group modal rows — includes "Excluir" option
-  document.querySelectorAll('.group-overlay-row').forEach(row => {
-    row.addEventListener('contextmenu', e => {
+  // Dot toggle dentro do modal
+  document.querySelectorAll('.group-grid-card .dot-clickable').forEach(dot => {
+    dot.addEventListener('click', async e => {
+      e.stopPropagation();
+      const card = dot.closest('.group-grid-card');
+      const fp = card?.dataset.path;
+      if (!fp) return;
+      const result = await window.api.toggleMod(fp);
+      if (result.success) {
+        card.dataset.path = result.newPath;
+        dot.dataset.path  = result.newPath;
+        await loadMods();
+        const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath);
+        if (f) {
+          dot.className = `gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable`;
+          dot.dataset.tooltip = f.enabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar';
+          card.classList.toggle('card-inactive', !f.enabled);
+        }
+        renderMods();
+      } else { toast('Erro ao alternar mod', 'error'); }
+    });
+  });
+
+  // Contexto individual nos cards da grade do modal
+  document.querySelectorAll('.group-grid-card').forEach(card => {
+    card.addEventListener('contextmenu', e => {
       e.preventDefault();
-      const fp = row.dataset.path;
-      showCtxMenu(e.clientX, e.clientY, fp, {
+      showCtxMenu(e.clientX, e.clientY, card.dataset.path, {
         onDelete: async (filePath) => {
           const allMods = [...state.mods, ...state.trayFiles];
           const f = allMods.find(m => m.path === filePath);
@@ -1595,17 +1646,10 @@ function openGroupOverlay(group) {
               { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
                 const results = await window.api.trashModsBatch([filePath]);
                 if (results[0]?.success) {
-                  const { trashPath, originalPath } = results[0];
                   closeModal();
                   await loadMods(); renderMods();
                   updateTrashBadge();
                   toast(`"${name}" movido para a lixeira`, 'success');
-                  pushUndo(`Excluir ${name}`, async () => {
-                    await window.api.restoreModFromTrash(trashPath, originalPath);
-                    await loadMods(); renderMods();
-                    toast('Mod restaurado', 'success');
-                    logAction('restore', { name, label: `Restaurar ${name}` });
-                  }, 'delete', { name, source: 'group-overlay' });
                 } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
               }}
             ]
@@ -1614,27 +1658,443 @@ function openGroupOverlay(group) {
       });
     });
   });
+}
 
-  // Wire toggle on row click
-  document.querySelectorAll('.group-overlay-row').forEach(row => {
-    row.addEventListener('click', async () => {
-      const fp = row.dataset.path;
-      const result = await window.api.toggleMod(fp);
-      if (result.success) {
-        // Atualiza o data-path para o novo caminho (ex: .package → .package.disabled)
-        // sem isso o segundo clique usa o caminho antigo que já não existe no disco
-        row.dataset.path = result.newPath;
-        await loadMods();
-        // Refresh the badge inside the row
-        const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
-        if (f) {
-          const badge = row.querySelector('.badge');
-          if (badge) { badge.className = `badge ${f.enabled ? 'badge-active' : 'badge-inactive'}`; badge.textContent = f.enabled ? 'Ativo' : 'Inativo'; }
-        }
-        renderMods();
-      } else { toast('Erro ao alternar mod', 'error'); }
-    });
+function openGroupOverlay(group) {
+  // Auto-detectar: se algum arquivo já tem miniatura carregada → grade, senão → lista
+  const hasThumbs = group.files.some(f => {
+    const c = state.thumbnailCache[thumbKey(f.path)];
+    return c && c !== THUMB_LOADING;
   });
+  const initialView = hasThumbs ? 'grid' : 'list';
+
+  const isTray = group._isTrayGroup;
+  const displayTitle = isTray
+    ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
+    : (group.modPrefix || group.name);
+
+  const folders = [...new Set(group.files.map(f => f.folder))];
+  const multiFolder = folders.length > 1;
+  const primaryFolder = group.files[0].folder;
+  const canConsolidate = multiFolder && group.files.every(f => {
+    if (f.type === 'script') return primaryFolder === '/' || (primaryFolder.split(/[/\\]/).length <= 1);
+    return true;
+  });
+
+  function buildListHtml() {
+    return group.files.map(f => {
+      const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+      const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+      return `
+        <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
+          <span class="${fTypeClass}" style="flex-shrink:0;font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:3px">${fTypeLabel}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
+            <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
+          </div>
+          <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
+          <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
+        </div>`;
+    }).join('');
+  }
+
+  function buildGridHtml() {
+    return group.files.map(f => {
+      const fCached = state.thumbnailCache[thumbKey(f.path)];
+      const fCanThumb = f.type === 'package' || f.type === 'tray' || (!f.type && /\.(package|trayitem|blueprint|bpi)$/i.test(f.name));
+      const fThumb = (fCached && fCached !== THUMB_LOADING)
+        ? `<img class="gallery-thumb" src="${fCached}" alt="" loading="lazy">`
+        : (fCached === null || !fCanThumb)
+          ? `<div class="gallery-thumb-placeholder">${fileIcon(f.type || 'package')}</div>`
+          : `<div class="gallery-thumb-loading" data-load="${escapeHtml(f.path)}" data-cache-key="${escapeHtml(thumbKey(f.path))}"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>`;
+      const fTypeLabel = f.type === 'package' ? '.pkg' : f.type === 'script' ? '.ts4' : 'tray';
+      const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
+      const fEnabled = f.enabled !== false;
+      return `
+        <div class="gallery-card child-card group-overlay-grid-card ${!fEnabled ? 'card-inactive' : ''}" data-path="${escapeHtml(f.path)}">
+          <span class="card-type-tag ${fTypeClass}">${fTypeLabel}</span>
+          ${fThumb}
+          <div class="gallery-info">
+            <div class="gallery-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+            <div class="gallery-meta">
+              <span>${formatBytes(f.size || 0)}</span>
+              <span class="gallery-status-dot ${fEnabled ? 'dot-active' : 'dot-inactive'} dot-clickable"
+                    data-path="${escapeHtml(f.path)}"
+                    data-tooltip="${fEnabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar'}"></span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  const svgList = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`;
+  const svgGrid = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
+
+  const bodyHtml = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      ${multiFolder && !canConsolidate ? `<div style="font-size:12px;color:var(--text-disabled)">ℹ️ Arquivos em pastas diferentes</div>` : '<div></div>'}
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="group-overlay-sel-count" style="display:none;font-size:11.5px;color:var(--text-accent);font-weight:600"></span>
+        <div class="view-toggle" id="group-overlay-view-toggle">
+          <button class="view-btn ${initialView === 'list' ? 'active' : ''}" data-view="list" title="Lista">${svgList}</button>
+          <button class="view-btn ${initialView === 'grid' ? 'active' : ''}" data-view="grid" title="Grade">${svgGrid}</button>
+        </div>
+      </div>
+    </div>
+    <div id="group-overlay-sel-bar" style="display:none;align-items:center;gap:6px;margin-bottom:10px;padding:7px 10px;border-radius:var(--r-sm);background:var(--accent-subtle);border:1px solid var(--accent-subtle2)">
+      <span id="group-overlay-sel-bar-label" style="font-size:12px;font-weight:600;color:var(--text-accent);flex:1"></span>
+      <button class="btn btn-secondary" id="group-overlay-btn-enable" style="padding:3px 10px;font-size:11.5px;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>Ativar</button>
+      <button class="btn btn-secondary" id="group-overlay-btn-disable" style="padding:3px 10px;font-size:11.5px;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>Desativar</button>
+      <button class="btn btn-danger"    id="group-overlay-btn-trash"   style="padding:3px 10px;font-size:11.5px;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>Lixeira</button>
+    </div>
+    <div id="group-overlay-content"></div>`;
+
+  openModal(`Grupo: ${displayTitle} (${group.files.length} arquivos)`, bodyHtml, [
+    { label: 'Fechar', cls: 'btn-secondary', action: () => {} }
+  ]);
+
+  let currentView = initialView;
+  const contentEl = document.getElementById('group-overlay-content');
+
+  // ── Local selection state for the modal ──────────────────────────────
+  const modalSelected = new Set(); // Set<filePath>
+
+  function updateSelCount() {
+    const countEl = document.getElementById('group-overlay-sel-count');
+    const bar     = document.getElementById('group-overlay-sel-bar');
+    const barLabel= document.getElementById('group-overlay-sel-bar-label');
+    if (!countEl || !bar) return;
+    if (modalSelected.size === 0) {
+      countEl.style.display = 'none';
+      bar.style.display = 'none';
+    } else {
+      const n = modalSelected.size;
+      const label = `${n} selecionado${n > 1 ? 's' : ''}`;
+      countEl.style.display = '';
+      countEl.textContent = label;
+      bar.style.display = 'flex';
+      if (barLabel) barLabel.textContent = label;
+    }
+  }
+
+  // Wire action buttons (attached once after openModal)
+  setTimeout(() => {
+    document.getElementById('group-overlay-btn-enable')?.addEventListener('click', async () => {
+      const allMods = [...state.mods, ...state.trayFiles];
+      const targets = [...modalSelected].filter(p => { const m = allMods.find(m => m.path === p); return m && !m.enabled; });
+      if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+      const results = [];
+      for (const p of targets) results.push(await window.api.toggleMod(p));
+      await loadMods(); renderMods();
+      clearOverlaySelection();
+      toast(`${targets.length} mod(s) ativados`, 'success');
+      const newPaths = results.filter(r => r.success).map(r => r.newPath);
+      pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
+        for (const p of newPaths) await window.api.toggleMod(p);
+        await loadMods(); renderMods();
+      }, 'toggle_on', { count: newPaths.length, source: 'group-modal' });
+    });
+
+    document.getElementById('group-overlay-btn-disable')?.addEventListener('click', async () => {
+      const allMods = [...state.mods, ...state.trayFiles];
+      const targets = [...modalSelected].filter(p => { const m = allMods.find(m => m.path === p); return m && m.enabled; });
+      if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+      const results = [];
+      for (const p of targets) results.push(await window.api.toggleMod(p));
+      await loadMods(); renderMods();
+      clearOverlaySelection();
+      toast(`${targets.length} mod(s) desativados`, 'success');
+      const newPaths = results.filter(r => r.success).map(r => r.newPath);
+      pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
+        for (const p of newPaths) await window.api.toggleMod(p);
+        await loadMods(); renderMods();
+      }, 'toggle_off', { count: newPaths.length, source: 'group-modal' });
+    });
+
+    document.getElementById('group-overlay-btn-trash')?.addEventListener('click', () => {
+      const sel = [...modalSelected];
+      if (!sel.length) return;
+      openModal('Confirmar Exclusão em Lote',
+        `<p>Mover <strong>${sel.length}</strong> arquivo(s) para a lixeira?</p>`,
+        [
+          { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+          { label: `Mover ${sel.length} para lixeira`, cls: 'btn-danger', action: async () => {
+            const results = await window.api.trashModsBatch(sel);
+            const failed  = results.filter(r => !r.success).length;
+            const deleted = results.length - failed;
+            await loadMods(); renderMods(); updateTrashBadge();
+            clearOverlaySelection();
+            toast(`${deleted} arquivo(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
+            if (deleted > 0) {
+              const trashed = results.filter(r => r.success);
+              pushUndo(`Excluir ${deleted} arquivo(s)`, async () => {
+                for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+                await loadMods(); renderMods();
+                toast(`${trashed.length} arquivo(s) restaurados`, 'success');
+              }, 'delete', { count: deleted, source: 'group-modal' });
+            }
+            // Refresh modal content to reflect removed items
+            renderView(currentView);
+          }}
+        ]
+      );
+    });
+  }, 0);
+
+  function selectOverlayItem(el, add = true) {
+    const fp = el.dataset.path;
+    if (!fp) return;
+    if (add) {
+      modalSelected.add(fp);
+      el.classList.add('selected');
+    } else {
+      modalSelected.delete(fp);
+      el.classList.remove('selected');
+    }
+    updateSelCount();
+  }
+
+  function clearOverlaySelection() {
+    modalSelected.clear();
+    contentEl.querySelectorAll('.group-overlay-row.selected, .group-overlay-grid-card.selected').forEach(el => el.classList.remove('selected'));
+    updateSelCount();
+  }
+
+  // Rubber band for the modal — reuses the shared _rubberBand state
+  function initModalRubberBand(allowOnItems) {
+    const scrollEl = document.getElementById('modal-body');
+
+    function ensureRect() {
+      if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
+        _rubberBand.rect = document.createElement('div');
+        _rubberBand.rect.className = 'rubber-band-rect';
+        scrollEl.style.position = 'relative';
+        scrollEl.appendChild(_rubberBand.rect);
+      }
+    }
+
+    const onMousedown = e => {
+      if (e.button !== 0) return;
+      if (e.target.closest('button, input, a')) return;
+      // In list mode, don't start drag on the row itself (only on empty space)
+      if (!allowOnItems && e.target.closest('.group-overlay-row, .group-overlay-grid-card')) return;
+
+      const cr = scrollEl.getBoundingClientRect();
+      const startX = e.clientX - cr.left + scrollEl.scrollLeft;
+      const startY = e.clientY - cr.top  + scrollEl.scrollTop;
+      let started = false;
+      const THRESHOLD = 6;
+
+      const onMove = ev => {
+        const r = scrollEl.getBoundingClientRect();
+        const curX = ev.clientX - r.left + scrollEl.scrollLeft;
+        const curY = ev.clientY - r.top  + scrollEl.scrollTop;
+
+        if (!started) {
+          if (Math.abs(curX - startX) < THRESHOLD && Math.abs(curY - startY) < THRESHOLD) return;
+          started = true;
+          _rubberBand.active = true;
+          _rubberBand.startX = startX;
+          _rubberBand.startY = startY;
+          _rubberBand.didSelect = false;
+          if (!e.ctrlKey && !e.metaKey) clearOverlaySelection();
+          ensureRect();
+        }
+
+        const x = Math.min(curX, _rubberBand.startX);
+        const y = Math.min(curY, _rubberBand.startY);
+        const w = Math.abs(curX - _rubberBand.startX);
+        const h = Math.abs(curY - _rubberBand.startY);
+        if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      };
+
+      const onUp = ev => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (!started || !_rubberBand.active) return;
+        _rubberBand.active = false;
+        if (_rubberBand.rect) _rubberBand.rect.style.display = 'none';
+
+        const r = scrollEl.getBoundingClientRect();
+        const curX = ev.clientX - r.left + scrollEl.scrollLeft;
+        const curY = ev.clientY - r.top  + scrollEl.scrollTop;
+        const selL = Math.min(curX, _rubberBand.startX), selR = Math.max(curX, _rubberBand.startX);
+        const selT = Math.min(curY, _rubberBand.startY), selB = Math.max(curY, _rubberBand.startY);
+
+        const selector = currentView === 'list' ? '.group-overlay-row' : '.group-overlay-grid-card';
+        contentEl.querySelectorAll(selector).forEach(item => {
+          const ir = item.getBoundingClientRect();
+          const iL = ir.left - r.left + scrollEl.scrollLeft;
+          const iT = ir.top  - r.top  + scrollEl.scrollTop;
+          const iR = iL + ir.width, iB = iT + ir.height;
+          if (iL < selR && iR > selL && iT < selB && iB > selT) {
+            selectOverlayItem(item, true);
+          }
+        });
+        _rubberBand.didSelect = true;
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    };
+
+    scrollEl.addEventListener('mousedown', onMousedown);
+
+    // Ghost-click prevention
+    scrollEl.addEventListener('click', e => {
+      if (_rubberBand.didSelect) {
+        _rubberBand.didSelect = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
+
+    return () => scrollEl.removeEventListener('mousedown', onMousedown);
+  }
+
+  let _removeModalRubberBand = null;
+
+  function renderView(view) {
+    currentView = view;
+    clearOverlaySelection();
+    document.querySelectorAll('#group-overlay-view-toggle .view-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === view);
+    });
+    if (view === 'list') {
+      contentEl.style.cssText = '';
+      contentEl.innerHTML = buildListHtml();
+      wireListEvents();
+    } else {
+      contentEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
+      contentEl.innerHTML = buildGridHtml();
+      wireGridEvents();
+      loadVisibleThumbnails(document.getElementById('modal-body'));
+    }
+    // Re-attach rubber band after content swap
+    if (_removeModalRubberBand) _removeModalRubberBand();
+    _removeModalRubberBand = initModalRubberBand(view === 'grid');
+  }
+
+  document.getElementById('group-overlay-view-toggle').addEventListener('click', e => {
+    const btn = e.target.closest('[data-view]');
+    if (btn && btn.dataset.view !== currentView) renderView(btn.dataset.view);
+  });
+
+  function wireListEvents() {
+    document.querySelectorAll('.group-overlay-row').forEach(row => {
+      row.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        const fp = row.dataset.path;
+        showCtxMenu(e.clientX, e.clientY, fp, {
+          onDelete: async (filePath) => {
+            const allMods = [...state.mods, ...state.trayFiles];
+            const f = allMods.find(m => m.path === filePath);
+            const name = f?.name || filePath.split('\\').pop();
+            openModal('Confirmar Exclusão',
+              `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+              [
+                { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+                { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+                  const results = await window.api.trashModsBatch([filePath]);
+                  if (results[0]?.success) {
+                    const { trashPath, originalPath } = results[0];
+                    closeModal();
+                    await loadMods(); renderMods();
+                    updateTrashBadge();
+                    toast(`"${name}" movido para a lixeira`, 'success');
+                    pushUndo(`Excluir ${name}`, async () => {
+                      await window.api.restoreModFromTrash(trashPath, originalPath);
+                      await loadMods(); renderMods();
+                      toast('Mod restaurado', 'success');
+                      logAction('restore', { name, label: `Restaurar ${name}` });
+                    }, 'delete', { name, source: 'group-overlay' });
+                  } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+                }}
+              ]
+            );
+          }
+        });
+      });
+      row.addEventListener('click', async e => {
+        // Ctrl/Meta+click → toggle selection, no toggle
+        if (e.ctrlKey || e.metaKey) {
+          selectOverlayItem(row, !modalSelected.has(row.dataset.path));
+          return;
+        }
+        // Click on already-selected row with others selected → clear selection
+        if (modalSelected.size > 1 && modalSelected.has(row.dataset.path)) {
+          clearOverlaySelection();
+          return;
+        }
+        // Plain click with no drag → toggle mod
+        const fp = row.dataset.path;
+        const result = await window.api.toggleMod(fp);
+        if (result.success) {
+          row.dataset.path = result.newPath;
+          await loadMods();
+          const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
+          if (f) {
+            const badge = row.querySelector('.badge');
+            if (badge) { badge.className = `badge ${f.enabled ? 'badge-active' : 'badge-inactive'}`; badge.textContent = f.enabled ? 'Ativo' : 'Inativo'; }
+          }
+          renderMods();
+        } else { toast('Erro ao alternar mod', 'error'); }
+      });
+    });
+  }
+
+  function wireGridEvents() {
+    document.querySelectorAll('.group-overlay-grid-card .dot-clickable').forEach(dot => {
+      dot.addEventListener('click', async e => {
+        e.stopPropagation();
+        const card = dot.closest('.group-overlay-grid-card');
+        const fp = card?.dataset.path;
+        if (!fp) return;
+        const result = await window.api.toggleMod(fp);
+        if (result.success) {
+          card.dataset.path = result.newPath;
+          dot.dataset.path  = result.newPath;
+          await loadMods();
+          const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath);
+          if (f) {
+            dot.className = `gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable`;
+            dot.dataset.tooltip = f.enabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar';
+            card.classList.toggle('card-inactive', !f.enabled);
+          }
+          renderMods();
+        } else { toast('Erro ao alternar mod', 'error'); }
+      });
+    });
+    document.querySelectorAll('.group-overlay-grid-card').forEach(card => {
+      card.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        showCtxMenu(e.clientX, e.clientY, card.dataset.path, {
+          onDelete: async (filePath) => {
+            const allMods = [...state.mods, ...state.trayFiles];
+            const f = allMods.find(m => m.path === filePath);
+            const name = f?.name || filePath.split('\\').pop();
+            openModal('Confirmar Exclusão',
+              `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+              [
+                { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+                { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+                  const results = await window.api.trashModsBatch([filePath]);
+                  if (results[0]?.success) {
+                    closeModal();
+                    await loadMods(); renderMods();
+                    updateTrashBadge();
+                    toast(`"${name}" movido para a lixeira`, 'success');
+                  } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+                }}
+              ]
+            );
+          }
+        });
+      });
+    });
+  }
+
+  renderView(initialView);
 }
 
 // ─── Rubber Band Selection ────────────────────────────────────────────────────
@@ -1888,7 +2348,7 @@ function setupGalleryEvents(el, mods) {
       if (cb) cb.checked = !allSel;
       refreshSelBar(el);
     });
-    // Right click → open group management overlay
+    // Right click → abre interface com toggle lista/grade
     card.addEventListener('contextmenu', e => {
       e.preventDefault();
       const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
@@ -2015,6 +2475,42 @@ function renderModGroupCard(group) {
 }
 
 async function loadVisibleThumbnails(el) {
+  // After loading a thumbnail, update any group card mosaics that include that file
+  function updateGroupMosaics(loadedPath) {
+    document.querySelectorAll('.gallery-card[data-group-files]').forEach(card => {
+      let filePaths;
+      try { filePaths = JSON.parse(card.dataset.groupFiles); } catch { return; }
+      if (!filePaths.includes(loadedPath)) return;
+
+      const readyThumbs = filePaths
+        .map(p => state.thumbnailCache[thumbKey(p)])
+        .filter(c => c && c !== THUMB_LOADING);
+
+      if (readyThumbs.length < 2) return; // nothing to upgrade yet
+
+      // Find the current thumb element inside this card
+      const existing = card.querySelector('.gallery-thumb, .gallery-thumb-loading, .gallery-thumb-placeholder');
+      if (!existing) return;
+      // Don't replace if it's already a mosaic with the same count
+      if (existing.classList.contains('group-thumb-mosaic') &&
+          existing.querySelectorAll('img').length === Math.min(readyThumbs.length, 9)) return;
+
+      const slots = readyThumbs.slice(0, 9);
+      const cols  = slots.length <= 2 ? slots.length : slots.length <= 4 ? 2 : 3;
+      const rows  = Math.ceil(slots.length / cols);
+      const mosaic = document.createElement('div');
+      mosaic.className = 'gallery-thumb group-thumb-mosaic';
+      mosaic.style.cssText = `display:grid;grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);gap:1px;background:#000;`;
+      slots.forEach(src => {
+        const img = document.createElement('img');
+        img.src = src; img.alt = '';
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+        mosaic.appendChild(img);
+      });
+      existing.replaceWith(mosaic);
+    });
+  }
+
   const loaders = [...el.querySelectorAll('[data-load]')].filter(loader => {
     const hiddenGrid = loader.closest('.group-children-grid');
     return !hiddenGrid || hiddenGrid.style.display !== 'none';
@@ -2056,6 +2552,7 @@ async function loadVisibleThumbnails(el) {
         ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
         loader.replaceWith(ph);
       }
+      updateGroupMosaics(filePath);
     }
     // if THUMB_LOADING: already in-flight, will be updated when the Promise resolves
   }
@@ -2088,6 +2585,8 @@ async function loadVisibleThumbnails(el) {
       ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
       stillThere.replaceWith(ph);
     }
+    // After updating this thumbnail, upgrade any group card mosaics that include it
+    updateGroupMosaics(filePath);
   }));
 }
 
@@ -2284,6 +2783,14 @@ function setupModsEvents(el, mods) {
 
   // Click on group row header → expand/collapse
   el.querySelectorAll('tr.group-row').forEach(row => {
+    row.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+      const group = row.dataset.trayGuid
+        ? allGrouped.find(g => g._isTrayGroup && g.trayGuid === row.dataset.trayGuid)
+        : allGrouped.find(g => g._isModGroup  && g.modPrefix === row.dataset.modPrefix);
+      if (group) openGroupOverlay(group);
+    });
     row.addEventListener('click', e => {
       if (e.target.closest('.toggle-group-btn') || e.target.closest('.row-check-group') || e.target.closest('.delete-group-btn')) return;
       const guid   = row.dataset.trayGuid;
@@ -3489,29 +3996,23 @@ function renderManual() {
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         <strong style="color:var(--text-primary)">Cards individuais</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona o card<br>
-        · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta)<br>
-        · <strong>Botão ▶ / ⏸</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br><br>
+        · <strong>Clique direito</strong> — abre o menu de contexto (abrir pasta, excluir)<br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa o mod (registra no Histórico e permite Desfazer)<br>
+        · <strong>Passar o mouse</strong> — exibe dica "Clique para selecionar · Clique direito para opções" e destaca a bolinha com anel azul<br><br>
         <strong style="color:var(--text-primary)">Cards de grupo</strong><br>
         · <strong>Clique esquerdo</strong> — seleciona/deseleciona todos os arquivos do grupo<br>
-        · <strong>Clique direito</strong> — abre a janela de gerenciamento do grupo (visualizar, alternar e excluir arquivos individuais)<br>
-        · <strong>Botão ▶ / ⏸</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
-        · <strong>Arrastar sobre a grade</strong> — seleção por área (rubber band selection)
+        · <strong>Clique direito</strong> — abre a janela do grupo com toggle lista/grade<br>
+        · <strong>Bolinha colorida</strong> — ativa ou desativa todo o grupo (registra no Histórico e permite Desfazer)<br>
+        · <strong>Miniatura</strong> — exibe mosaico com até 9 imagens (grade 3×3) dos arquivos do grupo<br><br>
+        <strong style="color:var(--text-primary)">Seleção por área (Rubber Band)</strong><br>
+        · <strong>Arrastar na grade</strong> — desenha um retângulo azul e seleciona todos os cards que ele interceptar<br>
+        · <strong>Ctrl + clique</strong> — adiciona ou remove um card da seleção sem limpar os demais<br>
+        · Novo arrastar limpa a seleção anterior (a menos que Ctrl esteja pressionado)
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">⏮️ Sistema de Desfazer (Undo)</div>
-      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        A barra de desfazer aparece na parte inferior da tela após ações reversíveis:<br>
-        · Ativar / desativar mods (inclusive via botões Play ▶ e Pause ⏸)<br>
-        · Exclusão de arquivos (mods individuais e grupos)<br>
-        · Organização automática (mover arquivos)<br><br>
-        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter a última ação, ou em <strong>✕</strong> para dispensar.
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📦 Grupos de Mods</div>
+      <div class="card-title">📦 Grupos de Mods — Janela de Detalhes</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome (tudo antes do primeiro <code>_</code>).<br><br>
         <strong style="color:var(--text-primary)">Exemplo:</strong><br>
@@ -3519,10 +4020,40 @@ function renderManual() {
         · <code>TURBO_careers_EP01.package</code><br>
         → Agrupados sob o grupo <em>turbo</em><br><br>
         Arquivos de Tray são agrupados pelo GUID (código hexadecimal após o <code>!</code> no nome).<br><br>
-        <strong style="color:var(--text-primary)">Janela de gerenciamento do grupo</strong> (clique direito no card ou em "Ver detalhes"):<br>
-        · Ativa/desativa arquivos individualmente com um clique<br>
-        · Oferece opção de <strong>Consolidar</strong> se os arquivos estiverem em pastas diferentes<br>
-        · Menu de contexto (botão direito) em cada linha do grupo para excluir arquivos individualmente
+        <strong style="color:var(--text-primary)">Janela do grupo</strong> (clique direito no card):<br>
+        · Abre automaticamente em <strong>grade</strong> se o grupo tiver miniaturas, ou em <strong>lista</strong> caso contrário<br>
+        · Alterne entre lista e grade pelo toggle no canto superior direito da janela<br>
+        · <strong>Seleção por área</strong> — arraste para selecionar múltiplos itens (lista: arraste no espaço vazio; grade: arraste em qualquer lugar)<br>
+        · <strong>Ctrl + clique</strong> — adiciona/remove itens individualmente da seleção<br><br>
+        <strong style="color:var(--text-primary)">Barra de ações</strong> (aparece ao selecionar itens):<br>
+        · <strong>✓ Ativar</strong> — ativa todos os inativos da seleção (com Desfazer)<br>
+        · <strong>— Desativar</strong> — desativa todos os ativos da seleção (com Desfazer)<br>
+        · <strong>🗑 Lixeira</strong> — move os selecionados para a lixeira após confirmação (com Desfazer)<br><br>
+        · Clique em item individual (sem seleção) para ativar/desativar<br>
+        · Botão direito em qualquer item para abrir pasta ou excluir
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">☑️ Seleção Múltipla e Barra de Ações</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        Com um ou mais cards selecionados na grade ou lista principal, aparece a <strong>barra de seleção</strong> na parte inferior da tela com as ações:<br><br>
+        · <strong>✓ Ativar</strong> — ativa os mods inativos da seleção<br>
+        · <strong>— Desativar</strong> — desativa os mods ativos da seleção<br>
+        · <strong>🗑 Deletar</strong> — move os selecionados para a lixeira após confirmação<br>
+        · <strong>✕</strong> — cancela a seleção<br><br>
+        Todas as ações suportam <strong>Desfazer</strong>. Cards de grupo selecionados incluem todos os seus arquivos nas ações em lote.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⏮️ Sistema de Desfazer (Undo)</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+        A barra de desfazer aparece na parte inferior da tela após ações reversíveis:<br>
+        · Ativar / desativar mods (individual, grupo, ou em lote)<br>
+        · Exclusão de arquivos (individual, grupo, ou em lote — inclusive da janela de grupo)<br>
+        · Organização automática (mover arquivos)<br><br>
+        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter a última ação, ou em <strong>✕</strong> para dispensar.
       </div>
     </div>
 
