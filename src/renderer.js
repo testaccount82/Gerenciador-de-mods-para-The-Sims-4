@@ -1742,9 +1742,9 @@ function openGroupOverlay(group) {
     </div>
     <div id="group-overlay-sel-bar" style="display:none;align-items:center;gap:6px;margin-bottom:10px;padding:7px 10px;border-radius:var(--r-sm);background:var(--accent-subtle);border:1px solid var(--accent-subtle2)">
       <span id="group-overlay-sel-bar-label" style="font-size:12px;font-weight:600;color:var(--text-accent);flex:1"></span>
-      <button class="btn btn-secondary" id="group-overlay-btn-enable" style="padding:3px 10px;font-size:11.5px">▶ Ativar</button>
-      <button class="btn btn-secondary" id="group-overlay-btn-disable" style="padding:3px 10px;font-size:11.5px">⏸ Desativar</button>
-      <button class="btn btn-danger"    id="group-overlay-btn-trash"   style="padding:3px 10px;font-size:11.5px">🗑 Lixeira</button>
+      <button class="btn btn-secondary" id="group-overlay-btn-enable" style="padding:3px 10px;font-size:11.5px;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>Ativar</button>
+      <button class="btn btn-secondary" id="group-overlay-btn-disable" style="padding:3px 10px;font-size:11.5px;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>Desativar</button>
+      <button class="btn btn-danger"    id="group-overlay-btn-trash"   style="padding:3px 10px;font-size:11.5px;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>Lixeira</button>
     </div>
     <div id="group-overlay-content"></div>`;
 
