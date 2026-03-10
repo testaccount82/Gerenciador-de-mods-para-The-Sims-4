@@ -4749,23 +4749,6 @@ function renderSettings() {
     </div>
 
     <div class="card">
-      <div class="card-title">Informações</div>
-      <div class="settings-group">
-        <div class="settings-item" style="flex-direction:column;align-items:flex-start;gap:8px">
-          <div>
-            <div class="settings-label">Regras de Subpastas do The Sims 4</div>
-            <div class="settings-desc" style="margin-top:6px;line-height:1.7">
-              • <strong>.package</strong> — até 5 níveis de subpasta<br>
-              • <strong>.ts4script</strong> — máximo 1 nível de subpasta<br>
-              • Arquivos de <strong>Tray</strong> — devem estar na pasta Tray, não em Mods<br>
-              • Não crie uma pasta chamada "Mods" dentro da pasta Mods
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> <span id="about-version">${state.appVersion ? 'v' + escapeHtml(String(state.appVersion)) : ''}</span><br>
