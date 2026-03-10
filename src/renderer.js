@@ -3004,17 +3004,18 @@ function setupModsEvents(el, mods) {
 // descending into folders via the FileSystem API (webkitGetAsEntry).
 async function collectDroppedFiles(items) {
   const files = [];
+  const MAX_DEPTH = 10; // QA: limite de profundidade para evitar loop em estruturas muito aninhadas
 
-  function readEntry(entry) {
+  function readEntry(entry, depth = 0) {
     return new Promise(resolve => {
       if (entry.isFile) {
         entry.file(f => { files.push(f); resolve(); }, () => resolve());
-      } else if (entry.isDirectory) {
+      } else if (entry.isDirectory && depth < MAX_DEPTH) {
         const reader = entry.createReader();
         const readAll = () => {
           reader.readEntries(async entries => {
             if (!entries.length) return resolve();
-            await Promise.all(entries.map(readEntry));
+            await Promise.all(entries.map(e => readEntry(e, depth + 1)));
             readAll(); // readEntries returns max 100 at a time — keep reading
           }, () => resolve());
         };

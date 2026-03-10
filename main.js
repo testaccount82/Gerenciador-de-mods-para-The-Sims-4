@@ -235,40 +235,44 @@ function internalDecompression(data) {
 
   let cc;
   do {
+    if (dIdx >= data.length) break; // SEC/QA: bounds check input buffer
     cc = data[dIdx++];
     if (cc <= 0x7F) {
       const size       = cc & 0x3;
       const copySize   = ((cc & 0x1C) >> 2) + 3;
+      if (dIdx >= data.length) break; // bounds check before reading copyOffset
       const copyOffset = ((cc & 0x60) << 3) + data[dIdx];
       dIdx++;
       // QA-04: bounds check para evitar escrita fora do buffer de saída
       if (uIdx + size + copySize > udata.length) break;
-      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < size; i++) { if (dIdx >= data.length) break; udata[uIdx++] = data[dIdx++]; }
       for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
     } else if (cc <= 0xBF) {
+      if (dIdx + 1 >= data.length) break; // bounds check: needs 2 bytes
       const size       = (data[dIdx] & 0xC0) >> 6;
       const copySize   = (cc & 0x3F) + 4;
       const copyOffset = ((data[dIdx] & 0x3F) << 8) + data[dIdx + 1];
       dIdx += 2;
       if (uIdx + size + copySize > udata.length) break;
-      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < size; i++) { if (dIdx >= data.length) break; udata[uIdx++] = data[dIdx++]; }
       for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
     } else if (cc <= 0xDF) {
+      if (dIdx + 2 >= data.length) break; // bounds check: needs 3 bytes
       const size       = cc & 0x3;
       const copySize   = ((cc & 0xC) << 6) + data[dIdx + 2] + 5;
       const copyOffset = ((cc & 0x10) << 12) + (data[dIdx] << 8) + data[dIdx + 1];
       dIdx += 3;
       if (uIdx + size + copySize > udata.length) break;
-      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < size; i++) { if (dIdx >= data.length) break; udata[uIdx++] = data[dIdx++]; }
       for (let i = 0; i < copySize; i++) udata[uIdx] = udata[uIdx++ - copyOffset - 1];
     } else if (cc <= 0xFB) {
       const size = ((cc & 0x1F) << 2) + 4;
       if (uIdx + size > udata.length) break;
-      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < size; i++) { if (dIdx >= data.length) break; udata[uIdx++] = data[dIdx++]; }
     } else {
       const size = cc & 0x3;
       if (uIdx + size > udata.length) break;
-      for (let i = 0; i < size; i++) udata[uIdx++] = data[dIdx++];
+      for (let i = 0; i < size; i++) { if (dIdx >= data.length) break; udata[uIdx++] = data[dIdx++]; }
     }
   } while (cc < 0xFC);
 
@@ -443,7 +447,8 @@ async function _readDbpfThumbnail(filePath) {
       const entrySize = varBytes + 20;
 
       // ── Scan entries for thumbnail types ──────────────────────────────────
-      for (let i = 0; i < indexCount; i++) {
+      const MAX_INDEX_ENTRIES = 5000; // QA: limite de segurança para DBPF malformado
+      for (let i = 0; i < Math.min(indexCount, MAX_INDEX_ENTRIES); i++) {
         const entryStart = constOffset + i * entrySize;
         const entryBuf = Buffer.alloc(entrySize);
         fs.readSync(fd, entryBuf, 0, entrySize, entryStart);
@@ -1251,7 +1256,7 @@ ipcMain.handle('config:set', (_, config) => {
     '/etc', '/bin', '/usr', '/sbin', '/var', '/sys', '/proc',
     'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\Windows',
   ].map(p => p && path.resolve(p)).filter(Boolean);
-  for (const field of ['modsFolder', 'trayFolder']) {
+  for (const field of ['modsFolder', 'trayFolder', 'tempFolder']) {
     if (config[field]) {
       const resolved = path.resolve(config[field]);
       // Bloqueia: exatamente o homedir, ou subdiretórios de diretórios do sistema
@@ -1615,7 +1620,8 @@ async function _readDbpfThumbnailByInstances(cachePath, instanceIds) {
       // Monta um Set de instâncias do mod para lookup O(1)
       const instanceSet = new Set(instanceIds.map(id => `${id.high}:${id.low}`));
 
-      for (let i = 0; i < indexCount; i++) {
+      const MAX_CACHE_ENTRIES = 50000; // QA: localthumbcache pode ter dezenas de milhares de entradas
+      for (let i = 0; i < Math.min(indexCount, MAX_CACHE_ENTRIES); i++) {
         const entryStart = constOffset + i * entrySize;
         const entryBuf = Buffer.alloc(entrySize);
         fs.readSync(fd, entryBuf, 0, entrySize, entryStart);
