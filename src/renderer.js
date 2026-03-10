@@ -165,7 +165,7 @@ function showUndoBar(label) {
   `;
   bar.classList.remove('hidden');
   clearTimeout(bar._timer);
-  bar._timer = setTimeout(() => bar.classList.add('hidden'), 6000);
+  bar._timer = setTimeout(() => bar.classList.add('hidden'), 5000);
   document.getElementById('undo-btn').addEventListener('click', async () => {
     const op = state.undoStack.pop();
     bar.classList.add('hidden');
@@ -4130,7 +4130,7 @@ function renderManual() {
         · Exclusão de arquivos — individual, grupo, em lote ou pela janela de grupo<br>
         · Organização e consolidação — mover arquivos entre pastas<br>
         · Importação de mods<br><br>
-        Clique em <strong>↩ Desfazer</strong> dentro de 6 segundos para reverter, ou <strong>✕</strong> para dispensar.<br>
+        Clique em <strong>↩ Desfazer</strong> dentro de 5 segundos para reverter, ou <strong>✕</strong> para dispensar.<br>
         A barra é ocultada automaticamente quando itens são enviados à lixeira do sistema (ação permanente).
       </div>
     </div>
