@@ -46,6 +46,9 @@ const state = {
 // Prevents runStartupChecks() from being called more than once per session
 let _startupChecksRan = false;
 
+// Sort state for the Trash page (persists between re-renders)
+const trashSort = { col: 'trashedAt', dir: 'desc' };
+
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
 function formatBytes(bytes) {
@@ -140,6 +143,14 @@ function pushUndo(label, undoFn, type = 'action', details = {}, redoFn = null) {
   showUndoBar(label);
 }
 
+
+// Oculta a barra de desfazer e limpa a pilha — usado após ações permanentes
+// que invalidam qualquer desfazer anterior (ex: enviar para lixeira do sistema)
+function clearUndoBar() {
+  const bar = document.getElementById('undo-bar');
+  if (bar) { clearTimeout(bar._timer); bar.classList.add('hidden'); }
+  state.undoStack.length = 0;
+}
 function showUndoBar(label) {
   let bar = document.getElementById('undo-bar');
   if (!bar) {
@@ -1156,6 +1167,25 @@ function renderGallery(mods) {
   </div>`;
 }
 
+/**
+ * Retorna o número REAL de arquivos no grupo consultando state.mods/trayFiles
+ * sem filtros aplicados. Isso evita que o contador mude quando o tipo ou status
+ * está filtrado (ex: filtro "package" excludes scripts do grupo).
+ */
+function getTrueGroupCount(group) {
+  const allMods = [...state.mods, ...state.trayFiles];
+  if (group._isTrayGroup) {
+    return allMods.filter(m => m.type === 'tray' && m.trayGuid === group.trayGuid).length;
+  }
+  if (group._isModGroup) {
+    return allMods.filter(m => {
+      if (m.type === 'tray') return false;
+      return getModPrefix(m.name) === group.modPrefix;
+    }).length;
+  }
+  return group.files.length;
+}
+
 function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeholderIcon, displayName) {
   const allPaths = group.files.map(f => f.path);
   const allSel = allPaths.every(p => state.selectedMods.has(p));
@@ -1239,15 +1269,19 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
   }).join('');
 
   const groupFilePaths = JSON.stringify(group.files.map(f => f.path));
+  const trueCount = getTrueGroupCount(group);
+  const countLabel = trueCount > group.files.length
+    ? `${group.files.length}/${trueCount}` // filtro ativo: mostra visíveis/total
+    : String(trueCount);
   return `
     <div class="group-card-wrapper ${state.expandedGroups.has(groupKey) ? 'is-expanded' : ''}" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${noneEnabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
            draggable="false"
            data-group-files="${escapeHtml(groupFilePaths)}"
-           title="Clique para selecionar · Clique direito para gerenciar os ${group.files.length} itens do grupo">
+           title="Clique para selecionar · Clique direito para gerenciar os ${trueCount} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
-        <span class="${badgeClass}" title="${group.files.length} arquivos">${group.files.length}</span>
+        <span class="${badgeClass}" title="${trueCount} arquivo${trueCount !== 1 ? 's' : ''}">${countLabel}</span>
         ${thumbHtml}
         <div class="gallery-info">
           <div class="gallery-name" title="${escapeHtml(group.name)}">${escapeHtml(displayName)}</div>
@@ -1688,12 +1722,12 @@ function openGroupOverlay(group) {
       const fTypeClass = f.type === 'package' ? 'card-tag-pkg' : f.type === 'script' ? 'card-tag-scr' : 'card-tag-tray';
       return `
         <div class="group-overlay-row" data-path="${escapeHtml(f.path)}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--surface-2);margin-bottom:6px;cursor:pointer">
-          <span class="${fTypeClass}" style="flex-shrink:0;font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:3px">${fTypeLabel}</span>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary)">${escapeHtml(f.name)}</div>
             <div style="font-size:11px;color:var(--text-disabled);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.folder === '/' ? '(raiz)' : f.folder)}</div>
           </div>
           <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
+          <span class="${fTypeClass}" style="flex-shrink:0;font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:3px">${fTypeLabel}</span>
           <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
         </div>`;
     }).join('');
@@ -1866,7 +1900,10 @@ function openGroupOverlay(group) {
     const scrollEl = document.getElementById('modal-body');
 
     function ensureRect() {
-      if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
+      // Cria um novo rect se: não existe, não está no DOM, OU está em outro container (main page)
+      if (!_rubberBand.rect || !_rubberBand.rect.isConnected || !scrollEl.contains(_rubberBand.rect)) {
+        // Remove o rect antigo do container anterior, se ainda presente
+        if (_rubberBand.rect && _rubberBand.rect.isConnected) _rubberBand.rect.remove();
         _rubberBand.rect = document.createElement('div');
         _rubberBand.rect.className = 'rubber-band-rect';
         scrollEl.style.position = 'relative';
@@ -2565,10 +2602,17 @@ async function loadVisibleThumbnails(el) {
     const thumb = await window.api.getThumbnail(filePath);
     state.thumbnailCache[cacheKey] = thumb ?? null;
 
-    // Update DOM in place without a full re-render
-    const stillThere = el.querySelector(`[data-load="${CSS.escape(filePath)}"]`);
-    if (!stillThere) return;
+    // Update DOM in place without a full re-render.
+    // Use document.querySelectorAll (not el.querySelector) so that thumbnails
+    // are applied even when 'el' has become stale after a mid-flight re-render.
+    const targets = document.querySelectorAll(`[data-load="${CSS.escape(filePath)}"]`);
+    if (!targets.length) {
+      // Element no longer in DOM — still call updateGroupMosaics so group cards are refreshed
+      updateGroupMosaics(filePath);
+      return;
+    }
 
+    targets.forEach(stillThere => {
     if (thumb) {
       const img = document.createElement('img');
       img.className = 'gallery-thumb';
@@ -2586,6 +2630,7 @@ async function loadVisibleThumbnails(el) {
       ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
       stillThere.replaceWith(ph);
     }
+    });
     // After updating this thumbnail, upgrade any group card mosaics that include it
     updateGroupMosaics(filePath);
   }));
@@ -2688,8 +2733,7 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
         <div class="cell-name">
           <span class="file-icon">${badgeEmoji}</span>
           <span title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
-          <span class="group-row-badge">${group.files.length} arquivos</span>
-
+          ${(() => { const tc = getTrueGroupCount(group); const lbl = tc > group.files.length ? `${group.files.length}/${tc}` : String(tc); return `<span class="group-row-badge">${lbl} arquivo${tc !== 1 ? 's' : ''}</span>`; })()}
         </div>
       </td>
       <td>${typeBadge(group.type)}</td>
@@ -4015,11 +4059,15 @@ function renderManual() {
     <div class="card">
       <div class="card-title">📦 Grupos de Mods — Janela de Detalhes</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-        Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome (tudo antes do primeiro <code>_</code>).<br><br>
-        <strong style="color:var(--text-primary)">Exemplo:</strong><br>
-        · <code>TURBO_careers.package</code><br>
-        · <code>TURBO_careers_EP01.package</code><br>
-        → Agrupados sob o grupo <em>turbo</em><br><br>
+        Mods são agrupados automaticamente quando dois ou mais arquivos compartilham o mesmo prefixo de nome (tudo antes do primeiro <code>_</code>) ou mesmo autor entre colchetes.<br><br>
+        <strong style="color:var(--text-primary)">Exemplo por sublinhado:</strong><br>
+        · <code>ModFicticio_roupas_v1.package</code><br>
+        · <code>ModFicticio_roupas_addon.package</code><br>
+        → Agrupados sob o grupo <em>modficticio</em><br><br>
+        <strong style="color:var(--text-primary)">Exemplo por colchetes:</strong><br>
+        · <code>[CriadorExemplo] cabelos naturais.package</code><br>
+        · <code>[CriadorExemplo] cabelos cacheados.package</code><br>
+        → Agrupados sob o grupo <em>CriadorExemplo</em><br><br>
         Arquivos de Tray são agrupados pelo GUID (código hexadecimal após o <code>!</code> no nome).<br><br>
         <strong style="color:var(--text-primary)">Janela do grupo</strong> (clique direito no card):<br>
         · Abre automaticamente em <strong>grade</strong> se o grupo tiver miniaturas, ou em <strong>lista</strong> caso contrário<br>
@@ -4431,20 +4479,47 @@ function renderTrashList(el, items) {
     return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
+  // ── Ordenação da lixeira ──────────────────────────────────────────────────
+  const sortedItems = [...items].sort((a, b) => {
+    const { col, dir } = trashSort;
+    let va, vb;
+    if (col === 'name')      { va = (a.name || '').toLowerCase(); vb = (b.name || '').toLowerCase(); }
+    else if (col === 'source') { va = SOURCE_LABEL[a.source] || a.source || ''; vb = SOURCE_LABEL[b.source] || b.source || ''; }
+    else if (col === 'trashedAt') { va = a.trashedAt || ''; vb = b.trashedAt || ''; }
+    else if (col === 'size') { va = a.size || 0; vb = b.size || 0; }
+    else { va = ''; vb = ''; }
+    if (va < vb) return dir === 'asc' ? -1 : 1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  function trashTh(col, label, width = '') {
+    const isActive = trashSort.col === col;
+    const arrow = isActive ? (trashSort.dir === 'asc' ? '↑' : '↓') : '↕';
+    return `
+      <th ${width ? `style="width:${width}"` : ''}>
+        <div class="th-content trash-sort-th" data-sort="${col}" style="cursor:pointer;user-select:none">
+          ${label}
+          <span class="sort-arrow ${isActive ? 'active' : ''}">${arrow}</span>
+        </div>
+        <div class="col-resize-handle"></div>
+      </th>`;
+  }
+
   container.innerHTML = `
     <div class="table-container">
       <table id="trash-table">
         <thead>
           <tr>
-            <th><div class="th-content">Nome</div></th>
-            <th style="width:90px"><div class="th-content">Origem</div></th>
-            <th style="width:140px"><div class="th-content">Excluído em</div></th>
-            <th style="width:80px"><div class="th-content">Tamanho</div></th>
-            <th style="width:190px"><div class="th-content" style="justify-content:center">Ações</div></th>
+            ${trashTh('name', 'Nome')}
+            ${trashTh('source', 'Origem', '90px')}
+            ${trashTh('trashedAt', 'Excluído em', '140px')}
+            ${trashTh('size', 'Tamanho', '80px')}
+            <th style="width:190px"><div class="th-content" style="justify-content:center">Ações</div><div class="col-resize-handle"></div></th>
           </tr>
         </thead>
         <tbody>
-          ${items.map((item, idx) => `
+          ${sortedItems.map((item, idx) => `
             <tr data-trash-idx="${idx}">
               <td>
                 <div class="cell-name" title="${escapeHtml(item.originalPath || item.trashPath)}">
@@ -4476,10 +4551,24 @@ function renderTrashList(el, items) {
       </table>
     </div>`;
 
+  // ── Ordenação: clicar no cabeçalho
+  container.querySelectorAll('.trash-sort-th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.sort;
+      if (trashSort.col === col) trashSort.dir = trashSort.dir === 'asc' ? 'desc' : 'asc';
+      else { trashSort.col = col; trashSort.dir = 'asc'; }
+      renderTrashList(el, items);
+    });
+  });
+
+  // ── Redimensionamento de colunas
+  const trashTable = container.querySelector('#trash-table');
+  if (trashTable) initColumnResize(trashTable);
+
   // ── Restore individual
   container.querySelectorAll('.trash-restore-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const item = items[parseInt(btn.dataset.trashIdx)];
+      const item = sortedItems[parseInt(btn.dataset.trashIdx)];
       if (!item?.originalPath) return;
       btn.disabled = true; btn.textContent = '…';
       try {
@@ -4502,7 +4591,7 @@ function renderTrashList(el, items) {
   // ── Delete permanent individual
   container.querySelectorAll('.trash-delete-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const item = items[parseInt(btn.dataset.trashIdx)];
+      const item = sortedItems[parseInt(btn.dataset.trashIdx)];
       openModal('Excluir permanentemente',
         `<p>Enviar <strong>${escapeHtml(item.name)}</strong> para a lixeira do sistema?</p>
          <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita pelo gerenciador.</p>`,
@@ -4513,6 +4602,7 @@ function renderTrashList(el, items) {
               const result = await window.api.trashDeletePermanent(item.trashPath);
               if (result.success) {
                 toast(`"${item.name}" enviado para a lixeira do sistema`, 'info');
+                clearUndoBar(); // itens já na lixeira do sistema não podem ser desfeitos
               } else {
                 toast('Erro ao excluir: ' + (result.error || ''), 'error');
               }
@@ -4576,6 +4666,7 @@ function renderTrashList(el, items) {
           try {
             const result = await window.api.trashEmpty();
             toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
+            if (result.ok > 0) clearUndoBar(); // itens já enviados para o sistema não podem ser desfeitos
           } catch (e) {
             toast('Erro ao esvaziar lixeira', 'error');
           } finally {

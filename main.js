@@ -1085,11 +1085,17 @@ function scanScatteredGroups(modsFolder) {
     if (!MOD_EXTENSIONS.includes(ext)) continue;
 
     const rawName = path.basename(fullPath);
-    // Mesmo algoritmo de getModPrefix do renderer
+    // Mesmo algoritmo de getModPrefix do renderer (inclui prefixo [Autor])
     const base = rawName.replace(/\.(disabled)$/i, '').replace(/\.[^.]+$/, '');
-    const idx = base.indexOf('_');
-    if (idx < 2) continue;
-    const prefix = base.slice(0, idx).toLowerCase();
+    const bracketMatch = base.match(/^\[([^\]]{2,})\]/i);
+    let prefix;
+    if (bracketMatch) {
+      prefix = bracketMatch[1].toLowerCase().trim();
+    } else {
+      const idx = base.indexOf('_');
+      if (idx < 2) continue;
+      prefix = base.slice(0, idx).toLowerCase();
+    }
 
     const relativePath = path.relative(modsFolder, fullPath);
     const rawFolder = path.dirname(relativePath);
