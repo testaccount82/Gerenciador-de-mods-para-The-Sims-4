@@ -1236,10 +1236,12 @@ function renderGroupCard(group, groupKey, typeTag, typeClass, badgeClass, placeh
       </div>`;
   }).join('');
 
+  const groupFilePaths = JSON.stringify(group.files.map(f => f.path));
   return `
     <div class="group-card-wrapper ${state.expandedGroups.has(groupKey) ? 'is-expanded' : ''}" ${idAttr}="${escapeHtml(idVal)}">
       <div class="gallery-card ${cardClass} ${noneEnabled ? 'card-inactive' : ''}" ${idAttr}="${escapeHtml(idVal)}"
            draggable="false"
+           data-group-files="${escapeHtml(groupFilePaths)}"
            title="Clique para selecionar · Clique direito para gerenciar os ${group.files.length} itens do grupo">
         <input type="checkbox" class="card-check ${checkClass}" ${idAttr}="${escapeHtml(idVal)}" ${allSel ? 'checked' : ''}>
         <span class="card-type-tag ${typeClass}">${typeTag}</span>
@@ -2251,6 +2253,42 @@ function renderModGroupCard(group) {
 }
 
 async function loadVisibleThumbnails(el) {
+  // After loading a thumbnail, update any group card mosaics that include that file
+  function updateGroupMosaics(loadedPath) {
+    document.querySelectorAll('.gallery-card[data-group-files]').forEach(card => {
+      let filePaths;
+      try { filePaths = JSON.parse(card.dataset.groupFiles); } catch { return; }
+      if (!filePaths.includes(loadedPath)) return;
+
+      const readyThumbs = filePaths
+        .map(p => state.thumbnailCache[thumbKey(p)])
+        .filter(c => c && c !== THUMB_LOADING);
+
+      if (readyThumbs.length < 2) return; // nothing to upgrade yet
+
+      // Find the current thumb element inside this card
+      const existing = card.querySelector('.gallery-thumb, .gallery-thumb-loading, .gallery-thumb-placeholder');
+      if (!existing) return;
+      // Don't replace if it's already a mosaic with the same count
+      if (existing.classList.contains('group-thumb-mosaic') &&
+          existing.querySelectorAll('img').length === Math.min(readyThumbs.length, 4)) return;
+
+      const slots = readyThumbs.slice(0, 4);
+      const cols  = slots.length <= 2 ? slots.length : 2;
+      const rows  = Math.ceil(slots.length / cols);
+      const mosaic = document.createElement('div');
+      mosaic.className = 'gallery-thumb group-thumb-mosaic';
+      mosaic.style.cssText = `display:grid;grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);gap:1px;background:#000;`;
+      slots.forEach(src => {
+        const img = document.createElement('img');
+        img.src = src; img.alt = '';
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+        mosaic.appendChild(img);
+      });
+      existing.replaceWith(mosaic);
+    });
+  }
+
   const loaders = [...el.querySelectorAll('[data-load]')].filter(loader => {
     const hiddenGrid = loader.closest('.group-children-grid');
     return !hiddenGrid || hiddenGrid.style.display !== 'none';
@@ -2292,6 +2330,7 @@ async function loadVisibleThumbnails(el) {
         ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
         loader.replaceWith(ph);
       }
+      updateGroupMosaics(filePath);
     }
     // if THUMB_LOADING: already in-flight, will be updated when the Promise resolves
   }
@@ -2324,6 +2363,8 @@ async function loadVisibleThumbnails(el) {
       ph.textContent = modEntry ? fileIcon(modEntry.type) : '📦';
       stillThere.replaceWith(ph);
     }
+    // After updating this thumbnail, upgrade any group card mosaics that include it
+    updateGroupMosaics(filePath);
   }));
 }
 
