@@ -2010,7 +2010,9 @@ function openGroupOverlay(group) {
     }
     // Re-attach rubber band after content swap
     if (_removeModalRubberBand) _removeModalRubberBand();
-    _removeModalRubberBand = initModalRubberBand(view === 'grid');
+    // Allow rubber band in both list and grid modes — the 6px drag threshold
+    // prevents accidental activation on plain clicks in list mode.
+    _removeModalRubberBand = initModalRubberBand(true);
   }
 
   document.getElementById('group-overlay-view-toggle').addEventListener('click', e => {
@@ -2524,18 +2526,30 @@ async function loadVisibleThumbnails(el) {
         .map(p => state.thumbnailCache[thumbKey(p)])
         .filter(c => c && c !== THUMB_LOADING);
 
-      if (readyThumbs.length < 2) return; // nothing to upgrade yet
+      if (readyThumbs.length === 0) return; // nothing loaded yet
 
       // Find the current thumb element inside this card
       const existing = card.querySelector('.gallery-thumb, .gallery-thumb-loading, .gallery-thumb-placeholder');
       if (!existing) return;
-      // Don't replace if it's already a mosaic with the same count
-      if (existing.classList.contains('group-thumb-mosaic') &&
-          existing.querySelectorAll('img').length === Math.min(readyThumbs.length, 9)) return;
+
+      if (readyThumbs.length === 1) {
+        // Single thumbnail: only upgrade if still showing a spinner/placeholder
+        if (existing.classList.contains('gallery-thumb')) return; // already showing an image
+        const img = document.createElement('img');
+        img.className = 'gallery-thumb';
+        img.src = readyThumbs[0];
+        img.alt = '';
+        img.loading = 'lazy';
+        existing.replaceWith(img);
+        return;
+      }
 
       const slots = readyThumbs.slice(0, 9);
       const cols  = slots.length <= 2 ? slots.length : slots.length <= 4 ? 2 : 3;
       const rows  = Math.ceil(slots.length / cols);
+      // Don't replace if it's already a mosaic with the same count
+      if (existing.classList.contains('group-thumb-mosaic') &&
+          existing.querySelectorAll('img').length === Math.min(readyThumbs.length, 9)) return;
       const mosaic = document.createElement('div');
       mosaic.className = 'gallery-thumb group-thumb-mosaic';
       mosaic.style.cssText = `display:grid;grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);gap:1px;background:#000;`;
@@ -4638,6 +4652,7 @@ function renderTrashList(el, items) {
       try {
         const result = await window.api.trashRestore(item.trashPath, item.originalPath);
         if (result.success) {
+          clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
           await loadMods();
           toast(`"${item.name}" restaurado`, 'success');
         } else {
@@ -4701,6 +4716,7 @@ function renderTrashList(el, items) {
               const r = await window.api.trashRestore(item.trashPath, item.originalPath);
               if (r.success) ok++;
             }
+            if (ok > 0) clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
             await loadMods();
             toast(`${ok} item(ns) restaurado(s)`, 'success');
             logAction('restore', { count: ok, source: 'trash', label: `Restaurar ${ok} item(ns) da lixeira` });

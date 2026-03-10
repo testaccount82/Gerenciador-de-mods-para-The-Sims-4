@@ -1138,7 +1138,7 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
 }
 
 .dot-active   { background: var(--success); }
-.dot-inactive { background: var(--elevated-2); border: 1px solid rgba(255,255,255,0.2); }
+.dot-inactive { background: var(--danger); border: none; }
 .dot-partial  { background: var(--warning); }
 
 /* Clickable dot — replaces play/pause button in gallery mode */
