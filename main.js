@@ -821,6 +821,9 @@ function scanTrayFolder(trayFolder) {
 function toggleMod(filePath) {
   const newPath = getDisabledPath(filePath);
   try {
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `Arquivo não encontrado: ${filePath}`, notFound: true };
+    }
     fs.renameSync(filePath, newPath);
     return { success: true, oldPath: filePath, newPath };
   } catch (e) {
@@ -1657,10 +1660,14 @@ ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
   // trashPath deve estar na lixeira interna; originalPath deve estar nas raízes permitidas
   if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Origem não é da lixeira interna' };
   if (!isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
+  // Se o arquivo não existe na lixeira, já foi restaurado/excluído manualmente
+  if (!fs.existsSync(trashPath)) {
+    return { success: true, alreadyRestored: true };
+  }
   const result = moveFile(trashPath, originalPath);
   if (!result.success) errorLog('ERROR', 'conflicts:restore-from-trash', `"${path.basename(originalPath)}" — ${result.error}`);
   return result;
-});
+});;
 
 // Organizer
 ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => {
@@ -2326,6 +2333,10 @@ ipcMain.handle('mods:restore-from-trash', (_, trashPath, originalPath) => {
   const roots = getAllowedRoots();
   if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Origem não é da lixeira interna' };
   if (!isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
+  // Se o arquivo da lixeira não existe mais, pode ter sido restaurado ou excluído manualmente
+  if (!fs.existsSync(trashPath)) {
+    return { success: true, alreadyRestored: true };
+  }
   const result = moveFile(trashPath, originalPath);
   if (result.success) {
     // Clean up sidecar metadata if exists

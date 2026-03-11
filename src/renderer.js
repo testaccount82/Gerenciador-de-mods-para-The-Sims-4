@@ -49,6 +49,9 @@ async function apiToggleMod(path, context = '') {
     if (r.success) {
       const estado = r.newPath?.endsWith('.disabled') ? 'desativado' : 'ativado';
       dlog('INFO', `toggleMod${ctx}: "${name}" → ${estado}`);
+    } else if (r.notFound) {
+      // Arquivo não existe mais (ex: excluído permanentemente da lixeira)
+      dlog('WARN', `toggleMod${ctx}: "${name}" — arquivo não encontrado (pode ter sido excluído permanentemente), ignorando`);
     } else {
       dlog('ERROR', `toggleMod${ctx}: "${name}" → FALHOU — ${r.error || 'sem detalhes'}`);
     }
@@ -83,8 +86,14 @@ async function apiRestoreFromTrash(trashPath, originalPath, name = '', context =
   const ctx = context ? ` [${context}]` : '';
   try {
     const r = await window.api.restoreModFromTrash(trashPath, originalPath);
-    if (r?.success !== false) dlog('INFO', `restoreFromTrash${ctx}: "${label}" restaurado`);
-    else dlog('ERROR', `restoreFromTrash${ctx}: "${label}" → FALHOU — ${r?.error || 'sem detalhes'}`);
+    if (r?.alreadyRestored) {
+      // Arquivo não estava na lixeira — provavelmente já foi restaurado manualmente
+      dlog('WARN', `restoreFromTrash${ctx}: "${label}" — não encontrado na lixeira (já restaurado ou excluído), ignorando`);
+    } else if (r?.success !== false) {
+      dlog('INFO', `restoreFromTrash${ctx}: "${label}" restaurado`);
+    } else {
+      dlog('ERROR', `restoreFromTrash${ctx}: "${label}" → FALHOU — ${r?.error || 'sem detalhes'}`);
+    }
     return r;
   } catch (e) {
     dlog('ERROR', `restoreFromTrash${ctx}: "${label}" → EXCEÇÃO — ${e.message}`);
@@ -4817,6 +4826,12 @@ function renderOrganizeResults(el) {
             const { moved, movedMap } = await consolidateGroup(group);
             if (moved > 0) {
               state.scattered.splice(idx, 1);
+              // Re-escanear pastas vazias — a pasta de destino pode ter recebido arquivos
+              if (state.config?.modsFolder && state.emptyFolders?.length) {
+                try {
+                  state.emptyFolders = await window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder);
+                } catch (_) {}
+              }
               renderOrganizeResults(el);
               toast(`${moved} arquivo(s) consolidados em "${group.prefix}"`, 'success');
               pushUndo(
@@ -4894,6 +4909,13 @@ function renderOrganizeResults(el) {
             if (moved > 0) allMovedMap.push(...movedMap);
           }
           state.scattered = [];
+          // Re-escanear pastas vazias após consolidação — pastas que receberam arquivos
+          // agora não são mais vazias e devem ser removidas de state.emptyFolders.
+          if (state.config?.modsFolder && state.emptyFolders?.length) {
+            try {
+              state.emptyFolders = await window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder);
+            } catch (_) {}
+          }
           renderOrganizeResults(el);
           toast(`${totalMoved} arquivo(s) consolidados com sucesso`, 'success');
           pushUndo(
@@ -6108,8 +6130,17 @@ async function init() {
   setTimeout(runStartupChecks, 300);
 
   // ── Real-time sync: reload when window regains focus (external changes) ──────
+  // Aguarda 3s após a inicialização antes de ativar o listener de focus,
+  // evitando scans duplicados causados pelo focus automático na abertura da janela.
+  let _focusListenerReady = false;
+  let _focusScanTimer = null;
+  setTimeout(() => { _focusListenerReady = true; }, 3000);
+
   window.addEventListener('focus', async () => {
-    if (!state.config?.modsFolder) return;
+    if (!_focusListenerReady || !state.config?.modsFolder) return;
+    // Debounce: ignora focus duplicado num intervalo de 1s
+    if (_focusScanTimer) return;
+    _focusScanTimer = setTimeout(() => { _focusScanTimer = null; }, 1000);
     const prevCount = state.mods.length + state.trayFiles.length;
     await loadMods();
     const newCount = state.mods.length + state.trayFiles.length;
