@@ -320,15 +320,23 @@ async function apiRestoreEmptyFolders(paths, context = '') {
 
   function elementLabel(el) {
     // ── Reconhecimento de elementos especiais da UI (antes de qualquer busca genérica) ──
-    // Esses elementos não são <button> nem <a>, então o loop genérico não os identifica.
-    // Verificamos tanto o elemento clicado quanto seus ancestrais próximos.
+    const _PN = { dashboard:'Início', mods:'Mods', conflicts:'Conflitos',
+      organizer:'Organizar', manual:'Manual', history:'Histórico',
+      trash:'Lixeira', settings:'Configurações' };
+
     let probe = el;
     for (let i = 0; i < 4 && probe && probe !== document.body; i++, probe = probe.parentElement) {
       const cls = probe.className || '';
 
+      // Botão de navegação (nav-item ou qualquer elemento com data-page)
+      if (probe.dataset?.page) {
+        const pageName = _PN[probe.dataset.page] || probe.dataset.page;
+        return `Navegar para: ${pageName}`;
+      }
+
       // Toggle liga/desliga de mod (bolinha colorida)
       if (cls.includes('dot-clickable')) {
-        const tooltip = probe.dataset?.tooltip || (probe.closest('[data-tooltip]')?.dataset.tooltip) || '';
+        const tooltip = probe.dataset?.tooltip || '';
         const modPath = probe.dataset?.path || '';
         const modName = modPath ? modPath.replace(/\.disabled$/i, '').split(/[/\\]/).pop() : '';
         const action  = tooltip.includes('desativar') ? 'desativar' : tooltip.includes('ativar') ? 'ativar' : 'toggle';
@@ -340,14 +348,14 @@ async function apiRestoreEmptyFolders(paths, context = '') {
         return `Toggle ${action}: ${target}`;
       }
 
-      // Checkbox de seleção de mod (card-check / row-check)
+      // Checkbox de seleção de mod individual
       if (cls.includes('card-check') || cls.includes('row-check')) {
         const modPath = probe.dataset?.path || '';
         const modName = modPath ? modPath.replace(/\.disabled$/i, '').split(/[/\\]/).pop() : '';
         return `Checkbox seleção: "${modName || modPath.slice(-40)}"`;
       }
 
-      // Checkbox de seleção de grupo (row-check-group)
+      // Checkbox de seleção de grupo
       if (cls.includes('row-check-group')) {
         const prefix = probe.dataset?.modPrefix || probe.dataset?.trayGuid || '(grupo)';
         return `Checkbox seleção grupo: "${prefix}"`;
@@ -357,38 +365,46 @@ async function apiRestoreEmptyFolders(paths, context = '') {
       if (probe.dataset?.fs) return `Chip filtro status: "${probe.dataset.fs}"`;
       if (probe.dataset?.ft) return `Chip filtro tipo: "${probe.dataset.ft}"`;
 
-      // Ítem de contexto menu
+      // Ítem de menu de contexto
       if (cls.includes('ctx-item')) {
         const text = (probe.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
         return `Menu contexto: "${text}"`;
       }
 
-      // Card de mod (grade/lista) — clique para selecionar
-      if (cls.includes('gallery-card') || cls.includes('group-grid-card')) {
-        const modPath = probe.dataset?.path || '';
-        const modName = modPath ? modPath.replace(/\.disabled$/i, '').split(/[/\\]/).pop() : '';
-        return `Card mod: "${modName || modPath.slice(-40)}"`;
+      // Card de mod (grade) — tem data-path diretamente
+      if ((cls.includes('gallery-card') || cls.includes('group-grid-card')) && probe.dataset?.path) {
+        const modName = probe.dataset.path.replace(/\.disabled$/i, '').split(/[/\\]/).pop();
+        return `Card mod: "${modName}"`;
       }
 
-      // Linha de tabela (tr com data-path)
+      // Card de grupo na grade (data-modPrefix ou data-trayGuid, sem data-path)
+      if (cls.includes('gallery-card') || cls.includes('group-grid-card')) {
+        const prefix = probe.dataset?.modPrefix || probe.dataset?.trayGuid || '';
+        if (prefix) return `Card grupo: "${prefix}"`;
+      }
+
+      // Linha de tabela individual (tr com data-path)
       if (probe.tagName?.toLowerCase() === 'tr' && probe.dataset?.path) {
         const modName = probe.dataset.path.replace(/\.disabled$/i, '').split(/[/\\]/).pop();
         return `Linha tabela: "${modName}"`;
       }
+
+      // Linha de grupo na tabela (tr com data-modPrefix ou data-trayGuid)
+      if (probe.tagName?.toLowerCase() === 'tr') {
+        const prefix = probe.dataset?.modPrefix || probe.dataset?.trayGuid || '';
+        if (prefix) return `Linha grupo: "${prefix}"`;
+      }
     }
 
-    // ── Busca genérica por elemento interativo (button, a, label, input…) ──
+    // ── Busca genérica por elemento interativo ──
     let node = el;
     for (let i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
       const tag  = node.tagName?.toLowerCase();
       const id   = node.id   ? `#${node.id}`   : '';
       const text = (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
       const title = node.title ? ` (title="${node.title}")` : '';
-      const dataPage = node.dataset?.page ? ` [page=${node.dataset.page}]` : '';
-      const dataFs   = node.dataset?.fs   ? ` [status=${node.dataset.fs}]` : '';
-      const dataFt   = node.dataset?.ft   ? ` [type=${node.dataset.ft}]`   : '';
       const dataPath = node.dataset?.path ? ` [path=...${node.dataset.path.slice(-40)}]` : '';
-      const extra = dataPage + dataFs + dataFt + dataPath;
+      const extra = dataPath;
       if (tag === 'button' || tag === 'a' || tag === 'label') {
         return `<${tag}${id}> "${text}"${title}${extra}`;
       }
@@ -401,8 +417,8 @@ async function apiRestoreEmptyFolders(paths, context = '') {
     const tag  = el.tagName?.toLowerCase() || '?';
     const id   = el.id ? `#${el.id}` : '';
     const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-    const cls  = el.className ? `.${String(el.className).trim().split(/\s+/)[0]}` : '';
-    return `<${tag}${id}${cls}> "${text}"`;
+    const cls2 = el.className ? `.${String(el.className).trim().split(/\s+/)[0]}` : '';
+    return `<${tag}${id}${cls2}> "${text}"`;
   }
 
   // Throttle input events (fire at most every 500 ms per element)
@@ -1978,14 +1994,15 @@ function setupCommonModsEvents(el) {
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
       const results = [];
-      for (const p of targets) results.push(await apiToggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p, `Mods/sel-bar`));
       await loadMods(); state.selectedMods.clear(); renderMods();
       const ok     = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success);
       if (failed.length) {
         failed.forEach(r => dlog('ERROR', `Falha ao ativar: ${r.error || 'erro desconhecido'}`));
-      } else {
       }
+      const names = results.filter(r => r.success).map(r => r.newPath?.replace(/\.disabled$/i,'').split(/[/\\]/).pop()).filter(Boolean);
+      dlog('INFO', `Ação [Mods]: ativar em lote — ${ok} mod(s): ${names.map(n => `"${n}"`).join(', ')}`);
       toast(`${targets.length} mod(s) ativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
@@ -2008,14 +2025,15 @@ function setupCommonModsEvents(el) {
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
       const results = [];
-      for (const p of targets) results.push(await apiToggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p, `Mods/sel-bar`));
       await loadMods(); state.selectedMods.clear(); renderMods();
       const ok     = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success);
       if (failed.length) {
         failed.forEach(r => dlog('ERROR', `Falha ao desativar: ${r.error || 'erro desconhecido'}`));
-      } else {
       }
+      const names = results.filter(r => r.success).map(r => r.newPath?.replace(/\.disabled$/i,'').split(/[/\\]/).pop()).filter(Boolean);
+      dlog('INFO', `Ação [Mods]: desativar em lote — ${ok} mod(s): ${names.map(n => `"${n}"`).join(', ')}`);
       toast(`${targets.length} mod(s) desativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
@@ -2373,7 +2391,7 @@ function openGroupOverlay(group) {
         const b = document.getElementById(id); if (b) b.disabled = true;
       });
       const results = [];
-      for (const p of targets) results.push(await apiToggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p, `grupo "${displayTitle}"`));
       await loadMods();
       refreshGroupFiles(results);
       renderMods();
@@ -2391,6 +2409,8 @@ function openGroupOverlay(group) {
       } else {
         toast(`${targets.length} mod(s) ativados`, 'success');
       }
+      const namesEn = results.filter(r => r.success).map(r => r.newPath?.replace(/\.disabled$/i,'').split(/[/\\]/).pop()).filter(Boolean);
+      dlog('INFO', `Ação [grupo "${displayTitle}"]: ativar em lote — ${okEn} mod(s): ${namesEn.map(n => `"${n}"`).join(', ')}`);
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
         for (const p of newPaths) await apiToggleMod(p);
@@ -2407,7 +2427,7 @@ function openGroupOverlay(group) {
         const b = document.getElementById(id); if (b) b.disabled = true;
       });
       const results = [];
-      for (const p of targets) results.push(await apiToggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p, `grupo "${displayTitle}"`));
       await loadMods();
       refreshGroupFiles(results);
       renderMods();
@@ -2425,6 +2445,8 @@ function openGroupOverlay(group) {
       } else {
         toast(`${targets.length} mod(s) desativados`, 'success');
       }
+      const namesDis = results.filter(r => r.success).map(r => r.newPath?.replace(/\.disabled$/i,'').split(/[/\\]/).pop()).filter(Boolean);
+      dlog('INFO', `Ação [grupo "${displayTitle}"]: desativar em lote — ${okDis} mod(s): ${namesDis.map(n => `"${n}"`).join(', ')}`);
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
         for (const p of newPaths) await apiToggleMod(p);
