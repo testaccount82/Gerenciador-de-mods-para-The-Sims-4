@@ -2787,6 +2787,39 @@ function openGroupOverlay(group) {
       });
     });
     document.querySelectorAll('.group-overlay-grid-card').forEach(card => {
+      card.addEventListener('click', async e => {
+        // Ctrl/Meta+click → toggle selection only
+        if (e.ctrlKey || e.metaKey) {
+          selectOverlayItem(card, !modalSelected.has(card.dataset.path));
+          return;
+        }
+        // Click on already-selected card with others selected → clear selection
+        if (modalSelected.size > 1 && modalSelected.has(card.dataset.path)) {
+          clearOverlaySelection();
+          return;
+        }
+        // Click on single selected card → deselect
+        if (modalSelected.size === 1 && modalSelected.has(card.dataset.path)) {
+          clearOverlaySelection();
+          return;
+        }
+        // Card already in selection (just one or none) and click lands here after drag → do nothing extra
+        if (modalSelected.size > 0 && !modalSelected.has(card.dataset.path)) {
+          // Clicking a different card while others are selected → select only this one
+          clearOverlaySelection();
+          selectOverlayItem(card, true);
+          return;
+        }
+        // Plain click with no selection → toggle mod
+        const fp = card.dataset.path;
+        const result = await apiToggleMod(fp);
+        if (result.success) {
+          await loadMods();
+          refreshGroupFiles([result]);
+          renderMods();
+          renderView(currentView);
+        } else { toast('Erro ao alternar mod', 'error'); }
+      });
       card.addEventListener('contextmenu', e => {
         e.preventDefault();
         showCtxMenu(e.clientX, e.clientY, card.dataset.path, {
