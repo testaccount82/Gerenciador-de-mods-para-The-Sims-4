@@ -44,6 +44,16 @@ const fakeEvent = { sender: { send: jest.fn() } };
 // ─── config:get ───────────────────────────────────────────────────────────────
 
 describe('IPC config:get', () => {
+  // Garante que não há config.json residual de outros testes, para que readConfig()
+  // retorne os defaults reais (com modsFolder contendo 'Sims 4').
+  const configPath = path.join(require('os').tmpdir(), 'ts4-test-userData', 'config.json');
+  beforeEach(() => {
+    try { require('fs').unlinkSync(configPath); } catch (_) {}
+  });
+  afterEach(() => {
+    try { require('fs').unlinkSync(configPath); } catch (_) {}
+  });
+
   test('retorna objeto com campos obrigatórios', async () => {
     const cfg = await _ipcHandlers['config:get'](fakeEvent);
     expect(cfg).toBeDefined();
