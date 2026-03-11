@@ -1722,6 +1722,11 @@ function openGroupGridOverlay(group) {
 }
 
 function openGroupOverlay(group) {
+  // Bug fix: remove the mousedown listener left by a previous openGroupOverlay call.
+  // Without this, each reopening stacks another listener on modal-body, corrupting rubber band.
+  if (_cleanupModalRubberBand) { _cleanupModalRubberBand(); _cleanupModalRubberBand = null; }
+  // Reset ghost-click flag so the first drag in the new modal session works correctly.
+  _rubberBand.didSelect = false;
   // Auto-detectar: se algum arquivo já tem miniatura carregada → grade, senão → lista
   const hasThumbs = group.files.some(f => {
     const c = state.thumbnailCache[thumbKey(f.path)];
@@ -1850,8 +1855,11 @@ function openGroupOverlay(group) {
       });
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
-      await loadMods(); renderMods();
+      await loadMods();
+      refreshGroupFiles(results);
+      renderMods();
       clearOverlaySelection();
+      renderView(currentView);
       toast(`${targets.length} mod(s) ativados`, 'success');
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
@@ -1870,8 +1878,11 @@ function openGroupOverlay(group) {
       });
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
-      await loadMods(); renderMods();
+      await loadMods();
+      refreshGroupFiles(results);
+      renderMods();
       clearOverlaySelection();
+      renderView(currentView);
       toast(`${targets.length} mod(s) desativados`, 'success');
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
@@ -1892,7 +1903,11 @@ function openGroupOverlay(group) {
             const failed  = results.filter(r => !r.success).length;
             const deleted = results.length - failed;
             await loadMods(); renderMods(); updateTrashBadge();
+            // Remove deleted files from group.files so subsequent re-renders are correct
+            const deletedPaths = new Set(results.filter(r => r.success).map(r => r.originalPath || r.trashPath));
+            group.files = group.files.filter(f => !deletedPaths.has(f.path));
             clearOverlaySelection();
+            renderView(currentView);
             toast(`${deleted} arquivo(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
             if (deleted > 0) {
               const trashed = results.filter(r => r.success);
@@ -2073,29 +2088,53 @@ function openGroupOverlay(group) {
     return () => scrollEl.removeEventListener('mousedown', onMousedown);
   }
 
-  let _removeModalRubberBand = null;
 
-  function renderView(view) {
+  // Syncs group.files paths/enabled state with the freshly-loaded state after a toggle.
+  // After toggleMod, the file is renamed (.disabled suffix added or removed), so we match
+  // by the old path → result.newPath mapping and fall back to name-based lookup.
+  function refreshGroupFiles(toggleResults) {
+    const allCurrent = [...state.mods, ...state.trayFiles];
+    // Build old→new path map from toggle results
+    const pathMap = {};
+    for (const r of (toggleResults || [])) {
+      if (r.success && r.newPath) pathMap[r.oldPath || ''] = r.newPath;
+    }
+    group.files = group.files.map(f => {
+      const newPath = pathMap[f.path];
+      const lookup = newPath || f.path;
+      const fresh = allCurrent.find(m => m.path === lookup);
+      return fresh ? fresh : (newPath ? { ...f, path: newPath, enabled: !f.enabled } : f);
+    });
+  }
+
+
     currentView = view;
-    clearOverlaySelection();
+    // Don't clear modalSelected — preserve selection across list/grid mode switches.
+    // Just update the toggle button state.
     document.querySelectorAll('#group-overlay-view-toggle .view-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === view);
     });
     if (view === 'list') {
       contentEl.style.cssText = '';
       contentEl.innerHTML = buildListHtml();
+      // Re-apply selection visually from the in-memory set
+      contentEl.querySelectorAll('.group-overlay-row').forEach(el => {
+        if (modalSelected.has(el.dataset.path)) el.classList.add('selected');
+      });
       wireListEvents();
     } else {
       contentEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:2px';
       contentEl.innerHTML = buildGridHtml();
+      // Re-apply selection visually from the in-memory set
+      contentEl.querySelectorAll('.group-overlay-grid-card').forEach(el => {
+        if (modalSelected.has(el.dataset.path)) el.classList.add('selected');
+      });
       wireGridEvents();
       loadVisibleThumbnails(document.getElementById('modal-body'));
     }
-    // Re-attach rubber band after content swap
-    if (_removeModalRubberBand) _removeModalRubberBand();
-    // Allow rubber band in both list and grid modes — the 6px drag threshold
-    // prevents accidental activation on plain clicks in list mode.
-    _removeModalRubberBand = initModalRubberBand(true);
+    // Re-attach rubber band after content swap (module-level var so old listener is always removed)
+    if (_cleanupModalRubberBand) _cleanupModalRubberBand();
+    _cleanupModalRubberBand = initModalRubberBand(true);
   }
 
   document.getElementById('group-overlay-view-toggle').addEventListener('click', e => {
@@ -2153,14 +2192,10 @@ function openGroupOverlay(group) {
         const fp = row.dataset.path;
         const result = await window.api.toggleMod(fp);
         if (result.success) {
-          row.dataset.path = result.newPath;
           await loadMods();
-          const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath || m.path === result.oldPath);
-          if (f) {
-            const badge = row.querySelector('.badge');
-            if (badge) { badge.className = `badge ${f.enabled ? 'badge-active' : 'badge-inactive'}`; badge.textContent = f.enabled ? 'Ativo' : 'Inativo'; }
-          }
+          refreshGroupFiles([result]);
           renderMods();
+          renderView(currentView);
         } else { toast('Erro ao alternar mod', 'error'); }
       });
     });
@@ -2175,16 +2210,10 @@ function openGroupOverlay(group) {
         if (!fp) return;
         const result = await window.api.toggleMod(fp);
         if (result.success) {
-          card.dataset.path = result.newPath;
-          dot.dataset.path  = result.newPath;
           await loadMods();
-          const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath);
-          if (f) {
-            dot.className = `gallery-status-dot ${f.enabled ? 'dot-active' : 'dot-inactive'} dot-clickable`;
-            dot.dataset.tooltip = f.enabled ? 'Mod ativo — clique para desativar' : 'Mod inativo — clique para ativar';
-            card.classList.toggle('card-inactive', !f.enabled);
-          }
+          refreshGroupFiles([result]);
           renderMods();
+          renderView(currentView);
         } else { toast('Erro ao alternar mod', 'error'); }
       });
     });
@@ -2223,6 +2252,9 @@ function openGroupOverlay(group) {
 // ─── Rubber Band Selection ────────────────────────────────────────────────────
 
 let _rubberBand = { active: false, startX: 0, startY: 0, startClientX: 0, startClientY: 0, rect: null, didSelect: false };
+// Module-level cleanup for the modal rubber band — needed because openGroupOverlay can be
+// called multiple times and each call must remove the previous session's mousedown listener.
+let _cleanupModalRubberBand = null;
 
 /**
  * @param container       - Element that holds the cards (gallery-grid or table-container)
