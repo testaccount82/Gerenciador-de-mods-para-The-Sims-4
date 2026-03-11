@@ -83,30 +83,25 @@ jobs:
         shell: pwsh
         run: |
           # ── Versão ────────────────────────────────────────────────────
+          $ultimaTag = git describe --tags --abbrev=0 2>$null
+          $primeirRelease = -not $ultimaTag
+
           if ("${{ github.event.inputs.versao_modo }}" -eq "manual") {
             $tag = "${{ github.event.inputs.versao_manual }}".Trim()
             if (-not $tag) { Write-Error "Versão manual não informada."; exit 1 }
+          } elseif ($primeirRelease) {
+            # Sem nenhum release anterior: sempre começa em v1.0.0
+            $tag = "v1.0.0"
+            Write-Host "Sem releases anteriores — versão fixada em $tag"
           } else {
-            # Lê versão base da última tag git (não do package.json)
-            $ultimaTagVer = git describe --tags --abbrev=0 2>$null
-            if ($ultimaTagVer) {
-              $baseVer = $ultimaTagVer.TrimStart("v")
-            } else {
-              # Fallback: usa package.json se não houver nenhuma tag
-              $pkg = Get-Content "package.json" | ConvertFrom-Json
-              $baseVer = $pkg.version
-            }
+            # Já existe pelo menos um release: faz bump semântico sobre a última tag
+            $baseVer = $ultimaTag.TrimStart("v")
             $parts = $baseVer -split "\."
             $major = [int]$parts[0]
             $minor = [int]$parts[1]
             $patch = [int]$parts[2]
 
-            # Analisa commits desde a última tag para decidir o bump
-            if ($ultimaTagVer) {
-              $commitMessages = git log "$ultimaTagVer..HEAD" --pretty=format:"%s" --no-merges
-            } else {
-              $commitMessages = git log --pretty=format:"%s" --no-merges -50
-            }
+            $commitMessages = git log "$ultimaTag..HEAD" --pretty=format:"%s" --no-merges
 
             $hasBreaking = $commitMessages | Where-Object { $_ -match "BREAKING CHANGE|^.+!:" }
             $hasFeat     = $commitMessages | Where-Object { $_ -match "^feat(\(.+\))?:" }
@@ -143,14 +138,25 @@ jobs:
           if ("${{ github.event.inputs.changelog_modo }}" -eq "manual") {
             $changelog = "${{ github.event.inputs.changelog_manual }}"
             if (-not $changelog) { $changelog = "Nova versão disponível." }
-          } else {
-            # Gera changelog automático com base na diferença desde a última tag
-            $ultimaTag = git describe --tags --abbrev=0 2>$null
-            if ($ultimaTag) {
-              $commits = git log "$ultimaTag..HEAD" --pretty=format:"- %s (%h)" --no-merges
+          } elseif ($primeirRelease) {
+            # Sem releases anteriores: usa o CHANGELOG.md completo (do commit inicial ao HEAD)
+            # O CHANGELOG.md já contém o histórico formatado de toda a história do projeto
+            if (Test-Path "CHANGELOG.md") {
+              $changelog = Get-Content "CHANGELOG.md" -Raw -Encoding utf8
+              Write-Host "Primeiro release — usando CHANGELOG.md completo como release notes"
             } else {
-              $commits = git log --pretty=format:"- %s (%h)" --no-merges -30
+              # Fallback: lista todos os commits desde o início do repositório
+              $primeiroCommit = git rev-list --max-parents=0 HEAD
+              $commits = git log "$primeiroCommit^..HEAD" --pretty=format:"- %s (%h)" --no-merges 2>$null
+              if (-not $commits) {
+                $commits = git log --pretty=format:"- %s (%h)" --no-merges
+              }
+              $changelog = "## Histórico completo`n`n$($commits -join "`n")"
+              Write-Host "Primeiro release — CHANGELOG.md não encontrado, usando git log completo"
             }
+          } else {
+            # Já existe release anterior: lista apenas commits desde a última tag
+            $commits = git log "$ultimaTag..HEAD" --pretty=format:"- %s (%h)" --no-merges
             if ($commits) {
               $changelog = "## O que mudou desde $ultimaTag`n`n$($commits -join "`n")"
             } else {
