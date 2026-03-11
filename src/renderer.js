@@ -50,6 +50,12 @@ function dlog(level, msg) {
     dlog('DEBUG', `Click: ${elementLabel(el)}`);
   }, true);  // capture phase — fires before any handler
 
+  document.addEventListener('contextmenu', e => {
+    const el = e.target;
+    if (!el || el === document.body || el === document.documentElement) return;
+    dlog('DEBUG', `Clique direito: ${elementLabel(el)}`);
+  }, true);
+
   document.addEventListener('change', e => {
     const el = e.target;
     if (!el) return;
@@ -426,6 +432,8 @@ function closeCtxMenu() {
 
 function showCtxMenu(x, y, filePath, options = {}) {
   closeCtxMenu();
+  const fileName = filePath ? filePath.split(/[\\/]/).pop() : '?';
+  dlog('DEBUG', `Menu de contexto aberto para: "${fileName}"`);
 
   const svgTrash = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
@@ -452,12 +460,14 @@ function showCtxMenu(x, y, filePath, options = {}) {
   menu.style.top  = (y + mh > wh ? wh - mh - 6 : y) + 'px';
 
   menu.querySelector('#ctx-open-folder').addEventListener('click', () => {
+    dlog('DEBUG', 'Menu de contexto: "Abrir pasta do arquivo"');
     window.api.showItemInFolder(filePath);
     closeCtxMenu();
   });
 
   if (options.onDelete) {
     menu.querySelector('#ctx-delete').addEventListener('click', () => {
+      dlog('DEBUG', 'Menu de contexto: "Excluir arquivo"');
       closeCtxMenu();
       options.onDelete(filePath);
     });
@@ -1683,6 +1693,7 @@ function refreshSelBar(el) {
  */
 function showGroupCtxMenu(x, y, group) {
   closeCtxMenu();
+  dlog('DEBUG', `Menu de contexto de grupo aberto: "${group.name || group.displayName || '?'}"`);
 
   const svgList = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`;
   const svgGrid = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
@@ -1702,10 +1713,12 @@ function showGroupCtxMenu(x, y, group) {
   menu.style.top  = (y + mh > wh ? wh - mh - 6 : y) + 'px';
 
   menu.querySelector('#ctx-group-list').addEventListener('click', () => {
+    dlog('DEBUG', 'Menu de contexto de grupo: "Ver arquivos do grupo"');
     closeCtxMenu();
     openGroupOverlay(group);
   });
   menu.querySelector('#ctx-group-grid').addEventListener('click', () => {
+    dlog('DEBUG', 'Menu de contexto de grupo: "Ver em modo grade"');
     closeCtxMenu();
     openGroupGridOverlay(group);
   });
