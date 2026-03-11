@@ -43,6 +43,22 @@
     }
     #toolbar span#status-badge.off { background: #2a1e1e; color: var(--error); border-color: #5a2e2e; }
 
+    #btn-pause.paused {
+      background: #1e3350;
+      color: #4fc3f7;
+      border-color: #2a5080;
+    }
+    #btn-pause.paused-pending {
+      background: #2a1e00;
+      color: #ffb74d;
+      border-color: #5a4000;
+      animation: pulse-pending 1s ease-in-out infinite;
+    }
+    @keyframes pulse-pending {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+
     button {
       padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
       background: #222; color: var(--text); cursor: pointer; font-size: 12px;
@@ -124,6 +140,7 @@
     <span id="status-badge">● ATIVO</span>
     <button id="btn-open-file" title="Abrir arquivo de log no editor padrão">📂 Abrir arquivo</button>
     <button id="btn-refresh" title="Recarregar log do arquivo">↺ Atualizar</button>
+    <button id="btn-pause" title="Pausar atualização em tempo real">⏸ Pausar</button>
     <button id="btn-scroll-bottom" title="Ir para o final">⬇ Final</button>
     <button id="btn-clear" title="Limpar arquivo de log" style="color:#ef5350">🗑 Limpar</button>
   </div>
@@ -162,6 +179,8 @@
     let filterText  = '';
     let autoScroll  = true;
     let totalLines  = 0;
+    let paused      = false;
+    let pauseQueue  = [];   // lines received while paused, flushed on resume
 
     // ── Parsing ──────────────────────────────────────────────────────────────
     // Line format: [2025-01-01T00:00:00.000Z] [INFO ] message
@@ -245,6 +264,21 @@
 
     function appendLine(raw) {
       if (!raw.trim()) return;
+      // While paused, queue the line and signal the button that new data arrived
+      if (paused) {
+        pauseQueue.push(raw);
+        const btn = document.getElementById('btn-pause');
+        if (btn && !btn.classList.contains('paused-pending')) {
+          btn.classList.remove('paused');
+          btn.classList.add('paused-pending');
+          btn.title = `Retomar (${pauseQueue.length} mensagem(ns) pendente(s))`;
+          btn.textContent = `▶ Retomar (${pauseQueue.length})`;
+        } else if (btn) {
+          btn.title = `Retomar (${pauseQueue.length} mensagem(ns) pendente(s))`;
+          btn.textContent = `▶ Retomar (${pauseQueue.length})`;
+        }
+        return;
+      }
       totalLines++;
       const el = createLineEl(raw);
       container.appendChild(el);
@@ -290,8 +324,40 @@
     });
 
     // ── Controls ─────────────────────────────────────────────────────────────
-    document.getElementById('btn-refresh').addEventListener('click', loadLog);
+    document.getElementById('btn-refresh').addEventListener('click', () => {
+      // Exit pause so the freshly loaded lines are shown
+      if (paused) {
+        paused = false;
+        pauseQueue = [];
+        const btn = document.getElementById('btn-pause');
+        btn.classList.remove('paused', 'paused-pending');
+        btn.title = 'Pausar atualização em tempo real';
+        btn.textContent = '⏸ Pausar';
+      }
+      loadLog();
+    });
     document.getElementById('btn-open-file').addEventListener('click', () => window.debugApi.openLogFile());
+
+    // ── Pause / Resume ───────────────────────────────────────────────────────
+    document.getElementById('btn-pause').addEventListener('click', () => {
+      const btn = document.getElementById('btn-pause');
+      paused = !paused;
+      if (paused) {
+        btn.classList.add('paused');
+        btn.classList.remove('paused-pending');
+        btn.title = 'Retomar atualização em tempo real';
+        btn.textContent = '▶ Retomar';
+      } else {
+        // Flush queued lines
+        const pending = pauseQueue.splice(0);
+        for (const raw of pending) appendLine(raw);
+        btn.classList.remove('paused', 'paused-pending');
+        btn.title = 'Pausar atualização em tempo real';
+        btn.textContent = '⏸ Pausar';
+        if (autoScroll) container.scrollTop = container.scrollHeight;
+      }
+    });
+
     document.getElementById('btn-scroll-bottom').addEventListener('click', () => {
       autoScroll = true;
       container.scrollTop = container.scrollHeight;
