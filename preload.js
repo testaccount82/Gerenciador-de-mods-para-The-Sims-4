@@ -85,7 +85,15 @@ contextBridge.exposeInMainWorld('api', {
   openLogsFolder:     ()         => ipcRenderer.invoke('shell:open-logs'),
   getErrorLogStatus:  ()         => ipcRenderer.invoke('errorlog:get-status'),
   setErrorLog:        (opts)     => ipcRenderer.invoke('errorlog:set', opts),
-  debugLog:         (level, msg) => ipcRenderer.invoke('debug:log-from-renderer', level, msg),
+  // Envia lote de entradas de log (fire-and-forget, sem roundtrip de resposta)
+  debugLogBatch:    (entries)    => ipcRenderer.send('debug:log-batch', entries),
+
+  // Escuta eventos de progresso de importação enviados pelo main process
+  onImportProgress: (cb) => {
+    const listener = (_e, data) => cb(data);
+    ipcRenderer.on('import:progress', listener);
+    return () => ipcRenderer.off('import:progress', listener);
+  },
 
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),

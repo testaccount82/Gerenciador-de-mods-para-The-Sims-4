@@ -1,18 +1,40 @@
 'use strict';
 
 // ─── Debug Logger ─────────────────────────────────────────────────────────────
-// Local flag mirroring the main-process debugEnabled value.
-// Avoids any IPC call when debug is off — zero overhead in production.
+// Flag local que espelha o valor de debugEnabled do main process.
+// Quando desativado, zero overhead — nenhum IPC é feito.
 let _debugEnabled = false;
+
+// Buffer de entradas para envio em lote — evita um IPC por mensagem.
+// As entradas são acumuladas e enviadas a cada 80 ms (fire-and-forget via
+// ipcRenderer.send, sem roundtrip de resposta).
+let _logBuffer = [];
+let _logFlushTimer = null;
+
+function _flushLogBuffer() {
+  _logFlushTimer = null;
+  if (!_logBuffer.length) return;
+  const entries = _logBuffer.splice(0);
+  try { window.api?.debugLogBatch?.(entries); } catch (_) {}
+}
 
 function dlog(level, msg) {
   if (!_debugEnabled) return;
-  try { window.api?.debugLog?.(level, msg); } catch (_) {}
+  _logBuffer.push({ level, msg });
+  if (!_logFlushTimer) {
+    _logFlushTimer = setTimeout(_flushLogBuffer, 80);
+  }
 }
 
-// Called once at startup and whenever the user toggles debug in settings.
+// Chamado uma vez na inicialização e sempre que o usuário altera o debug nas configurações.
 function syncDebugFlag(enabled) {
   _debugEnabled = Boolean(enabled);
+  // Descartar buffer residual ao desativar para não enviar entradas obsoletas.
+  if (!_debugEnabled) {
+    _logBuffer.length = 0;
+    clearTimeout(_logFlushTimer);
+    _logFlushTimer = null;
+  }
 }
 
 // ─── API Wrappers com log automático de resultado ─────────────────────────────
@@ -495,7 +517,7 @@ function pushUndo(label, undoFn, type = 'action', details = {}, redoFn = null) {
 
 
 // Oculta a barra de desfazer e limpa a pilha — usado após ações permanentes
-// que invalidam qualquer desfazer anterior (ex: enviar para lixeira do sistema)
+// que invalidam qualquer desfazer anterior (ex: exclusão permanente da lixeira interna)
 function clearUndoBar() {
   const bar = document.getElementById('undo-bar');
   if (bar) { clearTimeout(bar._timer); bar.classList.add('hidden'); }
@@ -503,7 +525,7 @@ function clearUndoBar() {
 }
 
 // Marca entradas do histórico como permanentemente não-desfazíveis quando os
-// trashPaths correspondentes foram enviados à lixeira do sistema ou esvaziados.
+// trashPaths correspondentes foram excluídos permanentemente da lixeira interna.
 // Sem isso, o botão "↩ Desfazer" continua visível no histórico mas não tem efeito.
 function invalidateUndoForTrashPaths(trashPaths) {
   if (!trashPaths || !trashPaths.length) return;
@@ -1983,11 +2005,14 @@ function showGroupCtxMenu(x, y, group) {
   const svgList = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`;
   const svgGrid = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
 
+  const svgCancel = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+
   const menu = document.createElement('div');
   menu.id = 'ctx-menu';
   menu.innerHTML = `
     <div class="ctx-item" id="ctx-group-list">${svgList} Ver arquivos do grupo</div>
-    <div class="ctx-item" id="ctx-group-grid">${svgGrid} Ver em modo grade</div>`;
+    <div class="ctx-item" id="ctx-group-grid">${svgGrid} Ver em modo grade</div>
+    ${state.selectedMods.size > 0 ? `<div class="ctx-item ctx-item-danger" id="ctx-group-cancel-sel">${svgCancel} Cancelar seleção</div>` : ''}`;
 
   document.body.appendChild(menu);
   _ctxMenu = menu;
@@ -2006,6 +2031,12 @@ function showGroupCtxMenu(x, y, group) {
     dlog('DEBUG', 'Menu de contexto de grupo: "Ver em modo grade"');
     closeCtxMenu();
     openGroupGridOverlay(group);
+  });
+  menu.querySelector('#ctx-group-cancel-sel')?.addEventListener('click', () => {
+    dlog('DEBUG', `Menu de contexto de grupo: "Cancelar seleção" (${state.selectedMods.size} arquivo(s))`);
+    closeCtxMenu();
+    state.selectedMods.clear();
+    renderMods();
   });
 }
 
@@ -3692,10 +3723,63 @@ async function doImport(filePaths) {
     toast(`${skipped} arquivo(s) ignorado(s) (formato não suportado) — importando os ${supported.length} válido(s)`, 'info');
   }
 
-  toast(`Importando ${supported.length} arquivo(s)...`, 'info', 2000);
   dlog('INFO', `Importando ${supported.length} arquivo(s): ${supported.map(p => p.split(/[\\/]/).pop()).join(', ')}`);
+
+  // ── Barra de progresso de importação ──────────────────────────────────────
+  // Criamos um overlay de progresso que fica visível durante a importação.
+  const progressOverlay = document.createElement('div');
+  progressOverlay.id = 'import-progress-overlay';
+  progressOverlay.style.cssText = `
+    position:fixed;left:0;top:0;width:100%;height:100%;
+    background:rgba(0,0,0,0.55);display:flex;align-items:center;
+    justify-content:center;z-index:9999;backdrop-filter:blur(2px);
+  `;
+  progressOverlay.innerHTML = `
+    <div style="background:var(--surface,#1e1e1e);border:1px solid var(--border,rgba(255,255,255,0.1));
+                border-radius:12px;padding:28px 32px;min-width:360px;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+      <div style="font-size:14px;font-weight:600;color:var(--text-primary,#fff);margin-bottom:6px">
+        Importando mods...
+      </div>
+      <div id="import-progress-label" style="font-size:12px;color:var(--text-secondary,#aaa);margin-bottom:14px;min-height:18px">
+        Preparando...
+      </div>
+      <div style="background:var(--bg,#141414);border-radius:6px;height:8px;overflow:hidden;margin-bottom:10px">
+        <div id="import-progress-bar" style="height:100%;width:0%;background:var(--accent,#6c63ff);border-radius:6px;
+             transition:width 0.2s ease;"></div>
+      </div>
+      <div id="import-progress-count" style="font-size:11px;color:var(--text-disabled,#666);text-align:right">
+        0 / ${supported.length}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(progressOverlay);
+
+  const barEl    = document.getElementById('import-progress-bar');
+  const labelEl  = document.getElementById('import-progress-label');
+  const countEl  = document.getElementById('import-progress-count');
+
+  // Subscreve eventos de progresso vindos do main process
+  let unsubProgress = null;
+  if (window.api.onImportProgress) {
+    unsubProgress = window.api.onImportProgress(({ done, total, currentFile }) => {
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      if (barEl)   barEl.style.width   = pct + '%';
+      if (countEl) countEl.textContent = `${done} / ${total}`;
+      if (labelEl && currentFile) {
+        const name = currentFile.split(/[\\/]/).pop();
+        labelEl.textContent = name.length > 50 ? name.slice(0, 47) + '…' : name;
+      }
+    });
+  }
+
+  const removeProgressOverlay = () => {
+    if (unsubProgress) { try { unsubProgress(); } catch (_) {} unsubProgress = null; }
+    progressOverlay.remove();
+  };
+
   try {
     const result = await window.api.importFiles(supported, state.config.modsFolder, state.config.trayFolder);
+    removeProgressOverlay();
     await loadMods();
     if (state.currentPage === 'mods') renderMods();
     if (state.currentPage === 'dashboard') renderDashboard();
@@ -3724,6 +3808,7 @@ async function doImport(filePaths) {
       }, 'import', { count: result.imported.length });
     }
   } catch (e) {
+    removeProgressOverlay();
     dlog('ERROR', `Erro ao importar: ${e.message}`);
     toast('Erro ao importar: ' + (e.message || 'falha inesperada'), 'error');
   }
@@ -4806,7 +4891,7 @@ function renderManual() {
         · Organização e consolidação — mover arquivos entre pastas<br>
         · Importação de mods<br><br>
         Clique em <strong>↩ Desfazer</strong> dentro de 5 segundos para reverter, ou <strong>✕</strong> para dispensar.<br>
-        A barra é ocultada automaticamente quando itens são enviados à lixeira do sistema (ação permanente).
+        A barra é ocultada automaticamente quando itens são excluídos permanentemente da lixeira interna (ação irreversível).
       </div>
     </div>
 
@@ -5029,7 +5114,7 @@ function renderHistory() {
                   ? `<button class="btn btn-sm btn-secondary history-undo-btn" data-history-idx="${origIdx}"
                        title="${escapeHtml(entry.details?.label || 'Desfazer esta ação')}">↩ Desfazer</button>`
                   : entry.details?.permanent
-                    ? `<span style="font-size:11px;color:var(--danger)" title="Item enviado para a lixeira do sistema">🗑 permanente</span>`
+                    ? `<span style="font-size:11px;color:var(--danger)" title="Excluído permanentemente da lixeira interna">🗑 excluído permanentemente</span>`
                     : entry.undone
                       ? `<span style="font-size:11px;color:var(--text-disabled)">desfeito</span>`
                       : `<span style="font-size:11px;color:var(--text-disabled)">—</span>`;
@@ -5276,7 +5361,7 @@ function renderTrashList(el, items) {
                   ${item.originalPath
                     ? `<button class="btn btn-sm btn-secondary trash-restore-btn" data-trash-idx="${idx}" title="Restaurar para o local original">↩ Restaurar</button>`
                     : `<span style="font-size:11px;color:var(--text-disabled)" title="Caminho original desconhecido">Sem origem</span>`}
-                  <button class="btn btn-sm btn-danger trash-delete-btn" data-trash-idx="${idx}" title="Excluir permanentemente (sem enviar para lixeira do sistema)">
+                  <button class="btn btn-sm btn-danger trash-delete-btn" data-trash-idx="${idx}" title="Excluir permanentemente (irreversível)">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <polyline points="3 6 5 6 21 6"/>
                       <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -5342,7 +5427,7 @@ function renderTrashList(el, items) {
       const item = sortedItems[parseInt(btn.dataset.trashIdx)];
       openModal('Excluir permanentemente',
         `<p>Excluir <strong>${escapeHtml(item.name)}</strong> permanentemente?</p>
-         <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita. O arquivo não será enviado para a lixeira do sistema.</p>`,
+         <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita. O arquivo será excluído diretamente.</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Excluir permanentemente', cls: 'btn-danger', action: async () => {
@@ -5410,7 +5495,7 @@ function renderTrashList(el, items) {
   el.querySelector('#btn-trash-empty')?.addEventListener('click', () => {
     openModal('Esvaziar Lixeira',
       `<p>Excluir <strong>${items.length}</strong> item(ns) permanentemente?</p>
-       <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita. Os arquivos serão excluídos diretamente, sem passar pela lixeira do sistema.</p>`,
+       <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita. Os arquivos serão excluídos diretamente.</p>`,
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: 'Esvaziar Lixeira', cls: 'btn-danger', action: async () => {
@@ -5515,36 +5600,6 @@ function renderSettings() {
     </div>
 
     <div class="card">
-      <div class="card-title">Depuração</div>
-      <div class="settings-group">
-        <div class="settings-item">
-          <div>
-            <div class="settings-label">Modo de depuração (debug)</div>
-            <div class="settings-desc">
-              Ativa o registro detalhado de eventos em arquivo de log — útil para diagnosticar problemas.
-              Também pode ser ativado iniciando o programa com o parâmetro <code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px">--debug</code>.
-              ${state.debugStatus?.activatedByCli ? '<br><span style="color:var(--warning,#ffb74d);font-size:11px">⚡ Ativado via linha de comando (--debug)</span>' : ''}
-            </div>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="toggle-debug-mode" ${(cfg.debugMode || state.debugStatus?.activatedByCli) ? 'checked' : ''} ${state.debugStatus?.activatedByCli ? 'disabled' : ''}>
-            <div class="toggle-track"><div class="toggle-thumb"></div></div>
-          </label>
-        </div>
-        <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
-          <div>
-            <div class="settings-label">Visualizador de depuração</div>
-            <div class="settings-desc">Abre uma janela independente para visualizar os logs em tempo real — funciona mesmo se a interface principal apresentar problemas</div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-secondary btn-sm" id="btn-open-debug-window">🐛 Abrir janela de debug</button>
-            <button class="btn btn-secondary btn-sm" id="btn-open-debug-file">📂 Abrir arquivo de log</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
       <div class="card-title">Dados do Aplicativo</div>
       <div class="settings-group">
 
@@ -5592,6 +5647,36 @@ function renderSettings() {
           <button class="btn btn-secondary btn-sm" id="btn-open-logs">📋 Abrir pasta de logs</button>
         </div>
 
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Depuração</div>
+      <div class="settings-group">
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Modo de depuração (debug)</div>
+            <div class="settings-desc">
+              Ativa o registro detalhado de eventos em arquivo de log — útil para diagnosticar problemas.
+              Também pode ser ativado iniciando o programa com o parâmetro <code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px">--debug</code>.
+              ${state.debugStatus?.activatedByCli ? '<br><span style="color:var(--warning,#ffb74d);font-size:11px">⚡ Ativado via linha de comando (--debug)</span>' : ''}
+            </div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-debug-mode" ${(cfg.debugMode || state.debugStatus?.activatedByCli) ? 'checked' : ''} ${state.debugStatus?.activatedByCli ? 'disabled' : ''}>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+        </div>
+        <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
+          <div>
+            <div class="settings-label">Visualizador de depuração</div>
+            <div class="settings-desc">Abre uma janela independente para visualizar os logs em tempo real — funciona mesmo se a interface principal apresentar problemas</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" id="btn-open-debug-window">🐛 Abrir janela de debug</button>
+            <button class="btn btn-secondary btn-sm" id="btn-open-debug-file">📂 Abrir arquivo de log</button>
+          </div>
+        </div>
       </div>
     </div>
 

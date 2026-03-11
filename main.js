@@ -918,12 +918,28 @@ function collectModFiles(dir, found = []) {
   return found;
 }
 
-async function importFiles(filePaths, modsFolder, trayFolder) {
+async function importFiles(filePaths, modsFolder, trayFolder, sender) {
   const imported = [];
   const errors = [];
   const sevenZip = findSevenZip();
+  const total = filePaths.length;
 
-  for (const src of filePaths) {
+  // Envia progresso ao renderer se um sender foi fornecido
+  function sendProgress(done, currentFile) {
+    try { sender?.send('import:progress', { done, total, currentFile }); } catch (_) {}
+  }
+
+  // Cede controle ao event loop entre arquivos para não bloquear o processo
+  // quando há uma quantidade muito grande de mods para importar.
+  function yieldToEventLoop() {
+    return new Promise(resolve => setImmediate(resolve));
+  }
+
+  for (let i = 0; i < filePaths.length; i++) {
+    const src = filePaths[i];
+    sendProgress(i, src);
+    await yieldToEventLoop();
+
     const ext = getRealExtension(src);
 
     if ([...MOD_EXTENSIONS, ...TRAY_EXTENSIONS].includes(ext)) {
@@ -950,6 +966,7 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
         await extractArchive(src, tempDir, sevenZip);
         const modFiles = collectModFiles(tempDir);
         for (const mf of modFiles) {
+          await yieldToEventLoop();
           // MD5 check para cada arquivo extraído do arquivo compactado
           const mfExt = getRealExtension(mf);
           const candidateDest = MOD_EXTENSIONS.includes(mfExt)
@@ -973,6 +990,9 @@ async function importFiles(filePaths, modsFolder, trayFolder) {
       errors.push({ file: src, error: 'Tipo de arquivo não suportado' });
     }
   }
+
+  // Progresso 100% ao finalizar
+  sendProgress(total, '');
   return { imported, errors };
 }
 
@@ -1435,6 +1455,14 @@ ipcMain.handle('debug:open-log-file', () => {
 
 ipcMain.handle('debug:open-window', () => { createDebugWindow(); });
 
+ipcMain.handle('debug:set-always-on-top', (_, value) => {
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    debugWindow.setAlwaysOnTop(Boolean(value));
+    return true;
+  }
+  return false;
+});
+
 ipcMain.handle('shell:open-userdata', () => {
   shell.openPath(app.getPath('userData'));
 });
@@ -1462,8 +1490,16 @@ ipcMain.handle('errorlog:set', (_, { enabled, level }) => {
   return true;
 });
 
-ipcMain.handle('debug:log-from-renderer', (_, level, message) => {
-  debugLog(level || 'INFO', `[renderer] ${message}`);
+// Recebe lotes de entradas de log do renderer (fire-and-forget via ipcRenderer.send).
+// Usar ipcMain.on em vez de ipcMain.handle elimina o roundtrip de resposta,
+// evitando que operações pesadas (ex: importação de muitos mods) sobrecarreguem o canal IPC.
+ipcMain.on('debug:log-batch', (_, entries) => {
+  if (!Array.isArray(entries)) return;
+  for (const e of entries) {
+    if (e && typeof e.level === 'string' && typeof e.msg === 'string') {
+      debugLog(e.level || 'INFO', `[renderer] ${e.msg}`);
+    }
+  }
 });
 
 // Config
@@ -1542,7 +1578,7 @@ ipcMain.handle('mods:move', (_, from, to) => {
   if (!isPathSafe(from, ...roots) || !isPathSafe(to, ...roots)) return { success: false, error: 'Caminho não permitido' };
   return moveFile(from, to);
 });
-ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) => {
+ipcMain.handle('mods:import', async (event, filePaths, modsFolder, trayFolder) => {
   // QA-06: validar tipos dos parâmetros
   if (!Array.isArray(filePaths)) return { imported: [], errors: [] };
   if (typeof modsFolder !== 'string' || typeof trayFolder !== 'string')
@@ -1553,7 +1589,8 @@ ipcMain.handle('mods:import', async (_, filePaths, modsFolder, trayFolder) => {
     return { imported: [], errors: [{ error: 'Pasta de destino não permitida' }] };
   // Nada para importar — retorna cedo após validações (sem arquivos, sem trabalho)
   if (filePaths.length === 0) return { imported: [], errors: [] };
-  return importFiles(filePaths, modsFolder, trayFolder);
+  // Passa event.sender para que importFiles possa enviar progresso em tempo real
+  return importFiles(filePaths, modsFolder, trayFolder, event.sender);
 });
 
 // Conflicts

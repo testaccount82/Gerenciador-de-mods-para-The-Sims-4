@@ -3,10 +3,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('debugApi', {
-  getLog:      ()         => ipcRenderer.invoke('debug:get-log'),
-  clearLog:    ()         => ipcRenderer.invoke('debug:clear-log'),
-  openLogFile: ()         => ipcRenderer.invoke('debug:open-log-file'),
-  getStatus:   ()         => ipcRenderer.invoke('debug:get-status'),
+  getLog:         ()         => ipcRenderer.invoke('debug:get-log'),
+  clearLog:       ()         => ipcRenderer.invoke('debug:clear-log'),
+  openLogFile:    ()         => ipcRenderer.invoke('debug:open-log-file'),
+  getStatus:      ()         => ipcRenderer.invoke('debug:get-status'),
+  setAlwaysOnTop: (value)    => ipcRenderer.invoke('debug:set-always-on-top', value),
 
   // Real-time new log lines pushed from main process
   onLine: (cb) => {

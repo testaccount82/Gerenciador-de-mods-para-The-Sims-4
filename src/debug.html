@@ -131,6 +131,16 @@
       border-bottom: 1px solid var(--border);
       background: var(--surface);
     }
+    #btn-always-on-top {
+      background: #222;
+      color: var(--text-dim);
+      border-color: var(--border);
+    }
+    #btn-always-on-top.active {
+      background: #1e3a1e;
+      color: var(--info);
+      border-color: #2e5a2e;
+    }
   </style>
 </head>
 <body>
@@ -138,6 +148,7 @@
   <div id="toolbar">
     <h1>🐛 Debug — TS4 Mod Manager</h1>
     <span id="status-badge">● ATIVO</span>
+    <button id="btn-always-on-top" title="Manter janela sempre acima das demais">📌 Sempre no topo</button>
     <button id="btn-open-file" title="Abrir arquivo de log no editor padrão">📂 Abrir arquivo</button>
     <button id="btn-refresh" title="Recarregar log do arquivo">↺ Atualizar</button>
     <button id="btn-pause" title="Pausar atualização em tempo real">⏸ Pausar</button>
@@ -337,6 +348,18 @@
       loadLog();
     });
     document.getElementById('btn-open-file').addEventListener('click', () => window.debugApi.openLogFile());
+
+    // ── Always on Top ─────────────────────────────────────────────────────────
+    let alwaysOnTop = false;
+    const btnAlwaysOnTop = document.getElementById('btn-always-on-top');
+    btnAlwaysOnTop.addEventListener('click', async () => {
+      alwaysOnTop = !alwaysOnTop;
+      await window.debugApi.setAlwaysOnTop(alwaysOnTop);
+      btnAlwaysOnTop.classList.toggle('active', alwaysOnTop);
+      btnAlwaysOnTop.title = alwaysOnTop
+        ? 'Janela fixada no topo — clique para desativar'
+        : 'Manter janela sempre acima das demais';
+    });
 
     // ── Pause / Resume ───────────────────────────────────────────────────────
     document.getElementById('btn-pause').addEventListener('click', () => {
