@@ -1,5 +1,12 @@
 'use strict';
 
+// ─── Debug Logger ─────────────────────────────────────────────────────────────
+// Thin wrapper around window.api.debugLog. Safe to call at any time;
+// silently does nothing when debug mode is off or api is not yet available.
+function dlog(level, msg) {
+  try { window.api?.debugLog?.(level, `[renderer] ${msg}`); } catch (_) {}
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 // FIX BUG 4: Sentinel symbol to mark thumbnails that are currently being loaded.
@@ -434,6 +441,7 @@ function initColumnResize(table) {
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 function navigate(page) {
+  dlog('INFO', `Navegando para: ${page}`);
   state.currentPage = page;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1500,6 +1508,7 @@ function setupCommonModsEvents(el) {
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
+      dlog('INFO', `Ativação em lote — ${targets.length} mod(s) ativados`);
       toast(`${targets.length} mod(s) ativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
@@ -1523,6 +1532,7 @@ function setupCommonModsEvents(el) {
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
+      dlog('INFO', `Desativação em lote — ${targets.length} mod(s) desativados`);
       toast(`${targets.length} mod(s) desativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
@@ -1543,11 +1553,13 @@ function setupCommonModsEvents(el) {
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: `Mover ${sel.length} para lixeira`, cls: 'btn-danger', action: async () => {
+          dlog('INFO', `Excluir em lote — movendo ${sel.length} mod(s) para lixeira`);
           const results = await window.api.trashModsBatch(sel);
           const failed = results.filter(r => !r.success).length;
           const deleted = results.length - failed;
           await loadMods(); state.selectedMods.clear(); renderMods();
           updateTrashBadge();
+          dlog(failed ? 'WARN' : 'INFO', `Exclusão em lote — ${deleted} movido(s)${failed ? `, ${failed} com erro` : ''}`);
           toast(`${deleted} mod(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           if (deleted > 0) {
             const trashed = results.filter(r => r.success);
@@ -1686,7 +1698,8 @@ function openGroupGridOverlay(group) {
       if (!fp) return;
       const result = await window.api.toggleMod(fp);
       if (result.success) {
-        card.dataset.path = result.newPath;
+        const name = fp.split(/[\\/]/).pop();
+        dlog('INFO', `Toggle mod: "${name}" → ${result.newPath?.endsWith('.disabled') ? 'desativado' : 'ativado'}`);
         dot.dataset.path  = result.newPath;
         await loadMods();
         const f = [...state.mods, ...state.trayFiles].find(m => m.path === result.newPath);
@@ -2614,6 +2627,7 @@ function setupGalleryEvents(el, mods) {
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split(/[\/]/).pop();
         const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
+        dlog('INFO', `Toggle mod: "${modName}" → ${nowEnabled ? 'ativado' : 'desativado'}`);
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
           toggleAgain,
           nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName },
@@ -3108,6 +3122,7 @@ function setupModsEvents(el, mods) {
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split(/[\/]/).pop();
         const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
+        dlog('INFO', `Toggle mod: "${modName}" → ${nowEnabled ? 'ativado' : 'desativado'}`);
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
           toggleAgain,
           nowEnabled ? 'toggle_on' : 'toggle_off', { name: modName },
@@ -3300,6 +3315,7 @@ async function doImport(filePaths) {
   }
 
   toast(`Importando ${supported.length} arquivo(s)...`, 'info', 2000);
+  dlog('INFO', `Importando ${supported.length} arquivo(s): ${supported.map(p => p.split(/[\\/]/).pop()).join(', ')}`);
   try {
     const result = await window.api.importFiles(supported, state.config.modsFolder, state.config.trayFolder);
     await loadMods();
@@ -3307,10 +3323,13 @@ async function doImport(filePaths) {
     if (state.currentPage === 'dashboard') renderDashboard();
 
     if (result.imported.length > 0 && result.errors.length > 0) {
+      dlog('WARN', `Importação parcial — ${result.imported.length} ok, ${result.errors.length} com erro`);
       toast(`${result.imported.length} importado(s), ${result.errors.length} com erro`, 'warning');
     } else if (result.imported.length > 0) {
+      dlog('INFO', `Importação concluída — ${result.imported.length} arquivo(s) importado(s)`);
       toast(`${result.imported.length} arquivo(s) importado(s) com sucesso`, 'success');
     } else if (result.errors.length > 0) {
+      dlog('ERROR', `Falha ao importar: ${result.errors[0]?.error || 'erro desconhecido'}`);
       toast(`Falha ao importar: ${result.errors[0]?.error || 'erro desconhecido'}`, 'error');
     }
 
@@ -3327,6 +3346,7 @@ async function doImport(filePaths) {
       }, 'import', { count: result.imported.length });
     }
   } catch (e) {
+    dlog('ERROR', `Erro ao importar: ${e.message}`);
     toast('Erro ao importar: ' + (e.message || 'falha inesperada'), 'error');
   }
 }
@@ -3509,10 +3529,12 @@ async function runConflictScan(el) {
   });
 
   try {
+    dlog('INFO', `Iniciando scan de conflitos — pasta: ${state.config.modsFolder}`);
     const result = await window.api.scanConflicts(state.config.modsFolder);
 
     // null means the scan was cancelled
     if (result === null) {
+      dlog('INFO', 'Scan de conflitos cancelado pelo usuário');
       resultEl.innerHTML = `
         <div class="notice info" style="justify-content:space-between;align-items:center">
           <span>⏹ Escaneamento cancelado.</span>
@@ -3523,8 +3545,10 @@ async function runConflictScan(el) {
     }
 
     state.conflicts = result;
+    dlog('INFO', `Scan de conflitos concluído — ${result.length} conflito(s) encontrado(s)`);
     renderConflictResults(el);
   } catch (e) {
+    dlog('ERROR', `Erro no scan de conflitos: ${e.message}`);
     resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
   } finally {
     unsubscribe();
@@ -3708,6 +3732,7 @@ async function runOrganizeScan(el) {
   if (resultEl) resultEl.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-text">Verificando organização e pastas vazias...</div></div>`;
 
   try {
+    dlog('INFO', `Iniciando scan do organizador — mods: ${state.config.modsFolder}`);
     [state.misplaced, state.emptyFolders, state.scattered, state.invalidFiles] = await Promise.all([
       window.api.scanMisplaced(state.config.modsFolder, state.config.trayFolder),
       window.api.scanEmptyFolders(state.config.modsFolder, state.config.trayFolder),
@@ -3716,8 +3741,10 @@ async function runOrganizeScan(el) {
     ]);
     const totalIssues = state.misplaced.length + state.emptyFolders.length
                       + state.scattered.length + state.invalidFiles.length;
+    dlog('INFO', `Scan do organizador concluído — ${state.misplaced.length} mal colocado(s), ${state.emptyFolders.length} pasta(s) vazia(s), ${state.scattered.length} grupo(s) disperso(s), ${state.invalidFiles.length} inválido(s)`);
     if (state.currentPage === 'organizer' && el) renderOrganizeResults(el);
   } catch (e) {
+    dlog('ERROR', `Erro no scan do organizador: ${e.message}`);
     if (resultEl) resultEl.innerHTML = `<div class="notice danger">Erro ao escanear: ${escapeHtml(e.message)}</div>`;
   } finally {
     state.organizeScanning = false;
@@ -4004,11 +4031,13 @@ function renderOrganizeResults(el) {
     if (fixAllBtn) { fixAllBtn.disabled = true; fixAllBtn.textContent = 'Corrigindo…'; }
     el.querySelectorAll('.fix-one-btn').forEach(b => { b.disabled = true; });
     try {
+    dlog('INFO', `Organizador: corrigindo ${state.misplaced.length} arquivo(s) mal colocado(s)`);
     const results = await window.api.fixMisplaced(state.misplaced);
     const ok = results.filter(r => r.success).length;
     state.misplaced = state.misplaced.filter((_, i) => !results[i]?.success);
     await loadMods();
     renderOrganizeResults(el);
+    dlog('INFO', `Organizador: ${ok} arquivo(s) corrigido(s)`);
     toast(`${ok} arquivo(s) corrigido(s)`, 'success');
     pushUndo(`Mover ${ok} arquivo(s)`, async () => {
       for (const r of results) {
@@ -4033,8 +4062,10 @@ function renderOrganizeResults(el) {
       const idx = parseInt(btn.dataset.index);
       const item = state.misplaced[idx];
       try {
+      dlog('INFO', `Organizador: corrigindo "${item.name}" → ${item.suggestedDest}`);
       const result = await window.api.fixOneMisplaced(item);
       if (result.success) {
+        dlog('INFO', `Organizador: "${item.name}" movido com sucesso`);
         const from = result.from; const to = result.to;
         state.misplaced.splice(idx, 1);
         await loadMods();
@@ -4911,6 +4942,7 @@ function renderTrashList(el, items) {
       try {
         const result = await window.api.trashRestore(item.trashPath, item.originalPath);
         if (result.success) {
+          dlog('INFO', `Lixeira: "${item.name}" restaurado para ${item.originalPath}`);
           clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
           await loadMods();
           toast(`"${item.name}" restaurado`, 'success');
@@ -4939,10 +4971,13 @@ function renderTrashList(el, items) {
             clearUndoBar();
             invalidateUndoForTrashPaths([item.trashPath]);
             try {
+              dlog('WARN', `Lixeira: excluindo permanentemente "${item.name}"`);
               const result = await window.api.trashDeletePermanent(item.trashPath);
               if (result.success) {
+                dlog('INFO', `Lixeira: "${item.name}" excluído permanentemente`);
                 toast(`"${item.name}" excluído permanentemente`, 'success');
               } else {
+                dlog('ERROR', `Lixeira: erro ao excluir "${item.name}": ${result.error}`);
                 toast('Erro ao excluir: ' + (result.error || ''), 'error');
               }
             } catch (e) {
@@ -5014,7 +5049,9 @@ function renderTrashList(el, items) {
           clearUndoBar();
           invalidateUndoForTrashPaths(allTrashPaths);
           try {
+            dlog('WARN', `Lixeira: esvaziando (${items.length} item(ns))`);
             const result = await window.api.trashEmpty();
+            dlog(result.failed ? 'WARN' : 'INFO', `Lixeira esvaziada — ${result.ok} excluído(s)${result.failed ? `, ${result.failed} com erro` : ''}`);
             toast(`${result.ok} item(ns) excluído(s) permanentemente${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
             if (result.ok > 0) {
               // Histórico já foi invalidado antes do await — nada a fazer aqui
@@ -5218,6 +5255,7 @@ function renderSettings() {
     const debugMode = el.querySelector('#toggle-debug-mode')?.checked ?? false;
     state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates, debugMode };
     await window.api.setConfig(state.config);
+    dlog('INFO', `Configurações salvas — mods: ${modsFolder} | tray: ${trayFolder} | debug: ${debugMode}`);
     // Sincronizar estado de debug no processo principal
     try {
       await window.api.setDebugEnabled(debugMode);
@@ -5303,6 +5341,7 @@ async function updateTrashBadge() {
 
 async function loadMods() {
   if (!state.config) return;
+  dlog('INFO', `Escaneando mods — pasta: ${state.config.modsFolder}`);
   try {
     const [modsOk, trayOk, mods, tray] = await Promise.all([
       window.api.pathExists(state.config.modsFolder),
@@ -5314,6 +5353,7 @@ async function loadMods() {
     state.trayFolderExists = Boolean(trayOk);
     state.mods = mods || [];
     state.trayFiles = tray || [];
+    dlog('INFO', `Scan concluído — ${state.mods.length} mod(s), ${state.trayFiles.length} arquivo(s) tray`);
 
     // Normalise paths to thumbnail cache keys (strip .disabled) before purging —
     // the persistent cache keyed by thumbKey(), so passing raw .disabled paths
@@ -5322,6 +5362,7 @@ async function loadMods() {
     window.api.purgeThumbnailCache(allPaths);
     updateTrashBadge();
   } catch (e) {
+    dlog('ERROR', `Erro ao escanear mods: ${e.message}`);
     console.error('Error loading mods:', e);
     state.modsFolderExists = false;
     state.trayFolderExists = false;
@@ -5351,6 +5392,7 @@ async function init() {
 
   // Load config & mods
   state.config = await window.api.getConfig();
+  dlog('INFO', `App iniciado — v${await window.api.getAppVersion().catch(() => '?')} | mods: ${state.config.modsFolder}`);
   await loadMods();
 
   // Carregar status de debug e error log
