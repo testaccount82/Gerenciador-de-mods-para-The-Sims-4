@@ -154,10 +154,10 @@ function createDebugWindow() {
   debugWindowReady = false;
   debugPendingLines = [];
   debugWindow = new BrowserWindow({
-    width: 1200,
-    height: 650,
-    minWidth: 1050,
-    minHeight: 400,
+    width: 960,
+    height: 680,
+    minWidth: 700,
+    minHeight: 450,
     title: 'TS4 Mod Manager — Debug',
     backgroundColor: '#0d0d0d',
     webPreferences: {

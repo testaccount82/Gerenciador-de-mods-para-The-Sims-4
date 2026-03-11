@@ -29,16 +29,24 @@
     /* ── Toolbar ── */
     #toolbar {
       display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 6px 10px;
+      flex-direction: column;
+      gap: 0;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       -webkit-app-region: drag;
       user-select: none;
     }
     #toolbar > * { -webkit-app-region: no-drag; }
-    #toolbar h1 { font-size: 13px; font-weight: 600; color: var(--accent); flex: 1; white-space: nowrap; }
+
+    #toolbar-row1, #toolbar-row2 {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+    }
+    #toolbar-row1 { border-bottom: 1px solid var(--border); }
+    #toolbar-row1 h1 { font-size: 13px; font-weight: 600; color: var(--accent); flex: 1; white-space: nowrap; }
+    .toolbar-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; margin: 0 2px; }
 
     #status-badge {
       font-size: 11px; padding: 2px 7px; border-radius: 4px;
@@ -199,27 +207,40 @@
 <body>
 
   <div id="toolbar">
-    <h1>🐛 Debug — TS4 Mod Manager</h1>
-    <span id="status-badge">● ATIVO</span>
+    <div id="toolbar-row1">
+      <h1>🐛 Debug — TS4 Mod Manager</h1>
+      <span id="status-badge">● ATIVO</span>
 
-    <div id="level-counters">
-      <span class="lvl-counter cnt-error" data-lvl="ERROR" data-zero="1" title="Erros — clique para filtrar">ERR: <b id="cn-error">0</b></span>
-      <span class="lvl-counter cnt-warn"  data-lvl="WARN"  data-zero="1" title="Avisos — clique para filtrar">WARN: <b id="cn-warn">0</b></span>
-      <span class="lvl-counter cnt-info"  data-lvl="INFO"  data-zero="1" title="Info — clique para filtrar">INFO: <b id="cn-info">0</b></span>
-      <span class="lvl-counter cnt-debug" data-lvl="DEBUG" data-zero="1" title="Debug — clique para filtrar">DBG: <b id="cn-debug">0</b></span>
+      <div id="level-counters">
+        <span class="lvl-counter cnt-error" data-lvl="ERROR" data-zero="1" title="Erros — clique para filtrar">ERR: <b id="cn-error">0</b></span>
+        <span class="lvl-counter cnt-warn"  data-lvl="WARN"  data-zero="1" title="Avisos — clique para filtrar">WARN: <b id="cn-warn">0</b></span>
+        <span class="lvl-counter cnt-info"  data-lvl="INFO"  data-zero="1" title="Info — clique para filtrar">INFO: <b id="cn-info">0</b></span>
+        <span class="lvl-counter cnt-debug" data-lvl="DEBUG" data-zero="1" title="Debug — clique para filtrar">DBG: <b id="cn-debug">0</b></span>
+      </div>
+
+      <div class="toolbar-sep"></div>
+
+      <button id="btn-always-on-top" title="Sempre no topo (Alt+T)">📌 Topo</button>
+      <button id="btn-wrap"          title="Quebra de linha (Alt+W)">↩ Wrap</button>
+      <button id="btn-linenum"       title="Mostrar números de linha (Alt+L)">🔢 Linhas</button>
     </div>
 
-    <button id="btn-always-on-top" title="Sempre no topo (Alt+T)">📌 Topo</button>
-    <button id="btn-wrap"          title="Quebra de linha (Alt+W)">↩ Wrap</button>
-    <button id="btn-linenum"       title="Mostrar números de linha (Alt+L)">🔢 Linhas</button>
-    <button id="btn-copy-all"      title="Copiar todas as linhas filtradas (Ctrl+Shift+C)">⎘ Copiar</button>
-    <button id="btn-jump-error"    title="Ir para próximo ERROR (Alt+E)" style="display:none">⚠ → Erro</button>
-    <button id="btn-export"        title="Exportar linhas filtradas como .log (Ctrl+S)">💾 Exportar</button>
-    <button id="btn-open-file"     title="Abrir arquivo no editor">📂 Arquivo</button>
-    <button id="btn-refresh"       title="Recarregar do arquivo (F5)">↺ Atualizar</button>
-    <button id="btn-pause"         title="Pausar atualização em tempo real (Space)">⏸ Pausar</button>
-    <button id="btn-scroll-bottom" title="Ir para o final (Ctrl+End)">⬇ Final</button>
-    <button id="btn-clear"         title="Limpar arquivo de log" style="color:#ef5350">🗑 Limpar</button>
+    <div id="toolbar-row2">
+      <button id="btn-copy-all"      title="Copiar todas as linhas filtradas (Ctrl+Shift+C)">⎘ Copiar</button>
+      <button id="btn-jump-error"    title="Ir para próximo ERROR (Alt+E)" style="display:none">⚠ → Erro</button>
+      <button id="btn-export"        title="Exportar linhas filtradas como .log (Ctrl+S)">💾 Exportar</button>
+      <button id="btn-open-file"     title="Abrir arquivo no editor">📂 Arquivo</button>
+
+      <div class="toolbar-sep"></div>
+
+      <button id="btn-refresh"       title="Recarregar do arquivo (F5)">↺ Atualizar</button>
+      <button id="btn-pause"         title="Pausar atualização em tempo real (Space)">⏸ Pausar</button>
+      <button id="btn-scroll-bottom" title="Ir para o final (Ctrl+End)">⬇ Final</button>
+
+      <div class="toolbar-sep"></div>
+
+      <button id="btn-clear"         title="Limpar arquivo de log" style="color:#ef5350">🗑 Limpar</button>
+    </div>
   </div>
 
   <div id="log-path-info">
