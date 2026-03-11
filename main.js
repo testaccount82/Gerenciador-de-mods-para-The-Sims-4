@@ -2066,23 +2066,22 @@ ipcMain.handle('trash:restore', (_, trashPath, originalPath) => {
 ipcMain.handle('trash:delete-permanent', async (_, trashPath) => {
   const trashDir = path.join(app.getPath('userData'), 'trash');
   if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Não está na lixeira interna' };
+  // Exclui diretamente (sem enviar para a lixeira do sistema).
   try {
-    await shell.trashItem(trashPath);
+    const stat = fs.statSync(trashPath);
+    if (stat.isDirectory()) {
+      fs.rmSync(trashPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(trashPath);
+    }
     try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
     return { success: true };
   } catch (e) {
-    // Fallback: permanent delete if trashItem fails
-    try {
-      fs.unlinkSync(trashPath);
-      try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
-      return { success: true };
-    } catch (e2) {
-      return { success: false, error: e2.message };
-    }
+    return { success: false, error: e.message };
   }
 });
 
-// Empties the entire internal trash (sends all files to OS trash)
+// Empties the entire internal trash (permanently deletes all files — does NOT send to OS trash)
 ipcMain.handle('trash:empty', async () => {
   const trashDir = path.join(app.getPath('userData'), 'trash');
   ensureDir(trashDir);
@@ -2092,16 +2091,15 @@ ipcMain.handle('trash:empty', async () => {
     for (const name of entries) {
       const p = path.join(trashDir, name);
       try {
-        await shell.trashItem(p);
+        const stat = fs.statSync(p);
+        if (stat.isDirectory()) {
+          fs.rmSync(p, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(p);
+        }
         try { fs.unlinkSync(p + '.meta.json'); } catch (_) {}
         ok++;
-      } catch (_) {
-        try {
-          fs.unlinkSync(p);
-          try { fs.unlinkSync(p + '.meta.json'); } catch (_) {}
-          ok++;
-        } catch (_2) { failed++; }
-      }
+      } catch (_) { failed++; }
     }
   } catch (_) {}
   return { ok, failed };

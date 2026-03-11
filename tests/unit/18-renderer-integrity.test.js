@@ -291,3 +291,77 @@ describe('renderer.js — regressão: bug SyntaxError de ad47919', () => {
     expect(errorName).toBe('SyntaxError');
   });
 });
+
+// ─── 8. Regressões de comportamento crítico ───────────────────────────────────
+
+describe('renderer.js — regressões de comportamento crítico', () => {
+
+  test('invalidateUndoForTrashPaths é chamado ANTES do await trashEmpty (bug undo ativo durante esvaziamento)', () => {
+    // Garante que clearUndoBar e invalidateUndoForTrashPaths aparecem antes de
+    // "await window.api.trashEmpty()" no código fonte, impedindo que o botão
+    // Desfazer permaneça ativo enquanto a operação de esvaziamento está em curso.
+    const trashEmptyIdx   = src.indexOf('await window.api.trashEmpty()');
+    const invalidateIdx   = src.lastIndexOf('invalidateUndoForTrashPaths(allTrashPaths)', trashEmptyIdx);
+    const clearUndoIdx    = src.lastIndexOf('clearUndoBar()', trashEmptyIdx);
+
+    expect(trashEmptyIdx).toBeGreaterThan(-1);
+    expect(invalidateIdx).toBeGreaterThan(-1);
+    expect(clearUndoIdx).toBeGreaterThan(-1);
+
+    // Ambas as chamadas de invalidação devem aparecer ANTES do await
+    expect(invalidateIdx).toBeLessThan(trashEmptyIdx);
+    expect(clearUndoIdx).toBeLessThan(trashEmptyIdx);
+  });
+
+  test('exclusão de pastas vazias usa logAction (sem undo) — não pushUndo', () => {
+    // Pastas vazias não podem ser restauradas automaticamente.
+    // O código deve usar logAction (sem criar undo) em vez de pushUndo.
+    // Verificar que pushUndo NÃO é chamado imediatamente após deleteEmptyFolders.
+    const deleteEmptyIdx = src.indexOf("window.api.deleteEmptyFolders(paths)");
+    const deleteEmptySingleIdx = src.indexOf("window.api.deleteEmptyFolders([folder.path])");
+
+    // Extrair os 300 chars após cada chamada para verificar o que vem depois
+    const afterBatch  = src.slice(deleteEmptyIdx,  deleteEmptyIdx  + 800);
+    const afterSingle = src.slice(deleteEmptySingleIdx, deleteEmptySingleIdx + 800);
+
+    // logAction deve aparecer no bloco de código que segue cada deleteEmptyFolders
+    expect(afterBatch).toMatch(/logAction\(/);
+    expect(afterSingle).toMatch(/logAction\(/);
+
+    // pushUndo NÃO deve aparecer imediatamente após as chamadas de pastas vazias
+    // (pode haver pushUndo em outras partes do arquivo — verificamos apenas o contexto local)
+    const pushUndoBatchIdx  = afterBatch.indexOf('pushUndo(');
+    const logActionBatchIdx = afterBatch.indexOf('logAction(');
+    const pushUndoSingleIdx  = afterSingle.indexOf('pushUndo(');
+    const logActionSingleIdx = afterSingle.indexOf('logAction(');
+
+    // Se pushUndo aparecer, deve ser DEPOIS do logAction (ou não aparecer)
+    if (pushUndoBatchIdx !== -1 && logActionBatchIdx !== -1) {
+      expect(logActionBatchIdx).toBeLessThan(pushUndoBatchIdx);
+    }
+    if (pushUndoSingleIdx !== -1 && logActionSingleIdx !== -1) {
+      expect(logActionSingleIdx).toBeLessThan(pushUndoSingleIdx);
+    }
+  });
+
+  test('trash:delete-permanent e trash:empty não chamam shell.trashItem (deleção permanente direta)', () => {
+    const mainSrc = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../main.js'), 'utf8'
+    );
+    // Localizar os handlers
+    const permStart  = mainSrc.indexOf("ipcMain.handle('trash:delete-permanent'");
+    const emptyStart = mainSrc.indexOf("ipcMain.handle('trash:empty'");
+
+    // Extrair o corpo de cada handler (até o próximo ipcMain.handle)
+    const permBody  = mainSrc.slice(permStart,  mainSrc.indexOf('ipcMain.handle', permStart  + 10));
+    const emptyBody = mainSrc.slice(emptyStart, mainSrc.indexOf('ipcMain.handle', emptyStart + 10));
+
+    // Nenhum dos handlers deve chamar shell.trashItem
+    expect(permBody).not.toContain('shell.trashItem');
+    expect(emptyBody).not.toContain('shell.trashItem');
+
+    // Ambos devem usar fs.unlinkSync ou fs.rmSync para deleção direta
+    expect(permBody).toMatch(/fs\.(unlinkSync|rmSync)/);
+    expect(emptyBody).toMatch(/fs\.(unlinkSync|rmSync)/);
+  });
+});

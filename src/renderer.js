@@ -852,11 +852,14 @@ function renderMods() {
 
       <!-- Status chips -->
       <div class="chip-group">
-        <button class="chip ${state.filterStatus === 'all'    ? 'chip-on' : ''}" data-fs="all">Todos</button>
-        <button class="chip ${state.filterStatus === 'active' ? 'chip-on' : ''}" data-fs="active">
+        <button class="chip ${state.filterStatus === 'all'    ? 'chip-on' : ''}" data-fs="all"
+          title="Mostrar todos os mods independentemente do status">Todos</button>
+        <button class="chip ${state.filterStatus === 'active' ? 'chip-on' : ''}" data-fs="active"
+          title="Mostrar apenas mods ativos (habilitados)">
           <span class="chip-dot chip-dot-green"></span>Ativos
         </button>
-        <button class="chip ${state.filterStatus === 'inactive' ? 'chip-on' : ''}" data-fs="inactive">
+        <button class="chip ${state.filterStatus === 'inactive' ? 'chip-on' : ''}" data-fs="inactive"
+          title="Mostrar apenas mods inativos (desabilitados com .disabled)">
           <span class="chip-dot chip-dot-dim"></span>Inativos
         </button>
         <button class="chip ${state.filterStatus === 'partial' ? 'chip-on' : ''}" data-fs="partial"
@@ -867,16 +870,20 @@ function renderMods() {
 
       <!-- Type chips -->
       <div class="chip-group">
-        <button class="chip ${state.filterType === 'all'     ? 'chip-on' : ''}" data-ft="all">
+        <button class="chip ${state.filterType === 'all'     ? 'chip-on' : ''}" data-ft="all"
+          title="Mostrar todos os tipos de arquivo">
           <span class="chip-pill">${total}</span>Qualquer
         </button>
-        <button class="chip ${state.filterType === 'package' ? 'chip-on' : ''}" data-ft="package">
+        <button class="chip ${state.filterType === 'package' ? 'chip-on' : ''}" data-ft="package"
+          title="Mostrar apenas arquivos .package">
           <span class="chip-pill chip-pill-pkg">${pkgCount}</span>.package
         </button>
-        <button class="chip ${state.filterType === 'script'  ? 'chip-on' : ''}" data-ft="script">
+        <button class="chip ${state.filterType === 'script'  ? 'chip-on' : ''}" data-ft="script"
+          title="Mostrar apenas scripts .ts4script">
           <span class="chip-pill chip-pill-scr">${scriptCount}</span>Script
         </button>
-        <button class="chip ${state.filterType === 'tray'    ? 'chip-on' : ''}" data-ft="tray">
+        <button class="chip ${state.filterType === 'tray'    ? 'chip-on' : ''}" data-ft="tray"
+          title="Mostrar apenas itens do Tray (construção e CAS)">
           <span class="chip-pill chip-pill-tray">${trayCount}</span>Tray
         </button>
       </div>
@@ -4220,9 +4227,8 @@ function renderOrganizeResults(el) {
           renderOrganizeResults(el);
           toast(`${ok} pasta(s) apagada(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           if (ok > 0) {
-            pushUndo(`Apagar ${ok} pasta(s) vazia(s)`, async () => {
-              toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
-            }, 'delete', { count: ok, source: 'empty-folders', type: 'folder' });
+            // Pastas vazias não podem ser restauradas — registra no histórico sem undo
+            logAction('delete', { count: ok, source: 'empty-folders', type: 'folder', label: `Apagar ${ok} pasta(s) vazia(s)` });
           }
         }}
       ]
@@ -4245,9 +4251,8 @@ function renderOrganizeResults(el) {
               state.emptyFolders.splice(idx, 1);
               renderOrganizeResults(el);
               toast('Pasta apagada', 'success');
-              pushUndo(`Apagar pasta ${folder.name}`, async () => {
-                toast('Pastas vazias não podem ser restauradas automaticamente', 'info', 3500);
-              }, 'delete', { name: folder.name, source: 'empty-folders', type: 'folder' });
+              // Pastas vazias não podem ser restauradas — registra no histórico sem undo
+              logAction('delete', { name: folder.name, source: 'empty-folders', type: 'folder', label: `Apagar pasta ${folder.name}` });
             } else {
               toast('Erro ao apagar pasta: ' + (results[0]?.error || ''), 'error');
             }
@@ -4835,7 +4840,7 @@ function renderTrashList(el, items) {
                   ${item.originalPath
                     ? `<button class="btn btn-sm btn-secondary trash-restore-btn" data-trash-idx="${idx}" title="Restaurar para o local original">↩ Restaurar</button>`
                     : `<span style="font-size:11px;color:var(--text-disabled)" title="Caminho original desconhecido">Sem origem</span>`}
-                  <button class="btn btn-sm btn-danger trash-delete-btn" data-trash-idx="${idx}" title="Apagar permanentemente (envia para Lixeira do sistema)">
+                  <button class="btn btn-sm btn-danger trash-delete-btn" data-trash-idx="${idx}" title="Excluir permanentemente (sem enviar para lixeira do sistema)">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <polyline points="3 6 5 6 21 6"/>
                       <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
@@ -4899,17 +4904,17 @@ function renderTrashList(el, items) {
     btn.addEventListener('click', async () => {
       const item = sortedItems[parseInt(btn.dataset.trashIdx)];
       openModal('Excluir permanentemente',
-        `<p>Enviar <strong>${escapeHtml(item.name)}</strong> para a lixeira do sistema?</p>
-         <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita pelo gerenciador.</p>`,
+        `<p>Excluir <strong>${escapeHtml(item.name)}</strong> permanentemente?</p>
+         <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita. O arquivo não será enviado para a lixeira do sistema.</p>`,
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Excluir permanentemente', cls: 'btn-danger', action: async () => {
+            clearUndoBar();
+            invalidateUndoForTrashPaths([item.trashPath]);
             try {
               const result = await window.api.trashDeletePermanent(item.trashPath);
               if (result.success) {
-                toast(`"${item.name}" enviado para a lixeira do sistema`, 'info');
-                clearUndoBar(); // itens já na lixeira do sistema não podem ser desfeitos
-                invalidateUndoForTrashPaths([item.trashPath]);
+                toast(`"${item.name}" excluído permanentemente`, 'success');
               } else {
                 toast('Erro ao excluir: ' + (result.error || ''), 'error');
               }
@@ -4964,8 +4969,8 @@ function renderTrashList(el, items) {
   // ── Empty trash
   el.querySelector('#btn-trash-empty')?.addEventListener('click', () => {
     openModal('Esvaziar Lixeira',
-      `<p>Enviar <strong>${items.length}</strong> item(ns) para a lixeira do sistema?</p>
-       <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita pelo gerenciador.<br>Os arquivos ainda poderão ser recuperados pela Lixeira do Windows/macOS.</p>`,
+      `<p>Excluir <strong>${items.length}</strong> item(ns) permanentemente?</p>
+       <p style="font-size:12.5px;color:var(--text-secondary)">Esta ação não pode ser desfeita. Os arquivos serão excluídos diretamente, sem passar pela lixeira do sistema.</p>`,
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: 'Esvaziar Lixeira', cls: 'btn-danger', action: async () => {
@@ -4976,14 +4981,16 @@ function renderTrashList(el, items) {
           // Desabilita todos os botões individuais de restaurar e excluir para
           // evitar condição de corrida enquanto o esvaziamento está em execução
           container.querySelectorAll('.trash-restore-btn, .trash-delete-btn').forEach(b => { b.disabled = true; });
+          // Captura os trashPaths e invalida o histórico ANTES do await,
+          // impedindo que o botão Desfazer fique ativo durante a operação.
+          const allTrashPaths = items.map(i => i.trashPath).filter(Boolean);
+          clearUndoBar();
+          invalidateUndoForTrashPaths(allTrashPaths);
           try {
-            // Captura os trashPaths antes de esvaziar para poder invalidar o histórico
-            const allTrashPaths = items.map(i => i.trashPath).filter(Boolean);
             const result = await window.api.trashEmpty();
-            toast(`${result.ok} item(ns) enviado(s) para a lixeira do sistema${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
+            toast(`${result.ok} item(ns) excluído(s) permanentemente${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
             if (result.ok > 0) {
-              clearUndoBar(); // itens já enviados para o sistema não podem ser desfeitos
-              invalidateUndoForTrashPaths(allTrashPaths);
+              // Histórico já foi invalidado antes do await — nada a fazer aqui
             }
           } catch (e) {
             toast('Erro ao esvaziar lixeira', 'error');
