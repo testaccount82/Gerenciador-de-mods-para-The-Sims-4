@@ -1,11 +1,268 @@
 'use strict';
 
 // ─── Debug Logger ─────────────────────────────────────────────────────────────
-// Thin wrapper around window.api.debugLog. Safe to call at any time;
-// silently does nothing when debug mode is off or api is not yet available.
 function dlog(level, msg) {
   try { window.api?.debugLog?.(level, `[renderer] ${msg}`); } catch (_) {}
 }
+
+// ─── API Wrappers com log automático de resultado ─────────────────────────────
+// Cada wrapper chama a API, loga o resultado real (sucesso, falha, parcial)
+// e retorna o valor original para que o código chamador funcione normalmente.
+
+async function apiToggleMod(path, context = '') {
+  const name = path.split(/[\\/]/).pop();
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.toggleMod(path);
+    if (r.success) {
+      const estado = r.newPath?.endsWith('.disabled') ? 'desativado' : 'ativado';
+      dlog('INFO', `toggleMod${ctx}: "${name}" → ${estado}`);
+    } else {
+      dlog('ERROR', `toggleMod${ctx}: "${name}" → FALHOU — ${r.error || 'sem detalhes'}`);
+    }
+    return r;
+  } catch (e) {
+    dlog('ERROR', `toggleMod${ctx}: "${name}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiTrashBatch(paths, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const results = await window.api.trashModsBatch(paths);
+    const ok = results.filter(r => r.success).length;
+    const fail = results.filter(r => !r.success);
+    if (fail.length) {
+      fail.forEach(r => dlog('ERROR', `trashBatch${ctx}: falha em "${r.path?.split(/[\\/]/).pop() || '?'}" — ${r.error || 'sem detalhes'}`));
+      dlog('WARN', `trashBatch${ctx}: ${ok}/${paths.length} movido(s) para lixeira, ${fail.length} com falha`);
+    } else {
+      dlog('INFO', `trashBatch${ctx}: ${ok} arquivo(s) movido(s) para lixeira`);
+    }
+    return results;
+  } catch (e) {
+    dlog('ERROR', `trashBatch${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiRestoreFromTrash(trashPath, originalPath, name = '', context = '') {
+  const label = name || originalPath.split(/[\\/]/).pop();
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.restoreModFromTrash(trashPath, originalPath);
+    if (r?.success !== false) dlog('INFO', `restoreFromTrash${ctx}: "${label}" restaurado`);
+    else dlog('ERROR', `restoreFromTrash${ctx}: "${label}" → FALHOU — ${r?.error || 'sem detalhes'}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `restoreFromTrash${ctx}: "${label}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiConflictMoveToTrash(path, context = '') {
+  const name = path.split(/[\\/]/).pop();
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.conflictMoveToTrash(path);
+    if (r.success) dlog('INFO', `conflictMoveToTrash${ctx}: "${name}" movido para lixeira`);
+    else dlog('ERROR', `conflictMoveToTrash${ctx}: "${name}" → FALHOU — ${r.error || 'sem detalhes'}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `conflictMoveToTrash${ctx}: "${name}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiConflictRestoreFromTrash(trashPath, originalPath, context = '') {
+  const name = originalPath.split(/[\\/]/).pop();
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.conflictRestoreFromTrash(trashPath, originalPath);
+    dlog('INFO', `conflictRestoreFromTrash${ctx}: "${name}" restaurado`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `conflictRestoreFromTrash${ctx}: "${name}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiDeleteInvalidFiles(paths, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const results = await window.api.deleteInvalidFiles(paths);
+    const ok = results.filter(r => r.success).length;
+    const fail = results.filter(r => !r.success);
+    if (fail.length) {
+      fail.forEach(r => dlog('ERROR', `deleteInvalid${ctx}: falha em "${r.originalPath?.split(/[\\/]/).pop() || '?'}" — ${r.error || 'sem detalhes'}`));
+      dlog('WARN', `deleteInvalid${ctx}: ${ok}/${paths.length} removido(s), ${fail.length} com falha`);
+    } else {
+      dlog('INFO', `deleteInvalid${ctx}: ${ok} arquivo(s) inválido(s) removido(s)`);
+    }
+    return results;
+  } catch (e) {
+    dlog('ERROR', `deleteInvalid${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiMoveMod(from, to, context = '') {
+  const name = from.split(/[\\/]/).pop();
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.moveMod(from, to);
+    if (r.success) dlog('INFO', `moveMod${ctx}: "${name}" → ${to}`);
+    else dlog('ERROR', `moveMod${ctx}: "${name}" → FALHOU — ${r.error || 'sem detalhes'}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `moveMod${ctx}: "${name}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiDeleteEmptyFolders(paths, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const results = await window.api.deleteEmptyFolders(paths);
+    const ok = results.filter(r => r.success).length;
+    const fail = results.filter(r => !r.success);
+    if (fail.length) {
+      fail.forEach(r => dlog('ERROR', `deleteEmptyFolders${ctx}: falha em "${r.path || '?'}" — ${r.error || 'sem detalhes'}`));
+      dlog('WARN', `deleteEmptyFolders${ctx}: ${ok}/${paths.length} pasta(s) removida(s), ${fail.length} com falha`);
+    } else {
+      dlog('INFO', `deleteEmptyFolders${ctx}: ${ok} pasta(s) vazia(s) removida(s)`);
+    }
+    return results;
+  } catch (e) {
+    dlog('ERROR', `deleteEmptyFolders${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiTrashRestore(trashPath, originalPath, name = '', context = '') {
+  const label = name || originalPath?.split(/[\\/]/).pop() || '?';
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.trashRestore(trashPath, originalPath);
+    if (r.success) dlog('INFO', `trashRestore${ctx}: "${label}" restaurado para ${originalPath}`);
+    else dlog('ERROR', `trashRestore${ctx}: "${label}" → FALHOU — ${r.error || 'sem detalhes'}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `trashRestore${ctx}: "${label}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiTrashDeletePermanent(trashPath, name = '', context = '') {
+  const label = name || trashPath.split(/[\\/]/).pop();
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.trashDeletePermanent(trashPath);
+    if (r.success) dlog('INFO', `trashDeletePermanent${ctx}: "${label}" excluído permanentemente`);
+    else dlog('ERROR', `trashDeletePermanent${ctx}: "${label}" → FALHOU — ${r.error || 'sem detalhes'}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `trashDeletePermanent${ctx}: "${label}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiTrashEmpty(context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.trashEmpty();
+    if (r.failed) dlog('WARN', `trashEmpty${ctx}: ${r.ok} excluído(s), ${r.failed} com falha`);
+    else dlog('INFO', `trashEmpty${ctx}: ${r.ok} item(ns) excluído(s) permanentemente`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `trashEmpty${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiSetConfig(config, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.setConfig(config);
+    if (r === false) dlog('ERROR', `setConfig${ctx}: configuração rejeitada pelo processo principal`);
+    else dlog('INFO', `setConfig${ctx}: salvo — mods: ${config.modsFolder} | tray: ${config.trayFolder} | debug: ${config.debugMode}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `setConfig${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiSetErrorLog(opts, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.setErrorLog(opts);
+    dlog('INFO', `setErrorLog${ctx}: enabled=${opts.enabled} level=${opts.level}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `setErrorLog${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiClearThumbnailCache(context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.clearThumbnailCache();
+    dlog('INFO', `clearThumbnailCache${ctx}: cache de miniaturas limpo`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `clearThumbnailCache${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiFixMisplaced(items, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const results = await window.api.fixMisplaced(items);
+    const ok = results.filter(r => r.success).length;
+    const fail = results.filter(r => !r.success);
+    if (fail.length) {
+      fail.forEach((r, i) => dlog('ERROR', `fixMisplaced${ctx}: falha em "${items[i]?.name || '?'}" — ${r.error || 'sem detalhes'}`));
+      dlog('WARN', `fixMisplaced${ctx}: ${ok}/${items.length} corrigido(s), ${fail.length} com falha`);
+    } else {
+      dlog('INFO', `fixMisplaced${ctx}: ${ok} arquivo(s) movido(s) para local correto`);
+    }
+    return results;
+  } catch (e) {
+    dlog('ERROR', `fixMisplaced${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiFixOneMisplaced(item, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.fixOneMisplaced(item);
+    if (r.success) dlog('INFO', `fixOneMisplaced${ctx}: "${item.name}" → ${r.to}`);
+    else dlog('ERROR', `fixOneMisplaced${ctx}: "${item.name}" → FALHOU — ${r.error || 'sem detalhes'}`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `fixOneMisplaced${ctx}: "${item.name}" → EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+async function apiRestoreEmptyFolders(paths, context = '') {
+  const ctx = context ? ` [${context}]` : '';
+  try {
+    const r = await window.api.restoreEmptyFolders(paths);
+    dlog('INFO', `restoreEmptyFolders${ctx}: ${paths.length} pasta(s) restaurada(s)`);
+    return r;
+  } catch (e) {
+    dlog('ERROR', `restoreEmptyFolders${ctx}: EXCEÇÃO — ${e.message}`);
+    throw e;
+  }
+}
+
+// Toast is patched after its definition to auto-forward every notification
+// to the debug log. The patch is applied at the bottom of this section.
 
 // ─── Global UI Event Interceptor ─────────────────────────────────────────────
 // Captures every user interaction (click, change, input) at the document root
@@ -166,6 +423,10 @@ function statusBadge(enabled, partial = false) {
 // ─── Toast ───────────────────────────────────────────────────────────────────
 
 function toast(message, type = 'info', duration = 3500) {
+  // Mirror every toast to the debug log automatically so no action result is ever silent.
+  const level = type === 'error' ? 'ERROR' : type === 'warning' ? 'WARN' : 'INFO';
+  dlog(level, `[toast:${type}] ${message}`);
+
   const container = document.getElementById('toast-container');
   const t = document.createElement('div');
   t.className = `toast ${type}`;
@@ -1582,21 +1843,19 @@ function setupCommonModsEvents(el) {
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
       const results = [];
-      for (const p of targets) results.push(await window.api.toggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
       const ok     = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success);
       if (failed.length) {
         failed.forEach(r => dlog('ERROR', `Falha ao ativar: ${r.error || 'erro desconhecido'}`));
-        dlog('WARN', `Ativação em lote — ${ok} ativado(s), ${failed.length} com falha de ${targets.length} tentado(s)`);
       } else {
-        dlog('INFO', `Ativação em lote — ${ok} mod(s) ativados`);
       }
       toast(`${targets.length} mod(s) ativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
-        for (const p of newPaths) await window.api.toggleMod(p);
+        for (const p of newPaths) await apiToggleMod(p);
         await loadMods(); renderMods();
         logAction('restore', { count: newPaths.length, label: `Desfazer ativação em lote` });
       }, 'toggle_on', { count: newPaths.length, source: 'batch' });
@@ -1614,21 +1873,19 @@ function setupCommonModsEvents(el) {
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
       const results = [];
-      for (const p of targets) results.push(await window.api.toggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
       const ok     = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success);
       if (failed.length) {
         failed.forEach(r => dlog('ERROR', `Falha ao desativar: ${r.error || 'erro desconhecido'}`));
-        dlog('WARN', `Desativação em lote — ${ok} desativado(s), ${failed.length} com falha de ${targets.length} tentado(s)`);
       } else {
-        dlog('INFO', `Desativação em lote — ${ok} mod(s) desativados`);
       }
       toast(`${targets.length} mod(s) desativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
-        for (const p of newPaths) await window.api.toggleMod(p);
+        for (const p of newPaths) await apiToggleMod(p);
         await loadMods(); renderMods();
         logAction('restore', { count: newPaths.length, label: `Desfazer desativação em lote` });
       }, 'toggle_off', { count: newPaths.length, source: 'batch' });
@@ -1645,18 +1902,16 @@ function setupCommonModsEvents(el) {
       [
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: `Mover ${sel.length} para lixeira`, cls: 'btn-danger', action: async () => {
-          dlog('INFO', `Excluir em lote — movendo ${sel.length} mod(s) para lixeira`);
-          const results = await window.api.trashModsBatch(sel);
+          const results = await apiTrashBatch(sel);
           const failed = results.filter(r => !r.success).length;
           const deleted = results.length - failed;
           await loadMods(); state.selectedMods.clear(); renderMods();
           updateTrashBadge();
-          dlog(failed ? 'WARN' : 'INFO', `Exclusão em lote — ${deleted} movido(s)${failed ? `, ${failed} com erro` : ''}`);
           toast(`${deleted} mod(s) movidos para a lixeira${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           if (deleted > 0) {
             const trashed = results.filter(r => r.success);
             pushUndo(`Excluir ${deleted} mod(s)`, async () => {
-              for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+              for (const r of trashed) await apiRestoreFromTrash(r.trashPath, r.originalPath);
               await loadMods(); renderMods();
               toast(`${trashed.length} mod(s) restaurados`, 'success');
               logAction('restore', { count: trashed.length, source: 'batch', label: 'Restaurar exclusão em lote' });
@@ -1793,7 +2048,7 @@ function openGroupGridOverlay(group) {
       const card = dot.closest('.group-grid-card');
       const fp = card?.dataset.path;
       if (!fp) return;
-      const result = await window.api.toggleMod(fp);
+      const result = await apiToggleMod(fp);
       if (result.success) {
         const name = fp.split(/[\\/]/).pop();
         dlog('INFO', `Toggle mod: "${name}" → ${result.newPath?.endsWith('.disabled') ? 'desativado' : 'ativado'}`);
@@ -1824,7 +2079,7 @@ function openGroupGridOverlay(group) {
             [
               { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
               { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
-                const results = await window.api.trashModsBatch([filePath]);
+                const results = await apiTrashBatch([filePath]);
                 if (results[0]?.success) {
                   closeModal();
                   await loadMods(); renderMods();
@@ -1973,16 +2228,23 @@ function openGroupOverlay(group) {
         const b = document.getElementById(id); if (b) b.disabled = true;
       });
       const results = [];
-      for (const p of targets) results.push(await window.api.toggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p));
       await loadMods();
       refreshGroupFiles(results);
       renderMods();
       clearOverlaySelection();
       renderView(currentView);
-      toast(`${targets.length} mod(s) ativados`, 'success');
+      const okEn = results.filter(r => r.success).length;
+      const failEn = results.length - okEn;
+      if (failEn) {
+        results.filter(r => !r.success).forEach(r => dlog('ERROR', `Falha ao ativar (grupo): ${r.error || 'erro desconhecido'}`));
+        toast(`${okEn} ativado(s), ${failEn} com falha`, 'warning');
+      } else {
+        toast(`${targets.length} mod(s) ativados`, 'success');
+      }
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Ativar ${newPaths.length} mod(s)`, async () => {
-        for (const p of newPaths) await window.api.toggleMod(p);
+        for (const p of newPaths) await apiToggleMod(p);
         await loadMods(); renderMods();
       }, 'toggle_on', { count: newPaths.length, source: 'group-modal' });
     });
@@ -1996,16 +2258,23 @@ function openGroupOverlay(group) {
         const b = document.getElementById(id); if (b) b.disabled = true;
       });
       const results = [];
-      for (const p of targets) results.push(await window.api.toggleMod(p));
+      for (const p of targets) results.push(await apiToggleMod(p));
       await loadMods();
       refreshGroupFiles(results);
       renderMods();
       clearOverlaySelection();
       renderView(currentView);
-      toast(`${targets.length} mod(s) desativados`, 'success');
+      const okDis = results.filter(r => r.success).length;
+      const failDis = results.length - okDis;
+      if (failDis) {
+        results.filter(r => !r.success).forEach(r => dlog('ERROR', `Falha ao desativar (grupo): ${r.error || 'erro desconhecido'}`));
+        toast(`${okDis} desativado(s), ${failDis} com falha`, 'warning');
+      } else {
+        toast(`${targets.length} mod(s) desativados`, 'success');
+      }
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
       pushUndo(`Desativar ${newPaths.length} mod(s)`, async () => {
-        for (const p of newPaths) await window.api.toggleMod(p);
+        for (const p of newPaths) await apiToggleMod(p);
         await loadMods(); renderMods();
       }, 'toggle_off', { count: newPaths.length, source: 'group-modal' });
     });
@@ -2018,7 +2287,7 @@ function openGroupOverlay(group) {
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: `Mover ${sel.length} para lixeira`, cls: 'btn-danger', action: async () => {
-            const results = await window.api.trashModsBatch(sel);
+            const results = await apiTrashBatch(sel);
             const failed  = results.filter(r => !r.success).length;
             const deleted = results.length - failed;
             await loadMods(); renderMods(); updateTrashBadge();
@@ -2031,7 +2300,7 @@ function openGroupOverlay(group) {
             if (deleted > 0) {
               const trashed = results.filter(r => r.success);
               pushUndo(`Excluir ${deleted} arquivo(s)`, async () => {
-                for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+                for (const r of trashed) await apiRestoreFromTrash(r.trashPath, r.originalPath);
                 await loadMods(); renderMods();
                 toast(`${trashed.length} arquivo(s) restaurados`, 'success');
               }, 'delete', { count: deleted, source: 'group-modal', trashPaths: trashed.map(r => r.trashPath) });
@@ -2276,7 +2545,7 @@ function openGroupOverlay(group) {
               [
                 { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
                 { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
-                  const results = await window.api.trashModsBatch([filePath]);
+                  const results = await apiTrashBatch([filePath]);
                   if (results[0]?.success) {
                     const { trashPath, originalPath } = results[0];
                     closeModal();
@@ -2284,7 +2553,7 @@ function openGroupOverlay(group) {
                     updateTrashBadge();
                     toast(`"${name}" movido para a lixeira`, 'success');
                     pushUndo(`Excluir ${name}`, async () => {
-                      await window.api.restoreModFromTrash(trashPath, originalPath);
+                      await apiRestoreFromTrash(trashPath, originalPath);
                       await loadMods(); renderMods();
                       toast('Mod restaurado', 'success');
                       logAction('restore', { name, label: `Restaurar ${name}` });
@@ -2309,7 +2578,7 @@ function openGroupOverlay(group) {
         }
         // Plain click with no drag → toggle mod
         const fp = row.dataset.path;
-        const result = await window.api.toggleMod(fp);
+        const result = await apiToggleMod(fp);
         if (result.success) {
           await loadMods();
           refreshGroupFiles([result]);
@@ -2327,7 +2596,7 @@ function openGroupOverlay(group) {
         const card = dot.closest('.group-overlay-grid-card');
         const fp = card?.dataset.path;
         if (!fp) return;
-        const result = await window.api.toggleMod(fp);
+        const result = await apiToggleMod(fp);
         if (result.success) {
           await loadMods();
           refreshGroupFiles([result]);
@@ -2349,7 +2618,7 @@ function openGroupOverlay(group) {
               [
                 { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
                 { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
-                  const results = await window.api.trashModsBatch([filePath]);
+                  const results = await apiTrashBatch([filePath]);
                   if (results[0]?.success) {
                     closeModal();
                     await loadMods(); renderMods();
@@ -2718,14 +2987,14 @@ function setupGalleryEvents(el, mods) {
   el.querySelectorAll('.dot-clickable:not(.dot-clickable-group)').forEach(dot => {
     dot.addEventListener('click', async e => {
       e.stopPropagation();
-      const result = await window.api.toggleMod(dot.dataset.path);
+      const result = await apiToggleMod(dot.dataset.path);
       if (result.success) {
         await loadMods(); renderMods();
         const allMods = [...state.mods, ...state.trayFiles];
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split(/[\/]/).pop();
-        const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
+        const toggleAgain = async () => { await apiToggleMod(result.newPath); await loadMods(); renderMods(); };
         dlog('INFO', `Toggle mod: "${modName}" → ${nowEnabled ? 'ativado' : 'desativado'}`);
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
           toggleAgain,
@@ -2748,12 +3017,12 @@ function setupGalleryEvents(el, mods) {
         const allEnabled = group.files.every(f => f.enabled);
         const results = [];
         for (const f of group.files) {
-          if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));
+          if (allEnabled ? f.enabled : !f.enabled) results.push(await apiToggleMod(f.path));
         }
         await loadMods(); renderMods();
         const newPaths = results.filter(r => r.success).map(r => r.newPath);
         pushUndo(`${allEnabled ? 'Desativar' : 'Ativar'} grupo ${group.name}`, async () => {
-          for (const p of newPaths) await window.api.toggleMod(p);
+          for (const p of newPaths) await apiToggleMod(p);
           await loadMods(); renderMods();
         }, allEnabled ? 'toggle_off' : 'toggle_on', { name: group.name, count: newPaths.length, type: 'group' });
       } catch (err) { toast('Erro ao alternar grupo', 'error'); }
@@ -3198,12 +3467,12 @@ function setupModsEvents(el, mods) {
         const allEnabled = group.files.every(f => f.enabled);
         const results = [];
         for (const f of group.files) {
-          if (allEnabled ? f.enabled : !f.enabled) results.push(await window.api.toggleMod(f.path));
+          if (allEnabled ? f.enabled : !f.enabled) results.push(await apiToggleMod(f.path));
         }
         await loadMods(); renderMods();
         const newPaths = results.filter(r => r.success).map(r => r.newPath);
         pushUndo(`${allEnabled ? 'Desativar' : 'Ativar'} grupo ${group.name}`, async () => {
-          for (const p of newPaths) await window.api.toggleMod(p);
+          for (const p of newPaths) await apiToggleMod(p);
           await loadMods(); renderMods();
         }, allEnabled ? 'toggle_off' : 'toggle_on', { name: group.name, count: newPaths.length, type: 'group' });
       } catch (err) { toast('Erro ao alternar conjunto', 'error'); }
@@ -3213,14 +3482,14 @@ function setupModsEvents(el, mods) {
   // Toggle individual mod
   el.querySelectorAll('.toggle-mod-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const result = await window.api.toggleMod(btn.dataset.path);
+      const result = await apiToggleMod(btn.dataset.path);
       if (result.success) {
         await loadMods(); renderMods();
         const allMods = [...state.mods, ...state.trayFiles];
         const mod = allMods.find(m => m.path === result.newPath);
         const nowEnabled = mod?.enabled ?? false;
         const modName = mod?.name || result.newPath.split(/[\/]/).pop();
-        const toggleAgain = async () => { await window.api.toggleMod(result.newPath); await loadMods(); renderMods(); };
+        const toggleAgain = async () => { await apiToggleMod(result.newPath); await loadMods(); renderMods(); };
         dlog('INFO', `Toggle mod: "${modName}" → ${nowEnabled ? 'ativado' : 'desativado'}`);
         pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${modName}`,
           toggleAgain,
@@ -3241,14 +3510,14 @@ function setupModsEvents(el, mods) {
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
-            const results = await window.api.trashModsBatch([filePath]);
+            const results = await apiTrashBatch([filePath]);
             if (results[0]?.success) {
               const { trashPath, originalPath } = results[0];
               await loadMods(); renderMods();
               updateTrashBadge();
               toast('Mod movido para a lixeira', 'success');
               pushUndo(`Excluir ${name}`, async () => {
-                await window.api.restoreModFromTrash(trashPath, originalPath);
+                await apiRestoreFromTrash(trashPath, originalPath);
                 await loadMods(); renderMods();
                 toast('Mod restaurado', 'success');
                 logAction('restore', { name, label: `Restaurar ${name}` });
@@ -3279,7 +3548,7 @@ function setupModsEvents(el, mods) {
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: `Mover ${fileCount} para lixeira`, cls: 'btn-danger', action: async () => {
-            const results = await window.api.trashModsBatch(paths);
+            const results = await apiTrashBatch(paths);
             const failed  = results.filter(r => !r.success).length;
             const deleted = results.length - failed;
             await loadMods(); renderMods();
@@ -3288,7 +3557,7 @@ function setupModsEvents(el, mods) {
             if (deleted > 0) {
               const trashed = results.filter(r => r.success);
               pushUndo(`Excluir grupo ${group.name}`, async () => {
-                for (const r of trashed) await window.api.restoreModFromTrash(r.trashPath, r.originalPath);
+                for (const r of trashed) await apiRestoreFromTrash(r.trashPath, r.originalPath);
                 await loadMods(); renderMods();
                 toast(`${trashed.length} arquivo(s) restaurados`, 'success');
                 logAction('restore', { count: trashed.length, name: group.name, label: `Restaurar grupo ${group.name}` });
@@ -3435,7 +3704,7 @@ async function doImport(filePaths) {
     if (result.imported.length > 0) {
       const importedPaths = result.imported;
       pushUndo(`Importar ${result.imported.length} arquivo(s)`, async () => {
-        const trashResults = await window.api.trashModsBatch(importedPaths);
+        const trashResults = await apiTrashBatch(importedPaths);
         const ok = trashResults.filter(r => r.success).length;
         await loadMods();
         updateTrashBadge();
@@ -3693,7 +3962,7 @@ function renderConflictResults(el) {
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Deletar', cls: 'btn-danger', action: async () => {
-            const result = await window.api.conflictMoveToTrash(filePath);
+            const result = await apiConflictMoveToTrash(filePath);
             if (!result.success) { toast('Erro ao deletar: ' + (result.error || ''), 'error'); return; }
             const trashPath = result.to;
             const removedConflict = state.conflicts[idx];
@@ -3703,7 +3972,7 @@ function renderConflictResults(el) {
             toast('Arquivo deletado', 'success');
             updateTrashBadge();
             pushUndo(`Deletar ${fileName}`, async () => {
-              await window.api.conflictRestoreFromTrash(trashPath, filePath);
+              await apiConflictRestoreFromTrash(trashPath, filePath);
               await loadMods();
               // Restore conflict entry so card reappears without requiring a rescan
               if (!state.conflicts.find(c => c.id === removedConflict.id)) {
@@ -4057,7 +4326,7 @@ function renderOrganizeResults(el) {
         { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
         { label: `Mover ${total} para Lixeira`, cls: 'btn-danger', action: async () => {
           const paths = state.invalidFiles.map(f => f.path);
-          const results = await window.api.deleteInvalidFiles(paths);
+          const results = await apiDeleteInvalidFiles(paths);
           const ok = results.filter(r => r.success).length;
           const trashed = results.filter(r => r.success);
           state.invalidFiles = state.invalidFiles.filter((_, i) => !results[i]?.success);
@@ -4068,7 +4337,7 @@ function renderOrganizeResults(el) {
             pushUndo(`Excluir ${ok} arquivo(s) inválido(s)`, async () => {
               for (const r of trashed) {
                 if (r.trashPath && r.originalPath) {
-                  await window.api.trashRestore(r.trashPath, r.originalPath);
+                  await apiTrashRestore(r.trashPath, r.originalPath);
                 }
               }
               await loadMods();
@@ -4091,7 +4360,7 @@ function renderOrganizeResults(el) {
       const idx  = parseInt(btn.dataset.index);
       const item = state.invalidFiles[idx];
       if (!item) return;
-      const results = await window.api.deleteInvalidFiles([item.path]);
+      const results = await apiDeleteInvalidFiles([item.path]);
       if (results[0]?.success) {
         const { trashPath, originalPath } = results[0];
         state.invalidFiles.splice(idx, 1);
@@ -4100,7 +4369,7 @@ function renderOrganizeResults(el) {
         toast(`"${item.name}" movido para a lixeira`, 'success');
         pushUndo(`Excluir "${item.name}"`, async () => {
           if (trashPath && originalPath) {
-            await window.api.trashRestore(trashPath, originalPath);
+            await apiTrashRestore(trashPath, originalPath);
           }
           await loadMods();
           if (state.config?.modsFolder) {
@@ -4131,7 +4400,7 @@ function renderOrganizeResults(el) {
     el.querySelectorAll('.fix-one-btn').forEach(b => { b.disabled = true; });
     try {
     dlog('INFO', `Organizador: corrigindo ${state.misplaced.length} arquivo(s) mal colocado(s)`);
-    const results = await window.api.fixMisplaced(state.misplaced);
+    const results = await apiFixMisplaced(state.misplaced);
     const ok = results.filter(r => r.success).length;
     state.misplaced = state.misplaced.filter((_, i) => !results[i]?.success);
     await loadMods();
@@ -4140,7 +4409,7 @@ function renderOrganizeResults(el) {
     toast(`${ok} arquivo(s) corrigido(s)`, 'success');
     pushUndo(`Mover ${ok} arquivo(s)`, async () => {
       for (const r of results) {
-        if (r.success) await window.api.moveMod(r.to, r.from);
+        if (r.success) await apiMoveMod(r.to, r.from);
       }
       await loadMods();
       renderOrganizeResults(el);
@@ -4162,7 +4431,7 @@ function renderOrganizeResults(el) {
       const item = state.misplaced[idx];
       try {
       dlog('INFO', `Organizador: corrigindo "${item.name}" → ${item.suggestedDest}`);
-      const result = await window.api.fixOneMisplaced(item);
+      const result = await apiFixOneMisplaced(item);
       if (result.success) {
         dlog('INFO', `Organizador: "${item.name}" movido com sucesso`);
         const from = result.from; const to = result.to;
@@ -4171,7 +4440,7 @@ function renderOrganizeResults(el) {
         renderOrganizeResults(el);
         toast('Arquivo movido com sucesso', 'success');
         pushUndo(`Mover ${item.name}`, async () => {
-          await window.api.moveMod(to, from);
+          await apiMoveMod(to, from);
           await loadMods();
           renderOrganizeResults(el);
           logAction('restore', { name: item.name, label: `Desfazer movimentação de ${item.name}` });
@@ -4218,7 +4487,7 @@ function renderOrganizeResults(el) {
 
     let moved = 0;
     for (const { originalPath, newPath } of movedMap) {
-      const result = await window.api.moveMod(originalPath, newPath);
+      const result = await apiMoveMod(originalPath, newPath);
       if (result.success) moved++;
     }
 
@@ -4247,7 +4516,7 @@ function renderOrganizeResults(el) {
                 `Consolidar "${group.prefix}" (${moved} arquivo${moved !== 1 ? 's' : ''})`,
                 async () => {
                   for (const { newPath, originalPath } of movedMap) {
-                    await window.api.moveMod(newPath, originalPath);
+                    await apiMoveMod(newPath, originalPath);
                   }
                   await loadMods();
                   if (state.config?.modsFolder) {
@@ -4324,7 +4593,7 @@ function renderOrganizeResults(el) {
             `Consolidar ${groupCount} grupo${groupCount !== 1 ? 's' : ''} (${totalMoved} arquivo${totalMoved !== 1 ? 's' : ''})`,
             async () => {
               for (const { newPath, originalPath } of allMovedMap) {
-                await window.api.moveMod(newPath, originalPath);
+                await apiMoveMod(newPath, originalPath);
               }
               await loadMods();
               if (state.config?.modsFolder) {
@@ -4351,7 +4620,7 @@ function renderOrganizeResults(el) {
         { label: `Apagar ${count} pasta(s)`, cls: 'btn-danger', action: async () => {
           const toDelete = [...state.emptyFolders];
           const paths = toDelete.map(f => f.path);
-          const results = await window.api.deleteEmptyFolders(paths);
+          const results = await apiDeleteEmptyFolders(paths);
           const ok = results.filter(r => r.success).length;
           const failed = results.length - ok;
           const deletedFolders = toDelete.filter((_, i) => results[i]?.success);
@@ -4361,7 +4630,7 @@ function renderOrganizeResults(el) {
           if (ok > 0) {
             const deletedPaths = deletedFolders.map(f => f.path);
             pushUndo(`Apagar ${ok} pasta(s) vazia(s)`, async () => {
-              const restoreResults = await window.api.restoreEmptyFolders(deletedPaths);
+              const restoreResults = await apiRestoreEmptyFolders(deletedPaths);
               const restored = restoreResults.filter(r => r.success).length;
               const failed   = restoreResults.length - restored;
               // Re-adiciona as pastas restauradas ao estado para que apareçam na UI
@@ -4393,14 +4662,14 @@ function renderOrganizeResults(el) {
         [
           { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
           { label: 'Apagar', cls: 'btn-danger', action: async () => {
-            const results = await window.api.deleteEmptyFolders([folder.path]);
+            const results = await apiDeleteEmptyFolders([folder.path]);
             if (results[0]?.success) {
               state.emptyFolders.splice(idx, 1);
               renderOrganizeResults(el);
               toast('Pasta apagada', 'success');
               const folderPath = folder.path;
               pushUndo(`Apagar pasta "${folder.name}"`, async () => {
-                const restoreResults = await window.api.restoreEmptyFolders([folderPath]);
+                const restoreResults = await apiRestoreEmptyFolders([folderPath]);
                 if (restoreResults[0]?.success) {
                   state.emptyFolders = [...state.emptyFolders, folder];
                   if (state.currentPage === 'organizer') renderOrganizeResults(el);
@@ -5039,7 +5308,7 @@ function renderTrashList(el, items) {
       if (emptyBtn) emptyBtn.disabled = true;
       container.querySelectorAll('.trash-restore-btn, .trash-delete-btn').forEach(b => { b.disabled = true; });
       try {
-        const result = await window.api.trashRestore(item.trashPath, item.originalPath);
+        const result = await apiTrashRestore(item.trashPath, item.originalPath);
         if (result.success) {
           dlog('INFO', `Lixeira: "${item.name}" restaurado para ${item.originalPath}`);
           clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
@@ -5071,7 +5340,7 @@ function renderTrashList(el, items) {
             invalidateUndoForTrashPaths([item.trashPath]);
             try {
               dlog('WARN', `Lixeira: excluindo permanentemente "${item.name}"`);
-              const result = await window.api.trashDeletePermanent(item.trashPath);
+              const result = await apiTrashDeletePermanent(item.trashPath);
               if (result.success) {
                 dlog('INFO', `Lixeira: "${item.name}" excluído permanentemente`);
                 toast(`"${item.name}" excluído permanentemente`, 'success');
@@ -5109,7 +5378,7 @@ function renderTrashList(el, items) {
           let ok = 0;
           try {
             for (const item of restorable) {
-              const r = await window.api.trashRestore(item.trashPath, item.originalPath);
+              const r = await apiTrashRestore(item.trashPath, item.originalPath);
               if (r.success) ok++;
             }
             if (ok > 0) clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
@@ -5149,8 +5418,7 @@ function renderTrashList(el, items) {
           invalidateUndoForTrashPaths(allTrashPaths);
           try {
             dlog('WARN', `Lixeira: esvaziando (${items.length} item(ns))`);
-            const result = await window.api.trashEmpty();
-            dlog(result.failed ? 'WARN' : 'INFO', `Lixeira esvaziada — ${result.ok} excluído(s)${result.failed ? `, ${result.failed} com erro` : ''}`);
+            const result = await apiTrashEmpty();
             toast(`${result.ok} item(ns) excluído(s) permanentemente${result.failed ? `, ${result.failed} com erro` : ''}`, result.failed ? 'warning' : 'success');
             if (result.ok > 0) {
               // Histórico já foi invalidado antes do await — nada a fazer aqui
@@ -5353,8 +5621,7 @@ function renderSettings() {
     const autoCheckDuplicates = el.querySelector('#toggle-auto-duplicates')?.checked ?? false;
     const debugMode = el.querySelector('#toggle-debug-mode')?.checked ?? false;
     state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates, debugMode };
-    await window.api.setConfig(state.config);
-    dlog('INFO', `Configurações salvas — mods: ${modsFolder} | tray: ${trayFolder} | debug: ${debugMode}`);
+    await apiSetConfig(state.config);
     // Sincronizar estado de debug no processo principal
     try {
       await window.api.setDebugEnabled(debugMode);
@@ -5370,7 +5637,7 @@ function renderSettings() {
   });
 
   el.querySelector('#clear-thumb-cache')?.addEventListener('click', async () => {
-    await window.api.clearThumbnailCache();
+    await apiClearThumbnailCache();
     state.thumbnailCache = {};
     toast('Cache de miniaturas limpo — reabra a grade para recarregar', 'success', 4000);
   });
@@ -5400,7 +5667,7 @@ function renderSettings() {
     const enabled = e.target.checked;
     const level   = el.querySelector('#select-error-log-level')?.value || 'ERROR';
     try {
-      await window.api.setErrorLog({ enabled, level });
+      await apiSetErrorLog({ enabled, level });
       state.errorLogStatus = { ...state.errorLogStatus, enabled, level };
       toast(enabled ? 'Log de erros ativado' : 'Log de erros desativado', 'info');
     } catch (_) { toast('Erro ao salvar configuração de log', 'error'); }
@@ -5410,7 +5677,7 @@ function renderSettings() {
     const level   = e.target.value;
     const enabled = el.querySelector('#toggle-error-log')?.checked ?? true;
     try {
-      await window.api.setErrorLog({ enabled, level });
+      await apiSetErrorLog({ enabled, level });
       state.errorLogStatus = { ...state.errorLogStatus, enabled, level };
       toast(`Nível de log alterado para ${level}`, 'info');
     } catch (_) { toast('Erro ao salvar nível de log', 'error'); }

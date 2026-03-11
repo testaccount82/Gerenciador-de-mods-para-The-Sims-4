@@ -298,9 +298,9 @@ describe('renderer.js — regressões de comportamento crítico', () => {
 
   test('invalidateUndoForTrashPaths é chamado ANTES do await trashEmpty (bug undo ativo durante esvaziamento)', () => {
     // Garante que clearUndoBar e invalidateUndoForTrashPaths aparecem antes de
-    // "await window.api.trashEmpty()" no código fonte, impedindo que o botão
+    // "await apiTrashEmpty()" no código fonte, impedindo que o botão
     // Desfazer permaneça ativo enquanto a operação de esvaziamento está em curso.
-    const trashEmptyIdx   = src.indexOf('await window.api.trashEmpty()');
+    const trashEmptyIdx   = src.indexOf('await apiTrashEmpty()');
     const invalidateIdx   = src.lastIndexOf('invalidateUndoForTrashPaths(allTrashPaths)', trashEmptyIdx);
     const clearUndoIdx    = src.lastIndexOf('clearUndoBar()', trashEmptyIdx);
 
@@ -315,23 +315,23 @@ describe('renderer.js — regressões de comportamento crítico', () => {
 
   test('exclusão de pastas vazias usa pushUndo com restoreEmptyFolders (undo suportado)', () => {
     // Pastas vazias agora suportam desfazer — são recriadas via restoreEmptyFolders.
-    // O código deve usar pushUndo com uma undoFn que chama window.api.restoreEmptyFolders.
-    const deleteEmptyIdx       = src.indexOf("window.api.deleteEmptyFolders(paths)");
-    const deleteEmptySingleIdx = src.indexOf("window.api.deleteEmptyFolders([folder.path])");
+    // O código deve usar pushUndo com uma undoFn que chama apiRestoreEmptyFolders.
+    const deleteEmptyIdx       = src.indexOf("await apiDeleteEmptyFolders(paths)");
+    const deleteEmptySingleIdx = src.indexOf("await apiDeleteEmptyFolders([folder.path]");
 
-    const afterBatch  = src.slice(deleteEmptyIdx,  deleteEmptyIdx  + 1200);
-    const afterSingle = src.slice(deleteEmptySingleIdx, deleteEmptySingleIdx + 1200);
+    const afterBatch  = src.slice(deleteEmptyIdx,  deleteEmptyIdx  + 2000);
+    const afterSingle = src.slice(deleteEmptySingleIdx, deleteEmptySingleIdx + 2000);
 
     // pushUndo deve aparecer logo após cada deleteEmptyFolders
     expect(afterBatch).toMatch(/pushUndo\(/);
     expect(afterSingle).toMatch(/pushUndo\(/);
 
     // A undoFn deve chamar restoreEmptyFolders
-    expect(afterBatch).toContain('restoreEmptyFolders');
-    expect(afterSingle).toContain('restoreEmptyFolders');
+    expect(afterBatch).toContain('apiRestoreEmptyFolders');
+    expect(afterSingle).toContain('apiRestoreEmptyFolders');
 
-    // restoreEmptyFolders deve existir como API exposta no renderer
-    expect(src).toMatch(/window\.api\.restoreEmptyFolders/);
+    // restoreEmptyFolders deve existir como wrapper no renderer
+    expect(src).toMatch(/apiRestoreEmptyFolders/);
   });
 
   test('handler organize:restore-empty-folders existe no main.js', () => {
