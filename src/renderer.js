@@ -41,6 +41,7 @@ const state = {
   thumbnailCache: {},     // path -> base64 | null
   expandedGroups: new Set(), // group keys currently expanded
   appVersion: null,        // cached app version string (populated in init())
+  debugStatus: null,       // { enabled, logPath, activatedByCli } — populated in init()
 };
 
 // Prevents runStartupChecks() from being called more than once per session
@@ -5099,6 +5100,36 @@ function renderSettings() {
     </div>
 
     <div class="card">
+      <div class="card-title">Depuração</div>
+      <div class="settings-group">
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Modo de depuração (debug)</div>
+            <div class="settings-desc">
+              Ativa o registro detalhado de eventos em arquivo de log — útil para diagnosticar problemas.
+              Também pode ser ativado iniciando o programa com o parâmetro <code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px">--debug</code>.
+              ${state.debugStatus?.activatedByCli ? '<br><span style="color:var(--warning,#ffb74d);font-size:11px">⚡ Ativado via linha de comando (--debug)</span>' : ''}
+            </div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-debug-mode" ${(cfg.debugMode || state.debugStatus?.activatedByCli) ? 'checked' : ''} ${state.debugStatus?.activatedByCli ? 'disabled' : ''}>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+        </div>
+        <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
+          <div>
+            <div class="settings-label">Visualizador de depuração</div>
+            <div class="settings-desc">Abre uma janela independente para visualizar os logs em tempo real — funciona mesmo se a interface principal apresentar problemas</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" id="btn-open-debug-window">🐛 Abrir janela de debug</button>
+            <button class="btn btn-secondary btn-sm" id="btn-open-debug-file">📂 Abrir arquivo de log</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> <span id="about-version">${state.appVersion ? 'v' + escapeHtml(String(state.appVersion)) : ''}</span><br>
@@ -5132,8 +5163,14 @@ function renderSettings() {
     if (modsFolder === trayFolder) { toast('As pastas Mods e Tray não podem ser iguais', 'warning'); return; }
     const autoCheckMisplaced = el.querySelector('#toggle-auto-misplaced')?.checked ?? true;
     const autoCheckDuplicates = el.querySelector('#toggle-auto-duplicates')?.checked ?? false;
-    state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates };
+    const debugMode = el.querySelector('#toggle-debug-mode')?.checked ?? false;
+    state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates, debugMode };
     await window.api.setConfig(state.config);
+    // Sincronizar estado de debug no processo principal
+    try {
+      await window.api.setDebugEnabled(debugMode);
+      state.debugStatus = await window.api.getDebugStatus();
+    } catch (_) {}
     toast('Configurações salvas com sucesso', 'success');
     await loadMods();
   });
@@ -5147,6 +5184,16 @@ function renderSettings() {
     await window.api.clearThumbnailCache();
     state.thumbnailCache = {};
     toast('Cache de miniaturas limpo — reabra a grade para recarregar', 'success', 4000);
+  });
+
+  el.querySelector('#btn-open-debug-window')?.addEventListener('click', async () => {
+    try { await window.api.openDebugWindow(); }
+    catch (_) { toast('Não foi possível abrir a janela de debug', 'error'); }
+  });
+
+  el.querySelector('#btn-open-debug-file')?.addEventListener('click', async () => {
+    try { await window.api.openDebugLogFile(); }
+    catch (_) { toast('Não foi possível abrir o arquivo de log', 'error'); }
   });
 }
 
@@ -5222,6 +5269,10 @@ async function init() {
   // Load config & mods
   state.config = await window.api.getConfig();
   await loadMods();
+
+  // Carregar status de debug
+  try { state.debugStatus = await window.api.getDebugStatus(); } catch (_) {}
+
 
   // Versão dinâmica — lida do package.json via Electron
   try {

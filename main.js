@@ -40,8 +40,77 @@ const DEFAULT_CONFIG = {
   theme: 'dark',
   windowBounds: { width: 1100, height: 720 },
   autoCheckMisplaced: true,
-  autoCheckDuplicates: false
+  autoCheckDuplicates: false,
+  debugMode: false
 };
+
+// ─── Debug Logger ─────────────────────────────────────────────────────────────
+
+const DEBUG_LOG_PATH = path.join(app.getPath('userData'), 'debug.log');
+const DEBUG_MAX_BYTES = 5 * 1024 * 1024; // 5 MB — rotate when exceeded
+
+// Activated by config flag OR --debug / -debug CLI argument
+let debugEnabled = process.argv.some(a => a === '--debug' || a === '-debug');
+let debugWindow = null;
+
+/**
+ * Write a timestamped entry to the debug log file and forward it to the
+ * debug window (if open). Safe to call from any part of main process.
+ * @param {'INFO'|'WARN'|'ERROR'|'DEBUG'} level
+ * @param {...*} args
+ */
+function debugLog(level, ...args) {
+  if (!debugEnabled) return;
+  const ts = new Date().toISOString();
+  const message = args.map(a => {
+    if (a instanceof Error) return `${a.message}\n${a.stack || ''}`;
+    if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a); } catch (_) { return String(a); } }
+    return String(a);
+  }).join(' ');
+  const line = `[${ts}] [${level.padEnd(5)}] ${message}`;
+  try {
+    // Rotate log if it exceeds the size limit
+    if (fs.existsSync(DEBUG_LOG_PATH)) {
+      const size = fs.statSync(DEBUG_LOG_PATH).size;
+      if (size > DEBUG_MAX_BYTES) {
+        const old = fs.readFileSync(DEBUG_LOG_PATH, 'utf-8');
+        // Keep the last half
+        const half = old.slice(Math.floor(old.length / 2));
+        const rotateMsg = `[${ts}] [INFO ] --- log rotated (exceeded ${DEBUG_MAX_BYTES} bytes) ---\n`;
+        fs.writeFileSync(DEBUG_LOG_PATH, rotateMsg + half, 'utf-8');
+      }
+    }
+    fs.appendFileSync(DEBUG_LOG_PATH, line + '\n', 'utf-8');
+  } catch (_) { /* never crash due to logging */ }
+  // Forward to debug window in real time
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    try { debugWindow.webContents.send('debug:line', line); } catch (_) {}
+  }
+}
+
+function createDebugWindow() {
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    debugWindow.focus();
+    return;
+  }
+  debugWindow = new BrowserWindow({
+    width: 900,
+    height: 600,
+    minWidth: 600,
+    minHeight: 400,
+    title: 'TS4 Mod Manager — Debug',
+    backgroundColor: '#0d0d0d',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-debug.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  debugWindow.setMenuBarVisibility(false);
+  debugWindow.loadFile(path.join(__dirname, 'src', 'debug.html'));
+  debugWindow.on('closed', () => { debugWindow = null; });
+}
 
 function readConfig() {
   try {
@@ -70,6 +139,15 @@ let mainWindow = null;
 
 function createWindow() {
   const config = readConfig();
+  // CLI flag always wins; otherwise honour the persisted config value
+  debugEnabled = debugEnabled || config.debugMode === true;
+  if (debugEnabled) {
+    debugLog('INFO', `=== TS4 Mod Manager starting (v${app.getVersion()}) ===`);
+    debugLog('INFO', `Debug mode activated via: ${process.argv.some(a => a === '--debug' || a === '-debug') ? 'CLI flag' : 'config'}`);
+    debugLog('INFO', `Platform: ${process.platform} | Arch: ${process.arch} | Electron: ${process.versions.electron} | Node: ${process.versions.node}`);
+    debugLog('INFO', `userData: ${app.getPath('userData')}`);
+    debugLog('INFO', `Log file: ${DEBUG_LOG_PATH}`);
+  }
   const { width, height } = config.windowBounds || { width: 1100, height: 720 };
 
   mainWindow = new BrowserWindow({
@@ -95,6 +173,15 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    debugLog('INFO', 'Main window ready and shown');
+  });
+
+  mainWindow.webContents.on('did-fail-load', (e, code, desc, url) => {
+    debugLog('ERROR', `Main window failed to load: [${code}] ${desc} — ${url}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (e, details) => {
+    debugLog('ERROR', `Renderer process gone: reason=${details.reason} exitCode=${details.exitCode}`);
   });
 
   let _resizeTimer = null;
@@ -1237,6 +1324,48 @@ function deleteEmptyFolders(folderPaths) {
 // App
 ipcMain.handle('app:version', () => app.getVersion());
 
+// ─── Debug ────────────────────────────────────────────────────────────────────
+
+ipcMain.handle('debug:get-status', () => ({
+  enabled: debugEnabled,
+  logPath: DEBUG_LOG_PATH,
+  activatedByCli: process.argv.some(a => a === '--debug' || a === '-debug')
+}));
+
+ipcMain.handle('debug:set-enabled', (_, value) => {
+  debugEnabled = Boolean(value);
+  const cfg = readConfig();
+  cfg.debugMode = debugEnabled;
+  writeConfig(cfg);
+  if (debugEnabled) {
+    debugLog('INFO', `=== Debug mode enabled at runtime ===`);
+    debugLog('INFO', `Platform: ${process.platform} | Electron: ${process.versions.electron} | Node: ${process.versions.node}`);
+  }
+  return true;
+});
+
+ipcMain.handle('debug:get-log', () => {
+  try {
+    if (!fs.existsSync(DEBUG_LOG_PATH)) return '';
+    return fs.readFileSync(DEBUG_LOG_PATH, 'utf-8');
+  } catch (e) { return `[erro ao ler log: ${e.message}]`; }
+});
+
+ipcMain.handle('debug:clear-log', () => {
+  try { fs.writeFileSync(DEBUG_LOG_PATH, '', 'utf-8'); return true; } catch (_) { return false; }
+});
+
+ipcMain.handle('debug:open-log-file', () => {
+  if (fs.existsSync(DEBUG_LOG_PATH)) shell.openPath(DEBUG_LOG_PATH);
+  else shell.openPath(path.dirname(DEBUG_LOG_PATH));
+});
+
+ipcMain.handle('debug:open-window', () => { createDebugWindow(); });
+
+ipcMain.handle('debug:log-from-renderer', (_, level, message) => {
+  debugLog(level || 'INFO', `[renderer] ${message}`);
+});
+
 // Config
 ipcMain.handle('config:get', () => readConfig());
 ipcMain.handle('config:set', (_, config) => {
@@ -1269,6 +1398,7 @@ ipcMain.handle('config:set', (_, config) => {
     if (path.resolve(config.modsFolder) === path.resolve(config.trayFolder)) return false;
   }
   writeConfig(config);
+  debugLog('INFO', `Config saved: modsFolder=${config.modsFolder} trayFolder=${config.trayFolder} debugMode=${config.debugMode}`);
   return true;
 });
 

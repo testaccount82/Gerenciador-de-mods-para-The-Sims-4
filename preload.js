@@ -76,6 +76,13 @@ contextBridge.exposeInMainWorld('api', {
   // App version
   getAppVersion: () => ipcRenderer.invoke('app:version'),
 
+  // Debug
+  getDebugStatus:   ()           => ipcRenderer.invoke('debug:get-status'),
+  setDebugEnabled:  (value)      => ipcRenderer.invoke('debug:set-enabled', value),
+  openDebugWindow:  ()           => ipcRenderer.invoke('debug:open-window'),
+  openDebugLogFile: ()           => ipcRenderer.invoke('debug:open-log-file'),
+  debugLog:         (level, msg) => ipcRenderer.invoke('debug:log-from-renderer', level, msg),
+
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
