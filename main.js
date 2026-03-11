@@ -122,7 +122,7 @@ let errorLogLevel   = 'ERROR'; // 'ERROR' | 'WARN' | 'INFO'
  * @param {string} context
  * @param {Error|*} err
  */
-function errorLog(level, context, err) {
+function errorLog(level, context, err, skipDebugLog = false) {
   if (!errorLogEnabled) return;
   const configOrder  = LOG_LEVEL_ORDER[errorLogLevel] ?? 0;
   const eventOrder   = LOG_LEVEL_ORDER[level]         ?? 0;
@@ -134,7 +134,9 @@ function errorLog(level, context, err) {
       : String(err);
     const line = `[${ts}] [${level}] [${context}]\n${msg}\n${'─'.repeat(60)}\n`;
     fs.appendFileSync(ERROR_LOG_PATH, line, 'utf-8');
-    debugLog(level, `[${context}] ${msg}`);
+    // skipDebugLog=true quando chamado pelo batch handler do renderer —
+    // evita duplicar a entrada na janela de debug (debugLog já foi chamado antes)
+    if (!skipDebugLog) debugLog(level, `[${context}] ${msg}`);
   } catch (_) { /* never crash due to logging */ }
 }
 
@@ -993,6 +995,13 @@ async function importFiles(filePaths, modsFolder, trayFolder, sender) {
 
   // Progresso 100% ao finalizar
   sendProgress(total, '');
+  // Registrar erros de importação no error log
+  for (const err of errors) {
+    errorLog('ERROR', 'mods:import', `"${path.basename(err.file || '')}" — ${err.error}`);
+  }
+  if (errors.length > 0) {
+    errorLog('WARN', 'mods:import', `Importação concluída: ${imported.length} ok, ${errors.length} com erro`);
+  }
   return { imported, errors };
 }
 
@@ -1498,6 +1507,12 @@ ipcMain.on('debug:log-batch', (_, entries) => {
   for (const e of entries) {
     if (e && typeof e.level === 'string' && typeof e.msg === 'string') {
       debugLog(e.level || 'INFO', `[renderer] ${e.msg}`);
+      // Rotear ERROR e WARN do renderer para o sistema de error log (arquivos em LOGS_DIR).
+      // Isso faz a configuração "Nível de log" ter efeito real sobre erros da interface.
+      // skipDebugLog=true porque debugLog já foi chamado na linha acima.
+      if (e.level === 'ERROR' || e.level === 'WARN') {
+        errorLog(e.level, `renderer`, e.msg, true);
+      }
     }
   }
 });
@@ -1543,7 +1558,10 @@ ipcMain.handle('mods:scan', (_, modsFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
   const roots = getAllowedRoots();
   // SEC-03: bloqueia pastas fora das raízes permitidas
-  if (roots.length && !isPathSafe(modsFolder, ...roots)) return [];
+  if (roots.length && !isPathSafe(modsFolder, ...roots)) {
+    errorLog('WARN', 'mods:scan', `Pasta bloqueada por segurança: "${modsFolder}"`);
+    return [];
+  }
   return scanModsFolder(modsFolder);
 });
 ipcMain.handle('tray:scan', (_, trayFolder) => {
@@ -1557,7 +1575,9 @@ ipcMain.handle('tray:scan', (_, trayFolder) => {
 // Mod operations
 ipcMain.handle('mods:toggle', (_, filePath) => {
   if (!isPathSafe(filePath, ...getAllowedRoots())) return { success: false, error: 'Caminho não permitido' };
-  return toggleMod(filePath);
+  const result = toggleMod(filePath);
+  if (!result.success) errorLog('ERROR', 'mods:toggle', `"${path.basename(filePath)}" — ${result.error}`);
+  return result;
 });
 ipcMain.handle('mods:toggle-folder', (_, folderPath, modsFolder) => {
   if (!isPathSafe(folderPath, ...getAllowedRoots())) return [];
@@ -1569,14 +1589,18 @@ ipcMain.handle('mods:delete', async (_, filePaths) => {
   const results = [];
   for (const fp of filePaths) {
     if (!isPathSafe(fp, ...roots)) { results.push({ success: false, path: fp, error: 'Caminho não permitido' }); continue; }
-    results.push(await deleteMod(fp));
+    const result = await deleteMod(fp);
+    if (!result.success) errorLog('ERROR', 'mods:delete', `"${path.basename(fp)}" — ${result.error}`);
+    results.push(result);
   }
   return results;
 });
 ipcMain.handle('mods:move', (_, from, to) => {
   const roots = getAllowedRoots();
   if (!isPathSafe(from, ...roots) || !isPathSafe(to, ...roots)) return { success: false, error: 'Caminho não permitido' };
-  return moveFile(from, to);
+  const result = moveFile(from, to);
+  if (!result.success) errorLog('ERROR', 'mods:move', `"${path.basename(from)}" → "${path.basename(to)}" — ${result.error}`);
+  return result;
 });
 ipcMain.handle('mods:import', async (event, filePaths, modsFolder, trayFolder) => {
   // QA-06: validar tipos dos parâmetros
@@ -1633,7 +1657,9 @@ ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
   // trashPath deve estar na lixeira interna; originalPath deve estar nas raízes permitidas
   if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Origem não é da lixeira interna' };
   if (!isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
-  return moveFile(trashPath, originalPath);
+  const result = moveFile(trashPath, originalPath);
+  if (!result.success) errorLog('ERROR', 'conflicts:restore-from-trash', `"${path.basename(originalPath)}" — ${result.error}`);
+  return result;
 });
 
 // Organizer
@@ -1661,7 +1687,9 @@ ipcMain.handle('organize:fix', (_, items) => {
     if (!item || !item.path || !item.suggestedDest) return { success: false, error: 'Item inválido' };
     if (!isPathSafe(item.path, ...roots) || !isPathSafe(item.suggestedDest, ...roots))
       return { success: false, error: 'Caminho não permitido' };
-    return moveFile(item.path, item.suggestedDest);
+    const result = moveFile(item.path, item.suggestedDest);
+    if (!result.success) errorLog('ERROR', 'organize:fix', `"${path.basename(item.path)}" → "${path.basename(item.suggestedDest)}" — ${result.error}`);
+    return result;
   });
 });
 ipcMain.handle('organize:fix-one', (_, item) => {
@@ -1670,7 +1698,9 @@ ipcMain.handle('organize:fix-one', (_, item) => {
   if (!isPathSafe(item.path, ...roots) || !isPathSafe(item.suggestedDest, ...roots)) {
     return { success: false, error: 'Caminho não permitido' };
   }
-  return moveFile(item.path, item.suggestedDest);
+  const result = moveFile(item.path, item.suggestedDest);
+  if (!result.success) errorLog('ERROR', 'organize:fix-one', `"${path.basename(item.path)}" — ${result.error}`);
+  return result;
 });
 
 ipcMain.handle('organize:scan-scattered', (_, modsFolder) => {
