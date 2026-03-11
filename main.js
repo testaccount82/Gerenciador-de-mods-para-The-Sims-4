@@ -1470,6 +1470,27 @@ ipcMain.handle('organize:delete-empty-folders', (_, folderPaths) => {
   return deleteEmptyFolders(safe);
 });
 
+// Recreates a list of empty folders that were previously deleted (undo support).
+// Only creates directories — never restores files, since the folders were confirmed empty.
+ipcMain.handle('organize:restore-empty-folders', (_, folderPaths) => {
+  if (!Array.isArray(folderPaths)) return [];
+  const roots = getAllowedRoots();
+  const results = [];
+  for (const folderPath of folderPaths) {
+    if (!folderPath || !isPathSafe(folderPath, ...roots)) {
+      results.push({ success: false, path: folderPath, error: 'Caminho não permitido' });
+      continue;
+    }
+    try {
+      fs.mkdirSync(folderPath, { recursive: true });
+      results.push({ success: true, path: folderPath });
+    } catch (e) {
+      results.push({ success: false, path: folderPath, error: e.message });
+    }
+  }
+  return results;
+});
+
 // Dialogs
 ipcMain.handle('dialog:open-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });

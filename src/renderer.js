@@ -4227,8 +4227,23 @@ function renderOrganizeResults(el) {
           renderOrganizeResults(el);
           toast(`${ok} pasta(s) apagada(s)${failed ? `, ${failed} com erro` : ''}`, failed ? 'warning' : 'success');
           if (ok > 0) {
-            // Pastas vazias não podem ser restauradas — registra no histórico sem undo
-            logAction('delete', { count: ok, source: 'empty-folders', type: 'folder', label: `Apagar ${ok} pasta(s) vazia(s)` });
+            const deletedPaths = deletedFolders.map(f => f.path);
+            pushUndo(`Apagar ${ok} pasta(s) vazia(s)`, async () => {
+              const restoreResults = await window.api.restoreEmptyFolders(deletedPaths);
+              const restored = restoreResults.filter(r => r.success).length;
+              const failed   = restoreResults.length - restored;
+              // Re-adiciona as pastas restauradas ao estado para que apareçam na UI
+              const restoredFolders = deletedFolders.filter((_, i) => restoreResults[i]?.success);
+              state.emptyFolders = [...state.emptyFolders, ...restoredFolders];
+              if (state.currentPage === 'organizer') renderOrganizeResults(el);
+              toast(
+                failed
+                  ? `${restored} pasta(s) recriada(s), ${failed} com erro`
+                  : `${restored} pasta(s) vazia(s) restauradas`,
+                failed ? 'warning' : 'success'
+              );
+              logAction('restore', { count: restored, label: `Desfazer apagar ${restored} pasta(s) vazia(s)` });
+            }, 'delete', { count: ok, source: 'empty-folders', type: 'folder' });
           }
         }}
       ]
@@ -4251,8 +4266,18 @@ function renderOrganizeResults(el) {
               state.emptyFolders.splice(idx, 1);
               renderOrganizeResults(el);
               toast('Pasta apagada', 'success');
-              // Pastas vazias não podem ser restauradas — registra no histórico sem undo
-              logAction('delete', { name: folder.name, source: 'empty-folders', type: 'folder', label: `Apagar pasta ${folder.name}` });
+              const folderPath = folder.path;
+              pushUndo(`Apagar pasta "${folder.name}"`, async () => {
+                const restoreResults = await window.api.restoreEmptyFolders([folderPath]);
+                if (restoreResults[0]?.success) {
+                  state.emptyFolders = [...state.emptyFolders, folder];
+                  if (state.currentPage === 'organizer') renderOrganizeResults(el);
+                  toast(`Pasta "${folder.name}" recriada`, 'success');
+                  logAction('restore', { name: folder.name, label: `Desfazer apagar pasta "${folder.name}"` });
+                } else {
+                  toast('Erro ao recriar pasta: ' + (restoreResults[0]?.error || ''), 'error');
+                }
+              }, 'delete', { name: folder.name, source: 'empty-folders', type: 'folder' });
             } else {
               toast('Erro ao apagar pasta: ' + (results[0]?.error || ''), 'error');
             }

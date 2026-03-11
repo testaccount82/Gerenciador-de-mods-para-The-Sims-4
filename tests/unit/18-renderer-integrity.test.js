@@ -313,35 +313,36 @@ describe('renderer.js — regressões de comportamento crítico', () => {
     expect(clearUndoIdx).toBeLessThan(trashEmptyIdx);
   });
 
-  test('exclusão de pastas vazias usa logAction (sem undo) — não pushUndo', () => {
-    // Pastas vazias não podem ser restauradas automaticamente.
-    // O código deve usar logAction (sem criar undo) em vez de pushUndo.
-    // Verificar que pushUndo NÃO é chamado imediatamente após deleteEmptyFolders.
-    const deleteEmptyIdx = src.indexOf("window.api.deleteEmptyFolders(paths)");
+  test('exclusão de pastas vazias usa pushUndo com restoreEmptyFolders (undo suportado)', () => {
+    // Pastas vazias agora suportam desfazer — são recriadas via restoreEmptyFolders.
+    // O código deve usar pushUndo com uma undoFn que chama window.api.restoreEmptyFolders.
+    const deleteEmptyIdx       = src.indexOf("window.api.deleteEmptyFolders(paths)");
     const deleteEmptySingleIdx = src.indexOf("window.api.deleteEmptyFolders([folder.path])");
 
-    // Extrair os 300 chars após cada chamada para verificar o que vem depois
-    const afterBatch  = src.slice(deleteEmptyIdx,  deleteEmptyIdx  + 800);
-    const afterSingle = src.slice(deleteEmptySingleIdx, deleteEmptySingleIdx + 800);
+    const afterBatch  = src.slice(deleteEmptyIdx,  deleteEmptyIdx  + 1200);
+    const afterSingle = src.slice(deleteEmptySingleIdx, deleteEmptySingleIdx + 1200);
 
-    // logAction deve aparecer no bloco de código que segue cada deleteEmptyFolders
-    expect(afterBatch).toMatch(/logAction\(/);
-    expect(afterSingle).toMatch(/logAction\(/);
+    // pushUndo deve aparecer logo após cada deleteEmptyFolders
+    expect(afterBatch).toMatch(/pushUndo\(/);
+    expect(afterSingle).toMatch(/pushUndo\(/);
 
-    // pushUndo NÃO deve aparecer imediatamente após as chamadas de pastas vazias
-    // (pode haver pushUndo em outras partes do arquivo — verificamos apenas o contexto local)
-    const pushUndoBatchIdx  = afterBatch.indexOf('pushUndo(');
-    const logActionBatchIdx = afterBatch.indexOf('logAction(');
-    const pushUndoSingleIdx  = afterSingle.indexOf('pushUndo(');
-    const logActionSingleIdx = afterSingle.indexOf('logAction(');
+    // A undoFn deve chamar restoreEmptyFolders
+    expect(afterBatch).toContain('restoreEmptyFolders');
+    expect(afterSingle).toContain('restoreEmptyFolders');
 
-    // Se pushUndo aparecer, deve ser DEPOIS do logAction (ou não aparecer)
-    if (pushUndoBatchIdx !== -1 && logActionBatchIdx !== -1) {
-      expect(logActionBatchIdx).toBeLessThan(pushUndoBatchIdx);
-    }
-    if (pushUndoSingleIdx !== -1 && logActionSingleIdx !== -1) {
-      expect(logActionSingleIdx).toBeLessThan(pushUndoSingleIdx);
-    }
+    // restoreEmptyFolders deve existir como API exposta no renderer
+    expect(src).toMatch(/window\.api\.restoreEmptyFolders/);
+  });
+
+  test('handler organize:restore-empty-folders existe no main.js', () => {
+    const mainSrc = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../main.js'), 'utf8'
+    );
+    expect(mainSrc).toContain("ipcMain.handle('organize:restore-empty-folders'");
+    // O handler deve usar mkdirSync para recriar as pastas
+    const handlerStart = mainSrc.indexOf("ipcMain.handle('organize:restore-empty-folders'");
+    const handlerBody  = mainSrc.slice(handlerStart, mainSrc.indexOf('ipcMain.handle', handlerStart + 10));
+    expect(handlerBody).toContain('mkdirSync');
   });
 
   test('trash:delete-permanent e trash:empty não chamam shell.trashItem (deleção permanente direta)', () => {
