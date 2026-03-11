@@ -42,6 +42,7 @@ const state = {
   expandedGroups: new Set(), // group keys currently expanded
   appVersion: null,        // cached app version string (populated in init())
   debugStatus: null,       // { enabled, logPath, activatedByCli } — populated in init()
+  errorLogStatus: null,    // { enabled, level, logPath } — populated in init()
 };
 
 // Prevents runStartupChecks() from being called more than once per session
@@ -5132,20 +5133,51 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">Dados do Aplicativo</div>
       <div class="settings-group">
+
         <div class="settings-item">
           <div>
             <div class="settings-label">Pasta de configurações</div>
-            <div class="settings-desc">Contém o arquivo de configuração, cache de miniaturas, lixeira interna e logs de depuração do aplicativo</div>
+            <div class="settings-desc">Contém o arquivo de configuração, cache de miniaturas, lixeira interna e logs de depuração</div>
           </div>
           <button class="btn btn-secondary btn-sm" id="btn-open-userdata">📂 Abrir pasta</button>
         </div>
+
+        <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
+          <div>
+            <div class="settings-label">Log de erros</div>
+            <div class="settings-desc">Erros inesperados são registrados automaticamente em arquivo — útil para reportar problemas</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-error-log" ${state.errorLogStatus?.enabled !== false ? 'checked' : ''}>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+        </div>
+
+        <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
+          <div>
+            <div class="settings-label">Nível de log</div>
+            <div class="settings-desc">
+              Define quais eventos são gravados:
+              <strong>ERROR</strong> — somente erros críticos &nbsp;·&nbsp;
+              <strong>WARN</strong> — erros + avisos &nbsp;·&nbsp;
+              <strong>INFO</strong> — tudo (mais verboso)
+            </div>
+          </div>
+          <select id="select-error-log-level" class="path-input" style="width:auto;min-width:90px;padding:4px 8px;cursor:pointer">
+            <option value="ERROR" ${(state.errorLogStatus?.level || 'ERROR') === 'ERROR' ? 'selected' : ''}>ERROR</option>
+            <option value="WARN"  ${(state.errorLogStatus?.level || 'ERROR') === 'WARN'  ? 'selected' : ''}>WARN</option>
+            <option value="INFO"  ${(state.errorLogStatus?.level || 'ERROR') === 'INFO'  ? 'selected' : ''}>INFO</option>
+          </select>
+        </div>
+
         <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
           <div>
             <div class="settings-label">Pasta de logs de erro</div>
-            <div class="settings-desc">Erros inesperados do programa são registrados automaticamente aqui — útil para reportar problemas</div>
+            <div class="settings-desc">Abre a pasta onde os arquivos de log de erro são salvos</div>
           </div>
           <button class="btn btn-secondary btn-sm" id="btn-open-logs">📋 Abrir pasta de logs</button>
         </div>
+
       </div>
     </div>
 
@@ -5225,6 +5257,27 @@ function renderSettings() {
     try { await window.api.openLogsFolder(); }
     catch (_) { toast('Não foi possível abrir a pasta de logs', 'error'); }
   });
+
+  // Log de erros — salva imediatamente ao mudar (sem precisar clicar em Salvar)
+  el.querySelector('#toggle-error-log')?.addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    const level   = el.querySelector('#select-error-log-level')?.value || 'ERROR';
+    try {
+      await window.api.setErrorLog({ enabled, level });
+      state.errorLogStatus = { ...state.errorLogStatus, enabled, level };
+      toast(enabled ? 'Log de erros ativado' : 'Log de erros desativado', 'info');
+    } catch (_) { toast('Erro ao salvar configuração de log', 'error'); }
+  });
+
+  el.querySelector('#select-error-log-level')?.addEventListener('change', async (e) => {
+    const level   = e.target.value;
+    const enabled = el.querySelector('#toggle-error-log')?.checked ?? true;
+    try {
+      await window.api.setErrorLog({ enabled, level });
+      state.errorLogStatus = { ...state.errorLogStatus, enabled, level };
+      toast(`Nível de log alterado para ${level}`, 'info');
+    } catch (_) { toast('Erro ao salvar nível de log', 'error'); }
+  });
 }
 
 // ─── Data Loading ─────────────────────────────────────────────────────────────
@@ -5300,8 +5353,9 @@ async function init() {
   state.config = await window.api.getConfig();
   await loadMods();
 
-  // Carregar status de debug
-  try { state.debugStatus = await window.api.getDebugStatus(); } catch (_) {}
+  // Carregar status de debug e error log
+  try { state.debugStatus    = await window.api.getDebugStatus(); }    catch (_) {}
+  try { state.errorLogStatus = await window.api.getErrorLogStatus(); } catch (_) {}
 
 
   // Versão dinâmica — lida do package.json via Electron

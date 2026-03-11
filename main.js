@@ -45,7 +45,9 @@ const DEFAULT_CONFIG = {
   windowBounds: { width: 1100, height: 720 },
   autoCheckMisplaced: true,
   autoCheckDuplicates: false,
-  debugMode: false
+  debugMode: false,
+  errorLogEnabled: true,
+  errorLogLevel: 'ERROR'  // ERROR | WARN | INFO — captura erros com severidade >= ao nível configurado
 };
 
 // ─── Debug Logger ─────────────────────────────────────────────────────────────
@@ -92,30 +94,47 @@ function debugLog(level, ...args) {
   }
 }
 
-// ─── Error Logger ────────────────────────────────────────────────────────────
-// Writes uncaught errors to a dedicated file inside LOGS_DIR.
-// Each session creates its own timestamped file so nothing is overwritten.
+// ─── Error Logger ─────────────────────────────────────────────────────────────
+// Writes errors to timestamped files inside LOGS_DIR.
+// Controlled by config: errorLogEnabled (on/off) and errorLogLevel (severity filter).
 
 const ERROR_LOG_PATH = path.join(
   LOGS_DIR,
   `error-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
 );
 
-function errorLog(context, err) {
+// Severity order — only events at or above the configured level are written
+const LOG_LEVEL_ORDER = { ERROR: 0, WARN: 1, INFO: 2 };
+
+// Runtime state — updated from config on startup and via IPC
+let errorLogEnabled = true;
+let errorLogLevel   = 'ERROR'; // 'ERROR' | 'WARN' | 'INFO'
+
+/**
+ * Write an entry to the error log file (if enabled and severity passes the filter).
+ * @param {'ERROR'|'WARN'|'INFO'} level
+ * @param {string} context
+ * @param {Error|*} err
+ */
+function errorLog(level, context, err) {
+  if (!errorLogEnabled) return;
+  const configOrder  = LOG_LEVEL_ORDER[errorLogLevel] ?? 0;
+  const eventOrder   = LOG_LEVEL_ORDER[level]         ?? 0;
+  if (eventOrder > configOrder) return; // below configured threshold
   try {
     const ts  = new Date().toISOString();
     const msg = err instanceof Error
       ? `${err.message}\n${err.stack || ''}`
       : String(err);
-    const line = `[${ts}] [${context}]\n${msg}\n${'─'.repeat(60)}\n`;
+    const line = `[${ts}] [${level}] [${context}]\n${msg}\n${'─'.repeat(60)}\n`;
     fs.appendFileSync(ERROR_LOG_PATH, line, 'utf-8');
-    debugLog('ERROR', `[${context}] ${msg}`);
+    debugLog(level, `[${context}] ${msg}`);
   } catch (_) { /* never crash due to logging */ }
 }
 
 // Capture unhandled errors in the main process
-process.on('uncaughtException',  err  => errorLog('uncaughtException',  err));
-process.on('unhandledRejection', err  => errorLog('unhandledRejection', err));
+process.on('uncaughtException',  err => errorLog('ERROR', 'uncaughtException',  err));
+process.on('unhandledRejection', err => errorLog('ERROR', 'unhandledRejection', err));
 
 function createDebugWindow() {
   if (debugWindow && !debugWindow.isDestroyed()) {
@@ -169,7 +188,10 @@ let mainWindow = null;
 function createWindow() {
   const config = readConfig();
   // CLI flag always wins; otherwise honour the persisted config value
-  debugEnabled = debugEnabled || config.debugMode === true;
+  debugEnabled    = debugEnabled || config.debugMode === true;
+  errorLogEnabled = config.errorLogEnabled !== false; // default true
+  errorLogLevel   = ['ERROR','WARN','INFO'].includes(config.errorLogLevel)
+    ? config.errorLogLevel : 'ERROR';
   if (debugEnabled) {
     debugLog('INFO', `=== TS4 Mod Manager starting (v${app.getVersion()}) ===`);
     debugLog('INFO', `Debug mode activated via: ${process.argv.some(a => a === '--debug' || a === '-debug') ? 'CLI flag' : 'config'}`);
@@ -1399,6 +1421,23 @@ ipcMain.handle('shell:open-logs', () => {
   // Cria a pasta se por algum motivo não existir ainda
   try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch (_) {}
   shell.openPath(LOGS_DIR);
+});
+
+ipcMain.handle('errorlog:get-status', () => ({
+  enabled: errorLogEnabled,
+  level:   errorLogLevel,
+  logPath: LOGS_DIR
+}));
+
+ipcMain.handle('errorlog:set', (_, { enabled, level }) => {
+  if (typeof enabled === 'boolean') errorLogEnabled = enabled;
+  if (['ERROR','WARN','INFO'].includes(level)) errorLogLevel = level;
+  const cfg = readConfig();
+  cfg.errorLogEnabled = errorLogEnabled;
+  cfg.errorLogLevel   = errorLogLevel;
+  writeConfig(cfg);
+  debugLog('INFO', `Error log: enabled=${errorLogEnabled} level=${errorLogLevel}`);
+  return true;
 });
 
 ipcMain.handle('debug:log-from-renderer', (_, level, message) => {
