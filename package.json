@@ -1,6 +1,6 @@
 {
   "name": "gerenciador-mods-sims4",
-  "version": "1.7.0",
+  "version": "1.0.0",
   "description": "Gerenciador de mods para The Sims 4 com interface Fluent 2",
   "main": "main.js",
   "scripts": {
