@@ -1401,7 +1401,8 @@ ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('debug:get-status', () => ({
   enabled: debugEnabled,
   logPath: DEBUG_LOG_PATH,
-  activatedByCli: process.argv.some(a => a === '--debug' || a === '-debug')
+  activatedByCli: process.argv.some(a => a === '--debug' || a === '-debug'),
+  argv: process.argv.slice(1)   // skip the Electron executable path
 }));
 
 ipcMain.handle('debug:set-enabled', (_, value) => {

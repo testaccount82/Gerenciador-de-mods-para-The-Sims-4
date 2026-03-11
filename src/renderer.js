@@ -7,6 +7,70 @@ function dlog(level, msg) {
   try { window.api?.debugLog?.(level, `[renderer] ${msg}`); } catch (_) {}
 }
 
+// ─── Global UI Event Interceptor ─────────────────────────────────────────────
+// Captures every user interaction (click, change, input) at the document root
+// via event delegation and forwards a readable label to the debug log.
+// New buttons/inputs added in the future are automatically covered.
+(function installUiInterceptor() {
+  function elementLabel(el) {
+    // Walk up to find the most meaningful interactive ancestor
+    let node = el;
+    for (let i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
+      const tag  = node.tagName?.toLowerCase();
+      const id   = node.id   ? `#${node.id}`   : '';
+      const text = (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      const title = node.title ? ` (title="${node.title}")` : '';
+      const dataPage = node.dataset?.page ? ` [page=${node.dataset.page}]` : '';
+      const dataFs   = node.dataset?.fs   ? ` [status=${node.dataset.fs}]` : '';
+      const dataFt   = node.dataset?.ft   ? ` [type=${node.dataset.ft}]`   : '';
+      const dataPath = node.dataset?.path ? ` [path=...${node.dataset.path.slice(-40)}]` : '';
+      const extra = dataPage + dataFs + dataFt + dataPath;
+      if (tag === 'button' || tag === 'a' || tag === 'label') {
+        return `<${tag}${id}> "${text}"${title}${extra}`;
+      }
+      if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+        return `<${tag}${id} type="${node.type || ''}">${extra}`;
+      }
+    }
+    // Fallback: describe the original target
+    const tag  = el.tagName?.toLowerCase() || '?';
+    const id   = el.id ? `#${el.id}` : '';
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    return `<${tag}${id}> "${text}"`;
+  }
+
+  // Throttle input events (fire at most every 500 ms per element)
+  const inputThrottle = new WeakMap();
+
+  document.addEventListener('click', e => {
+    const el = e.target;
+    if (!el || el === document.body || el === document.documentElement) return;
+    // Skip invisible / disabled elements and the undo bar dismiss button (noise)
+    if (el.disabled) return;
+    dlog('DEBUG', `Click: ${elementLabel(el)}`);
+  }, true);  // capture phase — fires before any handler
+
+  document.addEventListener('change', e => {
+    const el = e.target;
+    if (!el) return;
+    const val = el.type === 'checkbox' || el.type === 'radio'
+      ? (el.checked ? 'checked' : 'unchecked')
+      : (el.value || '').slice(0, 80);
+    dlog('DEBUG', `Change: ${elementLabel(el)} → "${val}"`);
+  }, true);
+
+  document.addEventListener('input', e => {
+    const el = e.target;
+    if (!el) return;
+    const now = Date.now();
+    const last = inputThrottle.get(el) || 0;
+    if (now - last < 500) return;
+    inputThrottle.set(el, now);
+    const val = (el.value || '').slice(0, 80);
+    dlog('DEBUG', `Input: ${elementLabel(el)} → "${val}"`);
+  }, true);
+})();
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 // FIX BUG 4: Sentinel symbol to mark thumbnails that are currently being loaded.
@@ -5392,11 +5456,14 @@ async function init() {
 
   // Load config & mods
   state.config = await window.api.getConfig();
-  dlog('INFO', `App iniciado — v${await window.api.getAppVersion().catch(() => '?')} | mods: ${state.config.modsFolder}`);
+  const appVersion = await window.api.getAppVersion().catch(() => '?');
+  const debugStatus = await window.api.getDebugStatus().catch(() => null);
+  const argvStr = debugStatus?.argv?.join(' ') || '(sem argumentos)';
+  dlog('INFO', `App iniciado — v${appVersion} | comando: ${argvStr} | mods: ${state.config.modsFolder}`);
   await loadMods();
 
   // Carregar status de debug e error log
-  try { state.debugStatus    = await window.api.getDebugStatus(); }    catch (_) {}
+  try { state.debugStatus    = debugStatus ?? await window.api.getDebugStatus(); } catch (_) {}
   try { state.errorLogStatus = await window.api.getErrorLogStatus(); } catch (_) {}
 
 
