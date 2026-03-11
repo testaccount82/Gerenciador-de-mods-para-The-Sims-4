@@ -104,10 +104,12 @@ function debugLog(level, ...args) {
 // Writes errors to timestamped files inside LOGS_DIR.
 // Controlled by config: errorLogEnabled (on/off) and errorLogLevel (severity filter).
 
-const ERROR_LOG_PATH = path.join(
-  LOGS_DIR,
-  `error-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
-);
+const ERROR_LOG_PATH = (() => {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  return path.join(LOGS_DIR, `error-${local}.log`);
+})();
 
 // Severity order — only events at or above the configured level are written
 const LOG_LEVEL_ORDER = { ERROR: 0, WARN: 1, INFO: 2 };

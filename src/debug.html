@@ -74,6 +74,17 @@
     #btn-always-on-top { color: var(--text-dim); }
     #btn-always-on-top.active { background: #1e3a1e; color: var(--info); border-color: #2e5a2e; }
     #btn-wrap.active { background: #1e2e3a; color: var(--accent); border-color: #2a4060; }
+    #btn-linenum.active { background: #1e2e3a; color: var(--accent); border-color: #2a4060; }
+    #btn-jump-error { color: var(--error); border-color: #5a2e2e; }
+    #btn-jump-error:hover { background: #2a1e1e; }
+    #btn-copy-all.copied { background: #1e3a1e; color: var(--info); border-color: #2e5a2e; }
+
+    .line-num {
+      flex-shrink: 0; margin-right: 8px; min-width: 36px; text-align: right;
+      color: var(--text-dim); opacity: 0.35; font-size: 10px; user-select: none;
+    }
+    body.show-linenums .line-num { display: inline-block; }
+    body:not(.show-linenums) .line-num { display: none; }
 
     /* ── Path bar ── */
     #log-path-info {
@@ -200,7 +211,10 @@
 
     <button id="btn-always-on-top" title="Sempre no topo (Alt+T)">📌 Topo</button>
     <button id="btn-wrap"          title="Quebra de linha (Alt+W)">↩ Wrap</button>
-    <button id="btn-export"        title="Exportar linhas visíveis como .log">💾 Exportar</button>
+    <button id="btn-linenum"       title="Mostrar números de linha (Alt+L)">🔢 Linhas</button>
+    <button id="btn-copy-all"      title="Copiar todas as linhas visíveis (Ctrl+Shift+C)">⎘ Copiar</button>
+    <button id="btn-jump-error"    title="Ir para próximo ERROR (Alt+E)" style="display:none">⚠ → Erro</button>
+    <button id="btn-export"        title="Exportar linhas visíveis como .log (Ctrl+S)">💾 Exportar</button>
     <button id="btn-open-file"     title="Abrir arquivo no editor">📂 Arquivo</button>
     <button id="btn-refresh"       title="Recarregar do arquivo (F5)">↺ Atualizar</button>
     <button id="btn-pause"         title="Pausar atualização em tempo real (Space)">⏸ Pausar</button>
@@ -247,7 +261,7 @@
     </div>
   </div>
 
-  <div id="shortcut-hint">Ctrl+F · F3 próximo · Shift+F3 anterior · Space pausar · F5 atualizar · Ctrl+End final · Alt+T topo · Alt+W wrap</div>
+  <div id="shortcut-hint">Ctrl+F · F3 próximo · Shift+F3 anterior · Space pausar · F5 atualizar · Ctrl+End final · Alt+T topo · Alt+W wrap · Alt+L linhas · Alt+E próx.erro · Ctrl+S exportar · Ctrl+Shift+C copiar</div>
 
   <script>
     'use strict';
@@ -421,6 +435,7 @@
       countEl.textContent = `${visible} / ${totalLines}`;
       emptyMsg.style.display = totalLines === 0 ? 'block' : 'none';
       rebuildFindMatches();
+      updateJumpErrorBtn();
     }
 
     // ── Create line element ───────────────────────────────────────────────────
@@ -434,12 +449,16 @@
       el.dataset.rawmsgOrig = p.msg;  // original case for display
       el.dataset.raw        = raw;
 
+      globalLineNum++;
+      el.dataset.linenum = globalLineNum;
+
       if (p.msg.includes('=== TS4 Mod Manager') && p.msg.includes('===')) {
         el.classList.add('session-start');
       }
 
       const srcClass = p.source === 'renderer' ? 'src-renderer' : 'src-main';
       el.innerHTML =
+        `<span class="line-num">${globalLineNum}</span>` +
         `<span class="ts">${escapeHtml(formatTs(p.ts))}</span>` +
         `<span class="src ${srcClass}">${escapeHtml(p.source)}</span>` +
         `<span class="lvl lvl-${p.level}">${p.level}</span>` +
@@ -464,6 +483,8 @@
       container.appendChild(emptyMsg);
       resetCounters();
       totalLines = 0;
+      globalLineNum = 0;
+      jumpErrorIdx = -1;
       let visible = 0;
       const frag  = document.createDocumentFragment();
       for (const raw of text.split('\n')) {
@@ -480,6 +501,7 @@
       countEl.textContent = `${visible} / ${totalLines}`;
       emptyMsg.style.display = totalLines === 0 ? 'block' : 'none';
       rebuildFindMatches();
+      updateJumpErrorBtn();
       recalcTop();
     }
 
@@ -507,6 +529,7 @@
         findMatches.push({ el });
         updateFindCount();
       }
+      if (p.level === 'ERROR') updateJumpErrorBtn();
       if (autoScroll && !el.classList.contains('hidden')) container.scrollTop = container.scrollHeight;
     }
 
@@ -541,18 +564,60 @@
     });
 
     // ── Export ───────────────────────────────────────────────────────────────
-    document.getElementById('btn-export').addEventListener('click', () => {
+    function doExport() {
       const lines = [...container.querySelectorAll('.log-line:not(.hidden)')].map(el => el.dataset.raw || '');
       if (!lines.length) { alert('Nenhuma linha visível para exportar.'); return; }
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const localStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
       const a = Object.assign(document.createElement('a'), {
         href:     URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' })),
-        const now = new Date();
-        const pad = n => String(n).padStart(2, '0');
-        const localStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
         download: `debug-${localStr}.log`,
       });
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    document.getElementById('btn-export').addEventListener('click', doExport);
+
+    // ── Copiar visíveis ───────────────────────────────────────────────────────
+    document.getElementById('btn-copy-all').addEventListener('click', () => {
+      const lines = [...container.querySelectorAll('.log-line:not(.hidden)')].map(el => el.dataset.raw || '');
+      if (!lines.length) { alert('Nenhuma linha visível para copiar.'); return; }
+      navigator.clipboard.writeText(lines.join('\n')).then(() => {
+        const btn = document.getElementById('btn-copy-all');
+        const orig = btn.textContent;
+        btn.textContent = `✓ ${lines.length} linhas`; btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1800);
+      }).catch(() => alert('Não foi possível copiar para a área de transferência.'));
+    });
+
+    // ── Jump to error ─────────────────────────────────────────────────────────
+    let jumpErrorIdx = -1; // índice entre os elementos de erro visíveis
+    function updateJumpErrorBtn() {
+      const btn = document.getElementById('btn-jump-error');
+      const errorEls = [...container.querySelectorAll('.log-line:not(.hidden)[data-level="ERROR"]')];
+      btn.style.display = errorEls.length > 0 ? '' : 'none';
+      if (errorEls.length > 0) btn.title = `Ir para próximo ERROR (${errorEls.length} total) — Alt+E`;
+    }
+    document.getElementById('btn-jump-error').addEventListener('click', () => {
+      const errorEls = [...container.querySelectorAll('.log-line:not(.hidden)[data-level="ERROR"]')];
+      if (!errorEls.length) return;
+      jumpErrorIdx = (jumpErrorIdx + 1) % errorEls.length;
+      errorEls[jumpErrorIdx].scrollIntoView({ block: 'center' });
+      autoScroll = false; updateAutoScrollInd();
+      // Pisca brevemente
+      errorEls[jumpErrorIdx].style.outline = '1px solid var(--error)';
+      setTimeout(() => { errorEls[jumpErrorIdx].style.outline = ''; }, 600);
+    });
+
+    // ── Números de linha ──────────────────────────────────────────────────────
+    let lineNumEnabled = false;
+    let globalLineNum  = 0;
+    const btnLineNum = document.getElementById('btn-linenum');
+    btnLineNum.addEventListener('click', () => {
+      lineNumEnabled = !lineNumEnabled;
+      btnLineNum.classList.toggle('active', lineNumEnabled);
+      document.body.classList.toggle('show-linenums', lineNumEnabled);
     });
 
     // ── Controls ─────────────────────────────────────────────────────────────
@@ -650,7 +715,7 @@
         }
         findIndex = -1;
         applyFilters();
-      }, 180);
+      }, 100);
     });
 
     document.getElementById('btn-next').addEventListener('click', () => navigateFind('next'));
@@ -669,6 +734,10 @@
       if (e.ctrlKey && e.key === 'End') { e.preventDefault(); document.getElementById('btn-scroll-bottom').click(); return; }
       if (e.altKey  && e.key === 't')   { e.preventDefault(); btnTop.click(); return; }
       if (e.altKey  && e.key === 'w')   { e.preventDefault(); btnWrap.click(); return; }
+      if (e.altKey  && e.key === 'l')   { e.preventDefault(); btnLineNum.click(); return; }
+      if (e.altKey  && e.key === 'e')   { e.preventDefault(); document.getElementById('btn-jump-error').click(); return; }
+      if (e.ctrlKey && e.key === 's')   { e.preventDefault(); doExport(); return; }
+      if (e.ctrlKey && e.shiftKey && e.key === 'C') { e.preventDefault(); document.getElementById('btn-copy-all').click(); return; }
     });
 
     // ── Init ─────────────────────────────────────────────────────────────────
