@@ -1,8 +1,18 @@
 'use strict';
 
 // ─── Debug Logger ─────────────────────────────────────────────────────────────
+// Local flag mirroring the main-process debugEnabled value.
+// Avoids any IPC call when debug is off — zero overhead in production.
+let _debugEnabled = false;
+
 function dlog(level, msg) {
-  try { window.api?.debugLog?.(level, `[renderer] ${msg}`); } catch (_) {}
+  if (!_debugEnabled) return;
+  try { window.api?.debugLog?.(level, msg); } catch (_) {}
+}
+
+// Called once at startup and whenever the user toggles debug in settings.
+function syncDebugFlag(enabled) {
+  _debugEnabled = Boolean(enabled);
 }
 
 // ─── API Wrappers com log automático de resultado ─────────────────────────────
@@ -5622,10 +5632,11 @@ function renderSettings() {
     const debugMode = el.querySelector('#toggle-debug-mode')?.checked ?? false;
     state.config = { ...state.config, modsFolder, trayFolder, autoCheckMisplaced, autoCheckDuplicates, debugMode };
     await apiSetConfig(state.config);
-    // Sincronizar estado de debug no processo principal
+    // Sincronizar estado de debug no processo principal e no flag local
     try {
       await window.api.setDebugEnabled(debugMode);
       state.debugStatus = await window.api.getDebugStatus();
+      syncDebugFlag(debugMode);
     } catch (_) {}
     toast('Configurações salvas com sucesso', 'success');
     await loadMods();
@@ -5760,6 +5771,7 @@ async function init() {
   state.config = await window.api.getConfig();
   const appVersion = await window.api.getAppVersion().catch(() => '?');
   const debugStatus = await window.api.getDebugStatus().catch(() => null);
+  syncDebugFlag(debugStatus?.enabled);
   const argvStr = debugStatus?.argv?.join(' ') || '(sem argumentos)';
   dlog('INFO', `App iniciado — v${appVersion} | comando: ${argvStr} | mods: ${state.config.modsFolder}`);
   await loadMods();
