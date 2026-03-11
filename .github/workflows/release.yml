@@ -139,21 +139,14 @@ jobs:
             $changelog = "${{ github.event.inputs.changelog_manual }}"
             if (-not $changelog) { $changelog = "Nova versão disponível." }
           } elseif ($primeirRelease) {
-            # Sem releases anteriores: usa o CHANGELOG.md completo (do commit inicial ao HEAD)
-            # O CHANGELOG.md já contém o histórico formatado de toda a história do projeto
-            if (Test-Path "CHANGELOG.md") {
-              $changelog = Get-Content "CHANGELOG.md" -Raw -Encoding utf8
-              Write-Host "Primeiro release — usando CHANGELOG.md completo como release notes"
-            } else {
-              # Fallback: lista todos os commits desde o início do repositório
-              $primeiroCommit = git rev-list --max-parents=0 HEAD
-              $commits = git log "$primeiroCommit^..HEAD" --pretty=format:"- %s (%h)" --no-merges 2>$null
-              if (-not $commits) {
-                $commits = git log --pretty=format:"- %s (%h)" --no-merges
-              }
+            # Sem releases anteriores: lista todos os commits desde o início do repositório
+            $commits = git log --pretty=format:"- %s (%h)" --no-merges
+            if ($commits) {
               $changelog = "## Histórico completo`n`n$($commits -join "`n")"
-              Write-Host "Primeiro release — CHANGELOG.md não encontrado, usando git log completo"
+            } else {
+              $changelog = "Versão inicial."
             }
+            Write-Host "Primeiro release — usando git log completo desde o commit inicial"
           } else {
             # Já existe release anterior: lista apenas commits desde a última tag
             $commits = git log "$ultimaTag..HEAD" --pretty=format:"- %s (%h)" --no-merges
