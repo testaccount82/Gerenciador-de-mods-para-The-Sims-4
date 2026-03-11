@@ -35,6 +35,9 @@ function syncDebugFlag(enabled) {
     clearTimeout(_logFlushTimer);
     _logFlushTimer = null;
   }
+  // Mostrar/ocultar botão de debug na sidebar
+  const btn = document.getElementById('sidebar-btn-debug');
+  if (btn) btn.classList.toggle('hidden', !_debugEnabled);
 }
 
 // ─── API Wrappers com log automático de resultado ─────────────────────────────
@@ -6084,8 +6087,11 @@ async function init() {
   });
 
   // Nav
-  document.querySelectorAll('.nav-item').forEach(btn => {
+  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
     btn.addEventListener('click', () => navigate(btn.dataset.page));
+  });
+  document.getElementById('sidebar-btn-debug')?.addEventListener('click', () => {
+    window.api.openDebugWindow();
   });
 
   // Load config & mods

@@ -397,3 +397,49 @@ describe('renderer.js — regressão: renderOrganizer com apenas invalidFiles', 
     expect(fnBody).toContain('Arquivos inválidos');
   });
 });
+
+// ─── Botão de debug na sidebar ───────────────────────────────────────────────
+describe('renderer.js — botão de debug na sidebar', () => {
+  const src = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../src/renderer.js'), 'utf8'
+  );
+  const html = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../src/index.html'), 'utf8'
+  );
+
+  test('index.html contém botão sidebar-btn-debug com classe hidden por padrão', () => {
+    expect(html).toContain('id="sidebar-btn-debug"');
+    expect(html).toContain('sidebar-btn-debug');
+    // deve ter a classe hidden por padrão (oculto quando debug desativado)
+    const match = html.match(/id="sidebar-btn-debug"[^>]*class="([^"]+)"|class="([^"]+)"[^>]*id="sidebar-btn-debug"/);
+    const fullTag = html.slice(html.indexOf('sidebar-btn-debug') - 50, html.indexOf('sidebar-btn-debug') + 100);
+    expect(fullTag).toContain('hidden');
+  });
+
+  test('syncDebugFlag mostra/oculta o botão sidebar-btn-debug', () => {
+    expect(src).toContain('sidebar-btn-debug');
+    // syncDebugFlag deve manipular a classe hidden do botão
+    const fnStart = src.indexOf('function syncDebugFlag(');
+    const fnEnd   = src.indexOf('\n}', fnStart) + 2;
+    const fnBody  = src.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('sidebar-btn-debug');
+    expect(fnBody).toContain('hidden');
+    expect(fnBody).toContain('_debugEnabled');
+  });
+
+  test('clique em sidebar-btn-debug chama openDebugWindow', () => {
+    // Localiza o addEventListener do botão de debug
+    const listenerIdx = src.indexOf("getElementById('sidebar-btn-debug')?.addEventListener");
+    expect(listenerIdx).toBeGreaterThan(0);
+    // Dentro desse listener deve chamar openDebugWindow
+    const listenerEnd = src.indexOf('});', listenerIdx);
+    const listenerBody = src.slice(listenerIdx, listenerEnd);
+    expect(listenerBody).toContain('openDebugWindow');
+  });
+
+  test('nav-item do debug não tem data-page (não navega como aba normal)', () => {
+    const tagStart = html.indexOf('id="sidebar-btn-debug"');
+    const tagFull  = html.slice(Math.max(0, tagStart - 100), tagStart + 50);
+    expect(tagFull).not.toContain('data-page');
+  });
+});

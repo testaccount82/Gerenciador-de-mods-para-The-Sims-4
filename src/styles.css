@@ -191,6 +191,7 @@ html, body {
 #sidebar-scan-indicator.hidden,
 #sidebar-scan-indicator-organize.hidden,
 #sidebar-scan-indicator-conflicts.hidden { display: none; }
+#sidebar-btn-debug.hidden { display: none; }
 
 .scan-indicator-header {
   display: flex;
