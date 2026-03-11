@@ -2302,6 +2302,10 @@ function openGroupOverlay(group) {
       renderMods();
       clearOverlaySelection();
       renderView(currentView);
+      // Re-habilita botões do overlay — renderView só atualiza o contentEl, não o cabeçalho
+      ['group-overlay-btn-enable','group-overlay-btn-disable','group-overlay-btn-trash'].forEach(id => {
+        const b = document.getElementById(id); if (b) b.disabled = false;
+      });
       const okEn = results.filter(r => r.success).length;
       const failEn = results.length - okEn;
       if (failEn) {
@@ -2332,6 +2336,10 @@ function openGroupOverlay(group) {
       renderMods();
       clearOverlaySelection();
       renderView(currentView);
+      // Re-habilita botões do overlay — renderView só atualiza o contentEl, não o cabeçalho
+      ['group-overlay-btn-enable','group-overlay-btn-disable','group-overlay-btn-trash'].forEach(id => {
+        const b = document.getElementById(id); if (b) b.disabled = false;
+      });
       const okDis = results.filter(r => r.success).length;
       const failDis = results.length - okDis;
       if (failDis) {

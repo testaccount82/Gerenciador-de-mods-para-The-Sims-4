@@ -186,12 +186,15 @@
     const statusBadge = document.getElementById('status-badge');
     const pathInfo    = document.getElementById('log-path-info');
 
-    let activeLevel = 'ALL';
     let filterText  = '';
     let autoScroll  = true;
     let totalLines  = 0;
     let paused      = false;
     let pauseQueue  = [];   // lines received while paused, flushed on resume
+
+    // Conjunto de níveis ativos — vazio = "Todos" (mostra tudo).
+    // Cada nível pode ser ativado/desativado independentemente via toggle.
+    const activeLevels = new Set();
 
     // ── Parsing ──────────────────────────────────────────────────────────────
     // Line format: [2025-01-01T00:00:00.000Z] [INFO ] message
@@ -218,9 +221,21 @@
 
     // ── Visibility ───────────────────────────────────────────────────────────
     function lineVisible(entry) {
-      if (activeLevel !== 'ALL' && entry.level !== activeLevel) return false;
+      // activeLevels vazio = "Todos" — mostra tudo
+      if (activeLevels.size > 0 && !activeLevels.has(entry.level)) return false;
       if (filterText && !entry.raw.toLowerCase().includes(filterText)) return false;
       return true;
+    }
+
+    // Sincroniza o estado visual dos botões com activeLevels
+    function syncLevelBtns() {
+      document.querySelectorAll('.level-btn[data-level]').forEach(b => {
+        if (b.dataset.level === 'ALL') {
+          b.classList.toggle('active', activeLevels.size === 0);
+        } else {
+          b.classList.toggle('active', activeLevels.has(b.dataset.level));
+        }
+      });
     }
 
     function applyFilters() {
@@ -391,12 +406,23 @@
       renderAll('');
     });
 
-    // Level filter buttons
+    // Level filter buttons — multi-select
+    // Clicar em "Todos" limpa todos os filtros de nível (mostra tudo).
+    // Clicar em INFO/WARN/ERROR/DEBUG ativa ou desativa aquele nível individualmente.
+    // Quando algum nível específico está ativo, "Todos" fica inativo automaticamente.
     document.querySelectorAll('.level-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeLevel = btn.dataset.level;
+        const lvl = btn.dataset.level;
+        if (lvl === 'ALL') {
+          activeLevels.clear();
+        } else {
+          if (activeLevels.has(lvl)) {
+            activeLevels.delete(lvl);
+          } else {
+            activeLevels.add(lvl);
+          }
+        }
+        syncLevelBtns();
         applyFilters();
       });
     });
@@ -417,6 +443,7 @@
     function waitForApi(retries = 20) {
       if (window.debugApi) {
         window.debugApi.onLine(line => appendLine(line));
+        syncLevelBtns(); // garante estado visual correto na abertura
         loadStatus();
         loadLog();
       } else if (retries > 0) {
