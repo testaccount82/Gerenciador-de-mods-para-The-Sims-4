@@ -674,3 +674,62 @@ describe('second-instance — recriar mainWindow quando debug window mantém pro
     expect(handlerSrc).toContain('isDestroyed()');
   });
 });
+
+// ─── BUG: undo bar não marcava entry.undone no actionLog ─────────────────────
+describe('showUndoBar — marcar entry.undone no actionLog após undo pela barra', () => {
+  const rendererSrc = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../src/renderer.js'), 'utf8'
+  );
+
+  test('undo-btn handler busca entry no actionLog pelo undoFn e marca undone = true', () => {
+    // O handler do undo-btn deve encontrar a entrada correspondente no actionLog
+    // e marcar entry.undone = true para que o histórico não exiba "Desfazer" novamente.
+    const start = rendererSrc.indexOf("document.getElementById('undo-btn').addEventListener");
+    const end   = rendererSrc.indexOf('});', start + 10) + 3;
+    const handlerBody = rendererSrc.slice(start, end);
+    expect(handlerBody).toContain('actionLog');
+    expect(handlerBody).toContain('undoFn');
+    expect(handlerBody).toContain('undone = true');
+  });
+});
+
+// ─── BUG: trash:restore ENOENT quando arquivo já foi restaurado ───────────────
+describe('trash:restore — alreadyRestored quando arquivo ausente na lixeira', () => {
+  const { _ipcHandlers } = require('electron');
+  const fs  = require('fs');
+  const os  = require('os');
+  const path = require('path');
+
+  test('trash:restore retorna alreadyRestored=true se arquivo não existe na lixeira', async () => {
+    // O mock do Electron define userData = /tmp/ts4-test-userData
+    // getAllowedRoots() usa modsFolder/trayFolder da config, que em testes
+    // aponta para tmpdir criados pelos beforeEach. Testamos via código-fonte.
+    const mainSrc = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../main.js'), 'utf8'
+    );
+    // O handler deve ter fs.existsSync antes de moveFile
+    const start = mainSrc.indexOf("ipcMain.handle('trash:restore'");
+    const end   = mainSrc.indexOf('});', start) + 3;
+    const handlerBody = mainSrc.slice(start, end);
+    expect(handlerBody).toContain('existsSync');
+    expect(handlerBody).toContain('alreadyRestored');
+    expect(handlerBody).toContain('alreadyRestored: true');
+  });
+
+  test('apiTrashRestore trata alreadyRestored como WARN não ERROR', () => {
+    const start = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/renderer.js'), 'utf8'
+    ).indexOf('function apiTrashRestore(');
+    const src = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../src/renderer.js'), 'utf8'
+    );
+    const fnStart = src.indexOf('function apiTrashRestore(');
+    const fnEnd   = src.indexOf('\n}', fnStart) + 2;
+    const fnBody  = src.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('alreadyRestored');
+    expect(fnBody).toContain('WARN');
+    // Não deve logar ERROR para alreadyRestored
+    const warnLine = fnBody.slice(fnBody.indexOf('alreadyRestored'), fnBody.indexOf('\n', fnBody.indexOf('alreadyRestored')));
+    expect(warnLine).not.toContain('ERROR');
+  });
+});

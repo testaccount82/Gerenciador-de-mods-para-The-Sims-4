@@ -188,7 +188,8 @@ async function apiTrashRestore(trashPath, originalPath, name = '', context = '')
   const ctx = context ? ` [${context}]` : '';
   try {
     const r = await window.api.trashRestore(trashPath, originalPath);
-    if (r.success) dlog('INFO', `trashRestore${ctx}: "${label}" restaurado para ${originalPath}`);
+    if (r.alreadyRestored) dlog('WARN', `trashRestore${ctx}: "${label}" já havia sido restaurado (arquivo ausente na lixeira)`);
+    else if (r.success) dlog('INFO', `trashRestore${ctx}: "${label}" restaurado para ${originalPath}`);
     else dlog('ERROR', `trashRestore${ctx}: "${label}" → FALHOU — ${r.error || 'sem detalhes'}`);
     return r;
   } catch (e) {
@@ -686,6 +687,11 @@ function showUndoBar(label) {
     if (op) {
       try {
         await op.undoFn();
+        // Mark the corresponding actionLog entry as undone so the History page
+        // does not show "↩ Desfazer" for an action already undone via this bar.
+        const logEntry = state.actionLog.find(e => e.undoFn === op.undoFn);
+        if (logEntry) { logEntry.undone = true; }
+        if (state.currentPage === 'history') renderHistory();
         toast('Operação desfeita', 'info');
       } catch (e) {
         toast('Erro ao desfazer: ' + (e.message || ''), 'error');

@@ -2390,6 +2390,8 @@ ipcMain.handle('trash:restore', (_, trashPath, originalPath) => {
   const roots = getAllowedRoots();
   if (!isPathSafe(trashPath, trashDir)) return { success: false, error: 'Não está na lixeira interna' };
   if (!originalPath || !isPathSafe(originalPath, ...roots)) return { success: false, error: 'Destino não permitido' };
+  // File may have already been restored (e.g. undo bar used, then history undo clicked again).
+  if (!fs.existsSync(trashPath)) return { success: true, alreadyRestored: true };
   const result = moveFile(trashPath, originalPath);
   if (result.success) {
     try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
