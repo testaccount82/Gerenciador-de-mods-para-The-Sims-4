@@ -20,6 +20,8 @@
       --info:      #81c784;
       --debug:     #ce93d8;
       --scrollbar: #2e2e2e;
+      --highlight: rgba(255, 214, 0, 0.28);
+      --highlight-cur: rgba(255, 214, 0, 0.55);
     }
 
     html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Consolas', 'Menlo', monospace; font-size: 12px; }
@@ -28,93 +30,146 @@
     #toolbar {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
+      gap: 5px;
+      padding: 6px 10px;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       -webkit-app-region: drag;
       user-select: none;
     }
     #toolbar > * { -webkit-app-region: no-drag; }
-    #toolbar h1 { font-size: 13px; font-weight: 600; color: var(--accent); flex: 1; }
-    #toolbar span#status-badge {
-      font-size: 11px; padding: 2px 8px; border-radius: 4px;
-      background: #1e3a1e; color: var(--info); border: 1px solid #2e5a2e;
-    }
-    #toolbar span#status-badge.off { background: #2a1e1e; color: var(--error); border-color: #5a2e2e; }
+    #toolbar h1 { font-size: 13px; font-weight: 600; color: var(--accent); flex: 1; white-space: nowrap; }
 
-    #btn-pause.paused {
-      background: #1e3350;
-      color: #4fc3f7;
-      border-color: #2a5080;
+    #status-badge {
+      font-size: 11px; padding: 2px 7px; border-radius: 4px;
+      background: #1e3a1e; color: var(--info); border: 1px solid #2e5a2e; white-space: nowrap;
     }
+    #status-badge.off { background: #2a1e1e; color: var(--error); border-color: #5a2e2e; }
+
+    /* Level counters */
+    #level-counters { display: flex; gap: 3px; align-items: center; padding: 0 4px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+    .lvl-counter {
+      font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+      cursor: pointer; border: 1px solid transparent; transition: opacity 0.15s; white-space: nowrap;
+    }
+    .lvl-counter[data-zero="1"] { opacity: 0.2; pointer-events: none; }
+    .cnt-error { color: var(--error); border-color: #5a2e2e; background: #2a1e1e; }
+    .cnt-warn  { color: var(--warn);  border-color: #5a4000; background: #2a1e00; }
+    .cnt-info  { color: var(--info);  border-color: #2e5a2e; background: #1e3a1e; }
+    .cnt-debug { color: var(--debug); border-color: #4a2a5a; background: #2a1a3a; }
+
+    #btn-pause.paused { background: #1e3350; color: #4fc3f7; border-color: #2a5080; }
     #btn-pause.paused-pending {
-      background: #2a1e00;
-      color: #ffb74d;
-      border-color: #5a4000;
+      background: #2a1e00; color: #ffb74d; border-color: #5a4000;
       animation: pulse-pending 1s ease-in-out infinite;
     }
-    @keyframes pulse-pending {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.6; }
-    }
+    @keyframes pulse-pending { 0%,100%{opacity:1}50%{opacity:0.55} }
 
     button {
-      padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
-      background: #222; color: var(--text); cursor: pointer; font-size: 12px;
-      transition: background 0.15s;
+      padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border);
+      background: #222; color: var(--text); cursor: pointer; font-size: 11px;
+      transition: background 0.15s; white-space: nowrap;
     }
     button:hover { background: #2e2e2e; }
+    #btn-always-on-top { color: var(--text-dim); }
+    #btn-always-on-top.active { background: #1e3a1e; color: var(--info); border-color: #2e5a2e; }
+    #btn-wrap.active { background: #1e2e3a; color: var(--accent); border-color: #2a4060; }
+
+    /* ── Path bar ── */
+    #log-path-info {
+      display: flex; align-items: center; gap: 8px;
+      padding: 3px 10px; color: var(--text-dim); font-size: 10px;
+      border-bottom: 1px solid var(--border); background: var(--surface);
+    }
+    #autoscroll-ind {
+      margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+      border: 1px solid transparent; transition: all 0.2s; white-space: nowrap;
+    }
+    #autoscroll-ind.on  { color: var(--info);     border-color: #2e5a2e; background: #1e3a1e; }
+    #autoscroll-ind.off { color: var(--text-dim); border-color: var(--border); }
 
     /* ── Filter bar ── */
     #filterbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; background: var(--surface); border-bottom: 1px solid var(--border);
     }
-    #filterbar label { font-size: 11px; color: var(--text-dim); }
+    #search-group { display: flex; align-items: center; flex: 1; gap: 4px; min-width: 0; }
     #filter-input {
       flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
-      color: var(--text); padding: 3px 8px; font-family: inherit; font-size: 12px;
+      color: var(--text); padding: 3px 8px; font-family: inherit; font-size: 12px; min-width: 0;
     }
     #filter-input:focus { outline: 1px solid var(--accent); }
-    .level-btn { padding: 3px 8px; font-size: 11px; opacity: 0.5; }
-    .level-btn.active { opacity: 1; border-color: var(--accent); color: var(--accent); }
-    #count { font-size: 11px; color: var(--text-dim); min-width: 60px; text-align: right; }
+    #filter-input.has-results { border-color: #5a5000; }
+    #filter-input.no-results  { border-color: #5a2e2e; }
+
+    #find-nav { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+    #find-nav button { padding: 2px 5px; font-size: 11px; }
+    #find-count { min-width: 56px; text-align: center; font-size: 10px; }
+
+    .fsep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+
+    .level-btn  { padding: 2px 6px; font-size: 11px; opacity: 0.4; }
+    .level-btn.active  { opacity: 1; border-color: currentColor; }
+    .source-btn { padding: 2px 6px; font-size: 11px; opacity: 0.4; }
+    .source-btn.active { opacity: 1; border-color: var(--accent); color: var(--accent); }
+
+    #count { font-size: 11px; color: var(--text-dim); min-width: 64px; text-align: right; white-space: nowrap; }
 
     /* ── Log output ── */
     #log-container {
-      position: absolute;
-      top: 94px; /* toolbar + filterbar */
-      left: 0; right: 0; bottom: 0;
-      overflow-y: auto;
-      padding: 6px 0;
+      position: absolute; left: 0; right: 0; bottom: 0;
+      overflow-y: auto; padding: 4px 0;
     }
     #log-container::-webkit-scrollbar { width: 8px; }
     #log-container::-webkit-scrollbar-track { background: var(--bg); }
     #log-container::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
 
     .log-line {
-      display: flex;
-      padding: 1px 12px;
-      line-height: 1.55;
-      white-space: pre-wrap;
-      word-break: break-all;
+      display: flex; position: relative;
+      padding: 1px 32px 1px 10px;
+      line-height: 1.55; white-space: pre-wrap; word-break: break-all;
     }
+    .log-line.nowrap .msg { white-space: nowrap; word-break: normal; overflow: hidden; text-overflow: ellipsis; }
     .log-line:hover { background: rgba(255,255,255,0.03); }
+    .log-line:hover .line-copy { opacity: 1; }
     .log-line.hidden { display: none; }
+    .log-line.find-match { background: rgba(255,214,0,0.05); }
+    .log-line.find-current { background: rgba(255,214,0,0.13) !important; outline: 1px solid rgba(255,214,0,0.5); }
+    .log-line.session-start {
+      margin-top: 6px; border-top: 1px solid rgba(79,195,247,0.2);
+      background: rgba(79,195,247,0.06); padding-top: 3px;
+    }
+    .log-line.session-start::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 2px; background: var(--accent); opacity: 0.4;
+    }
 
-    .ts   { color: var(--text-dim); flex-shrink: 0; margin-right: 6px; }
-    .lvl  { flex-shrink: 0; margin-right: 8px; font-weight: 700; width: 38px; }
-    .msg  { flex: 1; }
+    .ts  { color: var(--text-dim); flex-shrink: 0; margin-right: 6px; user-select: none; }
+    .src {
+      flex-shrink: 0; margin-right: 6px; font-size: 10px; opacity: 0.6;
+      padding: 0 3px; border-radius: 2px; border: 1px solid transparent; align-self: center;
+    }
+    .src-renderer { color: #80cbc4; border-color: #1a3a38; }
+    .src-main     { color: #a5d6a7; border-color: #1a3a1a; }
+    .lvl { flex-shrink: 0; margin-right: 8px; font-weight: 700; width: 38px; user-select: none; }
+    .msg { flex: 1; min-width: 0; }
 
     .lvl-INFO  { color: var(--info); }
     .lvl-WARN  { color: var(--warn); }
     .lvl-ERROR { color: var(--error); }
     .lvl-DEBUG { color: var(--debug); }
+
+    mark { background: var(--highlight); color: inherit; border-radius: 2px; padding: 0 1px; }
+    mark.cur { background: var(--highlight-cur); }
+
+    .line-copy {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      opacity: 0; transition: opacity 0.12s; padding: 1px 5px; font-size: 10px;
+      background: #252525; border: 1px solid #3a3a3a; border-radius: 3px;
+      cursor: pointer; color: var(--text-dim);
+    }
+    .line-copy:hover { background: #333; color: var(--text); }
+    .line-copy.copied { color: var(--info); border-color: #2e5a2e; }
 
     /* ── Empty state ── */
     #empty-msg {
@@ -124,22 +179,9 @@
     #empty-msg p { margin-top: 8px; font-size: 13px; }
     #empty-msg small { font-size: 11px; }
 
-    #log-path-info {
-      padding: 4px 12px 6px;
-      color: var(--text-dim);
-      font-size: 10px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-    #btn-always-on-top {
-      background: #222;
-      color: var(--text-dim);
-      border-color: var(--border);
-    }
-    #btn-always-on-top.active {
-      background: #1e3a1e;
-      color: var(--info);
-      border-color: #2e5a2e;
+    #shortcut-hint {
+      position: fixed; bottom: 5px; right: 10px;
+      font-size: 10px; color: var(--text-dim); opacity: 0.4; pointer-events: none;
     }
   </style>
 </head>
@@ -148,25 +190,54 @@
   <div id="toolbar">
     <h1>🐛 Debug — TS4 Mod Manager</h1>
     <span id="status-badge">● ATIVO</span>
-    <button id="btn-always-on-top" title="Manter janela sempre acima das demais">📌 Sempre no topo</button>
-    <button id="btn-open-file" title="Abrir arquivo de log no editor padrão">📂 Abrir arquivo</button>
-    <button id="btn-refresh" title="Recarregar log do arquivo">↺ Atualizar</button>
-    <button id="btn-pause" title="Pausar atualização em tempo real">⏸ Pausar</button>
-    <button id="btn-scroll-bottom" title="Ir para o final">⬇ Final</button>
-    <button id="btn-clear" title="Limpar arquivo de log" style="color:#ef5350">🗑 Limpar</button>
+
+    <div id="level-counters">
+      <span class="lvl-counter cnt-error" data-lvl="ERROR" data-zero="1" title="Erros — clique para filtrar">ERR: <b id="cn-error">0</b></span>
+      <span class="lvl-counter cnt-warn"  data-lvl="WARN"  data-zero="1" title="Avisos — clique para filtrar">WARN: <b id="cn-warn">0</b></span>
+      <span class="lvl-counter cnt-info"  data-lvl="INFO"  data-zero="1" title="Info — clique para filtrar">INFO: <b id="cn-info">0</b></span>
+      <span class="lvl-counter cnt-debug" data-lvl="DEBUG" data-zero="1" title="Debug — clique para filtrar">DBG: <b id="cn-debug">0</b></span>
+    </div>
+
+    <button id="btn-always-on-top" title="Sempre no topo (Alt+T)">📌 Topo</button>
+    <button id="btn-wrap"          title="Quebra de linha (Alt+W)">↩ Wrap</button>
+    <button id="btn-export"        title="Exportar linhas visíveis como .log">💾 Exportar</button>
+    <button id="btn-open-file"     title="Abrir arquivo no editor">📂 Arquivo</button>
+    <button id="btn-refresh"       title="Recarregar do arquivo (F5)">↺ Atualizar</button>
+    <button id="btn-pause"         title="Pausar atualização em tempo real (Space)">⏸ Pausar</button>
+    <button id="btn-scroll-bottom" title="Ir para o final (Ctrl+End)">⬇ Final</button>
+    <button id="btn-clear"         title="Limpar arquivo de log" style="color:#ef5350">🗑 Limpar</button>
   </div>
 
-  <div id="log-path-info" id="log-path-bar">Carregando...</div>
+  <div id="log-path-info">
+    <span id="path-text">Carregando...</span>
+    <span id="autoscroll-ind" class="on" title="Auto-scroll ativo">⬇ auto</span>
+  </div>
 
   <div id="filterbar">
-    <label>Filtrar:</label>
-    <input id="filter-input" type="text" placeholder="texto para filtrar..." spellcheck="false" />
+    <div id="search-group">
+      <input id="filter-input" type="text" placeholder="buscar… ou /regex/  —  Ctrl+F" spellcheck="false" />
+      <div id="find-nav">
+        <button id="btn-prev" title="Anterior (Shift+F3)">▲</button>
+        <span id="find-count"></span>
+        <button id="btn-next" title="Próximo (F3)">▼</button>
+      </div>
+    </div>
+
+    <div class="fsep"></div>
+
     <button class="level-btn active" data-level="ALL">Todos</button>
     <button class="level-btn" data-level="INFO"  style="color:#81c784">INFO</button>
     <button class="level-btn" data-level="WARN"  style="color:#ffb74d">WARN</button>
     <button class="level-btn" data-level="ERROR" style="color:#ef5350">ERROR</button>
     <button class="level-btn" data-level="DEBUG" style="color:#ce93d8">DEBUG</button>
-    <label id="count">0 linhas</label>
+
+    <div class="fsep"></div>
+
+    <button class="source-btn active" data-source="ALL">Todas fontes</button>
+    <button class="source-btn" data-source="renderer" style="color:#80cbc4">renderer</button>
+    <button class="source-btn" data-source="main"     style="color:#a5d6a7">main</button>
+
+    <span id="count">0 linhas</span>
   </div>
 
   <div id="log-container">
@@ -176,255 +247,389 @@
     </div>
   </div>
 
+  <div id="shortcut-hint">Ctrl+F · F3 próximo · Shift+F3 anterior · Space pausar · F5 atualizar · Ctrl+End final · Alt+T topo · Alt+W wrap</div>
+
   <script>
     'use strict';
 
-    const container   = document.getElementById('log-container');
-    const emptyMsg    = document.getElementById('empty-msg');
-    const countEl     = document.getElementById('count');
-    const filterInput = document.getElementById('filter-input');
-    const statusBadge = document.getElementById('status-badge');
-    const pathInfo    = document.getElementById('log-path-info');
+    const container     = document.getElementById('log-container');
+    const emptyMsg      = document.getElementById('empty-msg');
+    const countEl       = document.getElementById('count');
+    const filterInput   = document.getElementById('filter-input');
+    const statusBadge   = document.getElementById('status-badge');
+    const pathText      = document.getElementById('path-text');
+    const autoScrollInd = document.getElementById('autoscroll-ind');
+    const findCountEl   = document.getElementById('find-count');
 
-    let filterText  = '';
-    let autoScroll  = true;
-    let totalLines  = 0;
-    let paused      = false;
-    let pauseQueue  = [];   // lines received while paused, flushed on resume
+    let filterText    = '';
+    let filterIsRegex = false;
+    let filterRegex   = null;
+    let autoScroll    = true;
+    let totalLines    = 0;
+    let paused        = false;
+    let pauseQueue    = [];
+    let wrapEnabled   = true;
 
-    // Conjunto de níveis ativos — vazio = "Todos" (mostra tudo).
-    // Cada nível pode ser ativado/desativado independentemente via toggle.
+    const levelCounts  = { INFO: 0, WARN: 0, ERROR: 0, DEBUG: 0 };
     const activeLevels = new Set();
+    let   activeSource = 'ALL';
+
+    let findMatches = [];
+    let findIndex   = -1;
+
+    // ── Layout ───────────────────────────────────────────────────────────────
+    function recalcTop() {
+      const h = ['toolbar','log-path-info','filterbar'].reduce((s,id) => s + document.getElementById(id).offsetHeight, 0);
+      container.style.top = h + 'px';
+    }
+    window.addEventListener('resize', recalcTop);
 
     // ── Parsing ──────────────────────────────────────────────────────────────
-    // Line format: [2025-01-01T00:00:00.000Z] [INFO ] message
     const LINE_RE = /^\[(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\]\s+\[(\w+)\s*\]\s(.*)$/;
+    const SRC_RE  = /^\[(\w+)\]\s/;
 
     function parseLine(raw) {
       const m = raw.match(LINE_RE);
-      if (m) return { ts: m[1], level: m[2].trim(), msg: m[3] };
-      return { ts: '', level: 'INFO', msg: raw };
+      if (!m) return { ts: '', level: 'INFO', source: 'main', msg: raw };
+      const body = m[3];
+      const sm   = body.match(SRC_RE);
+      return {
+        ts:     m[1],
+        level:  m[2].trim(),
+        source: sm ? sm[1] : 'main',
+        msg:    sm ? body.slice(sm[0].length) : body,
+      };
     }
 
-    function formatTs(isoStr) {
-      if (!isoStr) return '';
-      // Show as HH:MM:SS.mmm (local time) for compact display
+    function formatTs(iso) {
+      if (!iso) return '';
       try {
-        const d = new Date(isoStr);
-        const hh = String(d.getHours()).padStart(2,'0');
-        const mm = String(d.getMinutes()).padStart(2,'0');
-        const ss = String(d.getSeconds()).padStart(2,'0');
-        const ms = String(d.getMilliseconds()).padStart(3,'0');
-        return `${hh}:${mm}:${ss}.${ms}`;
-      } catch { return isoStr; }
-    }
-
-    // ── Visibility ───────────────────────────────────────────────────────────
-    function lineVisible(entry) {
-      // activeLevels vazio = "Todos" — mostra tudo
-      if (activeLevels.size > 0 && !activeLevels.has(entry.level)) return false;
-      if (filterText && !entry.raw.toLowerCase().includes(filterText)) return false;
-      return true;
-    }
-
-    // Sincroniza o estado visual dos botões com activeLevels
-    function syncLevelBtns() {
-      document.querySelectorAll('.level-btn[data-level]').forEach(b => {
-        if (b.dataset.level === 'ALL') {
-          b.classList.toggle('active', activeLevels.size === 0);
-        } else {
-          b.classList.toggle('active', activeLevels.has(b.dataset.level));
-        }
-      });
-    }
-
-    function applyFilters() {
-      let visible = 0;
-      container.querySelectorAll('.log-line').forEach(el => {
-        const show = lineVisible({ level: el.dataset.level, raw: el.dataset.raw });
-        el.classList.toggle('hidden', !show);
-        if (show) visible++;
-      });
-      countEl.textContent = `${visible} / ${totalLines}`;
-      emptyMsg.style.display = totalLines === 0 ? 'block' : 'none';
-    }
-
-    // ── Render ───────────────────────────────────────────────────────────────
-    function createLineEl(raw) {
-      const p = parseLine(raw);
-      const el = document.createElement('div');
-      el.className = 'log-line';
-      el.dataset.level = p.level;
-      el.dataset.raw   = raw.toLowerCase();
-      el.innerHTML =
-        `<span class="ts">${formatTs(p.ts)}</span>` +
-        `<span class="lvl lvl-${p.level}">${p.level}</span>` +
-        `<span class="msg">${escapeHtml(p.msg)}</span>`;
-      if (!lineVisible({ level: p.level, raw: el.dataset.raw })) el.classList.add('hidden');
-      return el;
+        const d = new Date(iso);
+        return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}.${d.getMilliseconds().toString().padStart(3,'0')}`;
+      } catch { return iso; }
     }
 
     function escapeHtml(s) {
-      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── Contadores ───────────────────────────────────────────────────────────
+    function updateCounters() {
+      for (const [lvl, n] of Object.entries(levelCounts)) {
+        const el = document.getElementById(`cn-${lvl.toLowerCase()}`);
+        if (el) el.textContent = n;
+        const chip = document.querySelector(`.lvl-counter[data-lvl="${lvl}"]`);
+        if (chip) chip.dataset.zero = n === 0 ? '1' : '0';
+      }
+    }
+    function resetCounters() {
+      for (const k of Object.keys(levelCounts)) levelCounts[k] = 0;
+      updateCounters();
+    }
+
+    // ── Visibility ───────────────────────────────────────────────────────────
+    function lineVisible(lvl, src, rawmsg) {
+      if (activeLevels.size > 0 && !activeLevels.has(lvl)) return false;
+      if (activeSource !== 'ALL' && src !== activeSource) return false;
+      if (filterText) {
+        if (filterIsRegex && filterRegex) {
+          filterRegex.lastIndex = 0;
+          if (!filterRegex.test(rawmsg)) return false;
+        } else {
+          if (!rawmsg.includes(filterText)) return false;
+        }
+      }
+      return true;
+    }
+
+    function syncLevelBtns() {
+      document.querySelectorAll('.level-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.level === 'ALL' ? activeLevels.size === 0 : activeLevels.has(b.dataset.level));
+      });
+    }
+    function syncSourceBtns() {
+      document.querySelectorAll('.source-btn').forEach(b => b.classList.toggle('active', b.dataset.source === activeSource));
+    }
+
+    // ── Highlight ─────────────────────────────────────────────────────────────
+    function buildHighlighted(msgText) {
+      const escaped = escapeHtml(msgText);
+      if (!filterText) return escaped;
+      if (filterIsRegex && filterRegex) {
+        filterRegex.lastIndex = 0;
+        return escaped.replace(new RegExp(filterRegex.source, filterRegex.flags.replace('g','') + 'g'), m => `<mark>${escapeHtml(m)}</mark>`);
+      }
+      const lc = escaped.toLowerCase();
+      const ft = filterText;
+      let out = '', i = 0;
+      while (i < escaped.length) {
+        const p = lc.indexOf(ft, i);
+        if (p === -1) { out += escaped.slice(i); break; }
+        out += escaped.slice(i, p) + `<mark>${escaped.slice(p, p + ft.length)}</mark>`;
+        i = p + ft.length;
+      }
+      return out;
+    }
+
+    // ── Find navigation ───────────────────────────────────────────────────────
+    function rebuildFindMatches() {
+      findMatches.forEach(m => m.el.classList.remove('find-match', 'find-current'));
+      findMatches = [];
+      if (findIndex >= 0) findIndex = -1;
+      if (!filterText) { updateFindCount(); return; }
+      container.querySelectorAll('.log-line:not(.hidden)').forEach(el => {
+        if (el.querySelector('mark')) {
+          el.classList.add('find-match');
+          findMatches.push({ el });
+        }
+      });
+      updateFindCount();
+    }
+
+    function updateFindCount() {
+      if (!filterText) { findCountEl.textContent = ''; filterInput.className = ''; return; }
+      if (findMatches.length === 0) { findCountEl.textContent = '0'; filterInput.className = 'no-results'; return; }
+      filterInput.className = 'has-results';
+      findCountEl.textContent = findIndex >= 0 ? `${findIndex+1}/${findMatches.length}` : `${findMatches.length}`;
+    }
+
+    function navigateFind(dir) {
+      if (!findMatches.length) return;
+      if (findIndex >= 0) findMatches[findIndex].el.classList.remove('find-current');
+      findIndex = dir === 'next'
+        ? (findIndex + 1) % findMatches.length
+        : (findIndex - 1 + findMatches.length) % findMatches.length;
+      findMatches[findIndex].el.classList.add('find-current');
+      findMatches[findIndex].el.scrollIntoView({ block: 'center' });
+      autoScroll = false;
+      updateAutoScrollInd();
+      updateFindCount();
+    }
+
+    // ── applyFilters ──────────────────────────────────────────────────────────
+    function applyFilters() {
+      let visible = 0;
+      container.querySelectorAll('.log-line').forEach(el => {
+        const show = lineVisible(el.dataset.level, el.dataset.source, el.dataset.rawmsg);
+        el.classList.toggle('hidden', !show);
+        if (show) {
+          visible++;
+          const msgEl = el.querySelector('.msg');
+          if (msgEl) msgEl.innerHTML = buildHighlighted(el.dataset.rawmsgOrig || el.dataset.rawmsg);
+        }
+      });
+      countEl.textContent = `${visible} / ${totalLines}`;
+      emptyMsg.style.display = totalLines === 0 ? 'block' : 'none';
+      rebuildFindMatches();
+    }
+
+    // ── Create line element ───────────────────────────────────────────────────
+    function createLineEl(raw) {
+      const p  = parseLine(raw);
+      const el = document.createElement('div');
+      el.className = 'log-line' + (wrapEnabled ? '' : ' nowrap');
+      el.dataset.level      = p.level;
+      el.dataset.source     = p.source;
+      el.dataset.rawmsg     = p.msg.toLowerCase();
+      el.dataset.rawmsgOrig = p.msg;  // original case for display
+      el.dataset.raw        = raw;
+
+      if (p.msg.includes('=== TS4 Mod Manager') && p.msg.includes('===')) {
+        el.classList.add('session-start');
+      }
+
+      const srcClass = p.source === 'renderer' ? 'src-renderer' : 'src-main';
+      el.innerHTML =
+        `<span class="ts">${escapeHtml(formatTs(p.ts))}</span>` +
+        `<span class="src ${srcClass}">${escapeHtml(p.source)}</span>` +
+        `<span class="lvl lvl-${p.level}">${p.level}</span>` +
+        `<span class="msg">${buildHighlighted(p.msg)}</span>` +
+        `<button class="line-copy" title="Copiar linha (⎘)">⎘</button>`;
+
+      el.querySelector('.line-copy').addEventListener('click', e => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(raw).then(() => {
+          const btn = e.currentTarget;
+          btn.textContent = '✓'; btn.classList.add('copied');
+          setTimeout(() => { btn.textContent = '⎘'; btn.classList.remove('copied'); }, 1200);
+        }).catch(() => {});
+      });
+
+      if (!lineVisible(p.level, p.source, p.msg.toLowerCase())) el.classList.add('hidden');
+      return el;
     }
 
     function renderAll(text) {
-      // Remove the empty-msg placeholder but keep it in DOM (toggle display)
       container.innerHTML = '';
       container.appendChild(emptyMsg);
+      resetCounters();
       totalLines = 0;
       let visible = 0;
-      const lines = text.split('\n');
-      const frag = document.createDocumentFragment();
-      for (const raw of lines) {
+      const frag  = document.createDocumentFragment();
+      for (const raw of text.split('\n')) {
         if (!raw.trim()) continue;
         totalLines++;
+        const p  = parseLine(raw);
+        if (p.level in levelCounts) levelCounts[p.level]++;
         const el = createLineEl(raw);
         if (!el.classList.contains('hidden')) visible++;
         frag.appendChild(el);
       }
       container.appendChild(frag);
+      updateCounters();
       countEl.textContent = `${visible} / ${totalLines}`;
       emptyMsg.style.display = totalLines === 0 ? 'block' : 'none';
+      rebuildFindMatches();
+      recalcTop();
     }
 
     function appendLine(raw) {
       if (!raw.trim()) return;
-      // While paused, queue the line and signal the button that new data arrived
       if (paused) {
         pauseQueue.push(raw);
         const btn = document.getElementById('btn-pause');
-        if (btn && !btn.classList.contains('paused-pending')) {
-          btn.classList.remove('paused');
-          btn.classList.add('paused-pending');
-          btn.title = `Retomar (${pauseQueue.length} mensagem(ns) pendente(s))`;
-          btn.textContent = `▶ Retomar (${pauseQueue.length})`;
-        } else if (btn) {
-          btn.title = `Retomar (${pauseQueue.length} mensagem(ns) pendente(s))`;
-          btn.textContent = `▶ Retomar (${pauseQueue.length})`;
-        }
+        btn.classList.remove('paused'); btn.classList.add('paused-pending');
+        btn.title = `Retomar (${pauseQueue.length} pendente(s))`;
+        btn.textContent = `▶ Retomar (${pauseQueue.length})`;
         return;
       }
       totalLines++;
+      const p = parseLine(raw);
+      if (p.level in levelCounts) { levelCounts[p.level]++; updateCounters(); }
       const el = createLineEl(raw);
       container.appendChild(el);
-      // Update count
       const cur = countEl.textContent.match(/(\d+)\s*\/\s*(\d+)/);
       const vis = cur ? parseInt(cur[1]) + (el.classList.contains('hidden') ? 0 : 1) : '?';
       countEl.textContent = `${vis} / ${totalLines}`;
       emptyMsg.style.display = 'none';
-      if (autoScroll && !el.classList.contains('hidden')) {
-        container.scrollTop = container.scrollHeight;
+      if (!el.classList.contains('hidden') && el.querySelector('mark')) {
+        el.classList.add('find-match');
+        findMatches.push({ el });
+        updateFindCount();
       }
+      if (autoScroll && !el.classList.contains('hidden')) container.scrollTop = container.scrollHeight;
     }
 
     // ── Load ─────────────────────────────────────────────────────────────────
     async function loadLog() {
-      try {
-        const text = await window.debugApi.getLog();
-        renderAll(text || '');
-        if (autoScroll) container.scrollTop = container.scrollHeight;
-      } catch (e) {
-        renderAll(`[erro ao carregar log: ${e.message}]`);
-      }
+      try { const t = await window.debugApi.getLog(); renderAll(t || ''); if (autoScroll) container.scrollTop = container.scrollHeight; }
+      catch (e) { renderAll(`[erro ao carregar log: ${e.message}]`); }
     }
 
     async function loadStatus() {
       try {
         const s = await window.debugApi.getStatus();
-        if (s.enabled) {
-          statusBadge.textContent = '● ATIVO';
-          statusBadge.classList.remove('off');
-        } else {
-          statusBadge.textContent = '○ INATIVO';
-          statusBadge.classList.add('off');
-        }
-        pathInfo.textContent = `Log: ${s.logPath}`;
+        statusBadge.textContent = s.enabled ? '● ATIVO' : '○ INATIVO';
+        statusBadge.classList.toggle('off', !s.enabled);
+        pathText.textContent = `Log: ${s.logPath}`;
       } catch (_) {}
     }
 
-    // ── Auto-scroll detection ─────────────────────────────────────────────────
+    // ── Auto-scroll ───────────────────────────────────────────────────────────
+    function updateAutoScrollInd() {
+      if (autoScroll) {
+        autoScrollInd.textContent = '⬇ auto'; autoScrollInd.className = 'on';
+        autoScrollInd.title = 'Auto-scroll ativo — role para cima para pausar';
+      } else {
+        autoScrollInd.textContent = '⬇ pausado'; autoScrollInd.className = 'off';
+        autoScrollInd.title = 'Auto-scroll pausado — clique em "Final" ou role até o fim para reativar';
+      }
+    }
     container.addEventListener('scroll', () => {
-      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
-      autoScroll = nearBottom;
+      const near = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+      if (near !== autoScroll) { autoScroll = near; updateAutoScrollInd(); }
+    });
+
+    // ── Export ───────────────────────────────────────────────────────────────
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const lines = [...container.querySelectorAll('.log-line:not(.hidden)')].map(el => el.dataset.raw || '');
+      if (!lines.length) { alert('Nenhuma linha visível para exportar.'); return; }
+      const a = Object.assign(document.createElement('a'), {
+        href:     URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' })),
+        download: `debug-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.log`,
+      });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     });
 
     // ── Controls ─────────────────────────────────────────────────────────────
     document.getElementById('btn-refresh').addEventListener('click', () => {
-      // Exit pause so the freshly loaded lines are shown
       if (paused) {
-        paused = false;
-        pauseQueue = [];
+        paused = false; pauseQueue = [];
         const btn = document.getElementById('btn-pause');
-        btn.classList.remove('paused', 'paused-pending');
-        btn.title = 'Pausar atualização em tempo real';
-        btn.textContent = '⏸ Pausar';
+        btn.classList.remove('paused','paused-pending');
+        btn.title = 'Pausar atualização em tempo real (Space)'; btn.textContent = '⏸ Pausar';
       }
       loadLog();
     });
+
     document.getElementById('btn-open-file').addEventListener('click', () => window.debugApi.openLogFile());
 
-    // ── Always on Top ─────────────────────────────────────────────────────────
     let alwaysOnTop = false;
-    const btnAlwaysOnTop = document.getElementById('btn-always-on-top');
-    btnAlwaysOnTop.addEventListener('click', async () => {
+    const btnTop = document.getElementById('btn-always-on-top');
+    btnTop.addEventListener('click', async () => {
       alwaysOnTop = !alwaysOnTop;
       await window.debugApi.setAlwaysOnTop(alwaysOnTop);
-      btnAlwaysOnTop.classList.toggle('active', alwaysOnTop);
-      btnAlwaysOnTop.title = alwaysOnTop
-        ? 'Janela fixada no topo — clique para desativar'
-        : 'Manter janela sempre acima das demais';
+      btnTop.classList.toggle('active', alwaysOnTop);
+      btnTop.title = alwaysOnTop ? 'Janela fixada no topo — desativar (Alt+T)' : 'Sempre no topo (Alt+T)';
     });
 
-    // ── Pause / Resume ───────────────────────────────────────────────────────
+    const btnWrap = document.getElementById('btn-wrap');
+    btnWrap.classList.add('active'); // wrap on by default
+    btnWrap.addEventListener('click', () => {
+      wrapEnabled = !wrapEnabled;
+      btnWrap.classList.toggle('active', wrapEnabled);
+      container.querySelectorAll('.log-line').forEach(el => el.classList.toggle('nowrap', !wrapEnabled));
+    });
+
     document.getElementById('btn-pause').addEventListener('click', () => {
       const btn = document.getElementById('btn-pause');
       paused = !paused;
       if (paused) {
-        btn.classList.add('paused');
-        btn.classList.remove('paused-pending');
-        btn.title = 'Retomar atualização em tempo real';
-        btn.textContent = '▶ Retomar';
+        btn.classList.add('paused'); btn.classList.remove('paused-pending');
+        btn.title = 'Retomar (Space)'; btn.textContent = '▶ Retomar';
       } else {
-        // Flush queued lines
         const pending = pauseQueue.splice(0);
         for (const raw of pending) appendLine(raw);
-        btn.classList.remove('paused', 'paused-pending');
-        btn.title = 'Pausar atualização em tempo real';
-        btn.textContent = '⏸ Pausar';
+        btn.classList.remove('paused','paused-pending');
+        btn.title = 'Pausar (Space)'; btn.textContent = '⏸ Pausar';
         if (autoScroll) container.scrollTop = container.scrollHeight;
       }
     });
 
     document.getElementById('btn-scroll-bottom').addEventListener('click', () => {
-      autoScroll = true;
+      autoScroll = true; updateAutoScrollInd();
       container.scrollTop = container.scrollHeight;
     });
+
     document.getElementById('btn-clear').addEventListener('click', async () => {
       if (!confirm('Limpar todo o log de depuração?')) return;
-      await window.debugApi.clearLog();
-      renderAll('');
+      await window.debugApi.clearLog(); renderAll('');
     });
 
-    // Level filter buttons — multi-select
-    // Clicar em "Todos" limpa todos os filtros de nível (mostra tudo).
-    // Clicar em INFO/WARN/ERROR/DEBUG ativa ou desativa aquele nível individualmente.
-    // Quando algum nível específico está ativo, "Todos" fica inativo automaticamente.
+    // Level filter buttons
     document.querySelectorAll('.level-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const lvl = btn.dataset.level;
-        if (lvl === 'ALL') {
-          activeLevels.clear();
-        } else {
-          if (activeLevels.has(lvl)) {
-            activeLevels.delete(lvl);
-          } else {
-            activeLevels.add(lvl);
-          }
-        }
-        syncLevelBtns();
-        applyFilters();
+        if (lvl === 'ALL') { activeLevels.clear(); }
+        else { activeLevels.has(lvl) ? activeLevels.delete(lvl) : activeLevels.add(lvl); }
+        syncLevelBtns(); applyFilters();
       });
+    });
+
+    // Level counter chips — single-level shortcut
+    document.querySelectorAll('.lvl-counter').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const lvl = chip.dataset.lvl;
+        if (activeLevels.size === 1 && activeLevels.has(lvl)) activeLevels.clear();
+        else { activeLevels.clear(); activeLevels.add(lvl); }
+        syncLevelBtns(); applyFilters();
+      });
+    });
+
+    // Source filter buttons
+    document.querySelectorAll('.source-btn').forEach(btn => {
+      btn.addEventListener('click', () => { activeSource = btn.dataset.source; syncSourceBtns(); applyFilters(); });
     });
 
     // Text filter
@@ -432,20 +637,43 @@
     filterInput.addEventListener('input', () => {
       clearTimeout(filterTimer);
       filterTimer = setTimeout(() => {
-        filterText = filterInput.value.toLowerCase().trim();
+        const raw = filterInput.value.trim();
+        const rm  = raw.match(/^\/(.+)\/([gimy]*)$/);
+        if (rm) {
+          try { filterRegex = new RegExp(rm[1], rm[2] || 'i'); filterIsRegex = true; filterText = raw; }
+          catch { filterIsRegex = false; filterRegex = null; filterText = raw.toLowerCase(); }
+        } else {
+          filterIsRegex = false; filterRegex = null; filterText = raw.toLowerCase();
+        }
+        findIndex = -1;
         applyFilters();
-      }, 200);
+      }, 180);
+    });
+
+    document.getElementById('btn-next').addEventListener('click', () => navigateFind('next'));
+    document.getElementById('btn-prev').addEventListener('click', () => navigateFind('prev'));
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+    document.addEventListener('keydown', e => {
+      if (e.ctrlKey && e.key === 'f')   { e.preventDefault(); filterInput.focus(); filterInput.select(); return; }
+      if (e.key === 'Escape' && filterInput === document.activeElement) {
+        filterInput.value = ''; filterText = ''; filterIsRegex = false; filterRegex = null; findIndex = -1;
+        applyFilters(); filterInput.blur(); return;
+      }
+      if (e.key === 'F3') { e.preventDefault(); navigateFind(e.shiftKey ? 'prev' : 'next'); return; }
+      if (e.key === 'F5') { e.preventDefault(); document.getElementById('btn-refresh').click(); return; }
+      if (e.key === ' ' && filterInput !== document.activeElement) { e.preventDefault(); document.getElementById('btn-pause').click(); return; }
+      if (e.ctrlKey && e.key === 'End') { e.preventDefault(); document.getElementById('btn-scroll-bottom').click(); return; }
+      if (e.altKey  && e.key === 't')   { e.preventDefault(); btnTop.click(); return; }
+      if (e.altKey  && e.key === 'w')   { e.preventDefault(); btnWrap.click(); return; }
     });
 
     // ── Init ─────────────────────────────────────────────────────────────────
-    // debugApi is exposed by the preload via contextBridge.
-    // If it's not available, show a clear diagnostic instead of a cryptic error.
     function waitForApi(retries = 20) {
       if (window.debugApi) {
         window.debugApi.onLine(line => appendLine(line));
-        syncLevelBtns(); // garante estado visual correto na abertura
-        loadStatus();
-        loadLog();
+        syncLevelBtns(); syncSourceBtns();
+        loadStatus(); loadLog(); recalcTop();
       } else if (retries > 0) {
         setTimeout(() => waitForApi(retries - 1), 50);
       } else {

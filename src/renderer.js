@@ -1859,15 +1859,15 @@ function renderPagination(current, total, itemCount) {
 // ─── Handlers comuns a grade E lista ─────────────────────────────────────────
 function setupCommonModsEvents(el) {
   // View toggle
-  el.querySelector('#view-list')?.addEventListener('click', () => { state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
-  el.querySelector('#view-grid')?.addEventListener('click', () => { state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#view-list')?.addEventListener('click', () => { dlog('DEBUG', 'View: lista'); state.viewMode = 'list'; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#view-grid')?.addEventListener('click', () => { dlog('DEBUG', 'View: grade'); state.viewMode = 'grid'; state.galleryPage = 1; renderMods(); });
 
   // Import & refresh
   el.querySelector('#btn-import')?.addEventListener('click', importFiles);
   el.querySelector('#btn-refresh-mods')?.addEventListener('click', async () => { await loadMods(); renderMods(); toast('Lista atualizada', 'info', 1500); });
 
-
-  // Search input
+  // Search input — log somente quando o usuário para de digitar (debounce natural do próprio handler)
+  let _searchLogTimer = null;
   el.querySelector('#search-input')?.addEventListener('input', e => {
     state.searchQuery = e.target.value;
     const pos = e.target.selectionStart;
@@ -1875,27 +1875,42 @@ function setupCommonModsEvents(el) {
     renderMods();
     const ni = document.getElementById('search-input');
     if (ni) { ni.focus(); ni.setSelectionRange(pos, pos); }
+    clearTimeout(_searchLogTimer);
+    _searchLogTimer = setTimeout(() => {
+      if (state.searchQuery) dlog('DEBUG', `Busca: "${state.searchQuery}"`);
+    }, 500);
   });
   el.querySelector('#search-clear')?.addEventListener('click', () => {
+    dlog('DEBUG', 'Busca: limpa');
     state.searchQuery = ''; state.galleryPage = 1; renderMods();
     document.getElementById('search-input')?.focus();
   });
 
   // Status chips
   el.querySelectorAll('[data-fs]').forEach(btn => {
-    btn.addEventListener('click', () => { state.filterStatus = btn.dataset.fs; state.galleryPage = 1; renderMods(); });
+    btn.addEventListener('click', () => {
+      dlog('DEBUG', `Filtro status: ${btn.dataset.fs}`);
+      state.filterStatus = btn.dataset.fs; state.galleryPage = 1; renderMods();
+    });
   });
 
   // Type chips
   el.querySelectorAll('[data-ft]').forEach(btn => {
-    btn.addEventListener('click', () => { state.filterType = btn.dataset.ft; state.galleryPage = 1; renderMods(); });
+    btn.addEventListener('click', () => {
+      dlog('DEBUG', `Filtro tipo: ${btn.dataset.ft}`);
+      state.filterType = btn.dataset.ft; state.galleryPage = 1; renderMods();
+    });
   });
 
   // Folder select
-  el.querySelector('#filter-folder')?.addEventListener('change', e => { state.filterFolder = e.target.value; state.galleryPage = 1; renderMods(); });
+  el.querySelector('#filter-folder')?.addEventListener('change', e => {
+    dlog('DEBUG', `Filtro pasta: ${e.target.value}`);
+    state.filterFolder = e.target.value; state.galleryPage = 1; renderMods();
+  });
 
   // Clear all filters
   el.querySelector('#clear-filters')?.addEventListener('click', () => {
+    dlog('DEBUG', 'Filtros: limpar todos');
     state.searchQuery = ''; state.filterStatus = 'all'; state.filterType = 'all';
     state.filterFolder = 'all'; state.galleryPage = 1; renderMods();
   });
@@ -1903,16 +1918,31 @@ function setupCommonModsEvents(el) {
   // Items per page (both list and grid modes)
   el.querySelector('#items-per-page')?.addEventListener('change', e => {
     const val = e.target.value;
+    dlog('DEBUG', `Itens por página: ${val}`);
     state.itemsPerPage = val === 'Infinity' ? Infinity : parseInt(val);
     state.galleryPage = 1; renderMods();
   });
 
   // Pagination
   el.querySelectorAll('[data-page]').forEach(btn => {
-    btn.addEventListener('click', () => { state.galleryPage = parseInt(btn.dataset.page); renderMods(); });
+    btn.addEventListener('click', () => {
+      const pg = parseInt(btn.dataset.page);
+      dlog('DEBUG', `Página: ${pg}`);
+      state.galleryPage = pg; renderMods();
+    });
   });
-  el.querySelector('#page-prev')?.addEventListener('click', () => { if (state.galleryPage > 1) { state.galleryPage--; renderMods(); } });
-  el.querySelector('#page-next')?.addEventListener('click', () => { state.galleryPage++; renderMods(); });
+  el.querySelector('#page-prev')?.addEventListener('click', () => {
+    if (state.galleryPage > 1) {
+      state.galleryPage--;
+      dlog('DEBUG', `Página: ${state.galleryPage} (anterior)`);
+      renderMods();
+    }
+  });
+  el.querySelector('#page-next')?.addEventListener('click', () => {
+    state.galleryPage++;
+    dlog('DEBUG', `Página: ${state.galleryPage} (próxima)`);
+    renderMods();
+  });
 
   // Drag-and-drop overlay — attached only once per page element lifetime
   // (el.innerHTML changes on each renderMods but el itself persists in the DOM,
@@ -3065,6 +3095,7 @@ function setupGalleryEvents(el, mods) {
         state.sortColumn = col;
         state.sortDir = 'asc';
       }
+      dlog('DEBUG', `Ordenação (grade): ${state.sortColumn} ${state.sortDir}`);
       state.galleryPage = 1;
       renderMods();
     });
@@ -3600,6 +3631,7 @@ function setupModsEvents(el, mods) {
         state.sortColumn = col;
         state.sortDir = 'asc';
       }
+      dlog('DEBUG', `Ordenação (lista): ${state.sortColumn} ${state.sortDir}`);
       renderMods();
     });
   });
@@ -5984,6 +6016,7 @@ async function updateTrashBadge() {
 async function loadMods() {
   if (!state.config) return;
   dlog('INFO', `Escaneando mods — pasta: ${state.config.modsFolder}`);
+  const _t0 = performance.now();
   try {
     const [modsOk, trayOk, mods, tray] = await Promise.all([
       window.api.pathExists(state.config.modsFolder),
@@ -5995,7 +6028,8 @@ async function loadMods() {
     state.trayFolderExists = Boolean(trayOk);
     state.mods = mods || [];
     state.trayFiles = tray || [];
-    dlog('INFO', `Scan concluído — ${state.mods.length} mod(s), ${state.trayFiles.length} arquivo(s) tray`);
+    const _elapsed = (performance.now() - _t0).toFixed(0);
+    dlog('INFO', `Scan concluído — ${state.mods.length} mod(s), ${state.trayFiles.length} arquivo(s) tray [${_elapsed}ms]`);
 
     // Normalise paths to thumbnail cache keys (strip .disabled) before purging —
     // the persistent cache keyed by thumbKey(), so passing raw .disabled paths
