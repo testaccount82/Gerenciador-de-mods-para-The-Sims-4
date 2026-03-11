@@ -1562,6 +1562,7 @@ function setupCommonModsEvents(el) {
 
   // Sel-bar deselect
   el.querySelector('#btn-deselect')?.addEventListener('click', () => {
+    dlog('DEBUG', `Sel-bar: cancelar seleção (${state.selectedMods.size} arquivo(s) desmarcado(s))`);
     state.selectedMods.clear();
     el.querySelectorAll('.card-check, .row-check').forEach(c => {
       c.checked = false;
@@ -1576,6 +1577,7 @@ function setupCommonModsEvents(el) {
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && !m.enabled; });
     if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+    dlog('DEBUG', `Sel-bar: ativar seleção — ${sel.length} selecionado(s), ${targets.length} inativo(s) para ativar`);
     // Desabilita todos os botões da sel-bar durante a operação para evitar condição de corrida
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
@@ -1600,6 +1602,7 @@ function setupCommonModsEvents(el) {
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && m.enabled; });
     if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+    dlog('DEBUG', `Sel-bar: desativar seleção — ${sel.length} selecionado(s), ${targets.length} ativo(s) para desativar`);
     // Desabilita todos os botões da sel-bar durante a operação para evitar condição de corrida
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
     try {
@@ -1622,6 +1625,7 @@ function setupCommonModsEvents(el) {
   el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
     const sel = [...state.selectedMods];
     if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    dlog('DEBUG', `Sel-bar: excluir seleção — abrindo confirmação para ${sel.length} item(ns)`);
     openModal('Confirmar Exclusão em Lote',
       `<p>Tem certeza que deseja mover <strong>${sel.length}</strong> mod(s) selecionado(s) para a lixeira?</p>`,
       [
@@ -1654,6 +1658,7 @@ function refreshSelBar(el) {
   const bar = el.querySelector('#sel-bar');
   if (!bar) return;
   if (state.selectedMods.size === 0) {
+    if (bar.classList.contains('sel-bar-show')) dlog('DEBUG', 'Barra de seleção ocultada (seleção limpa)');
     bar.classList.remove('sel-bar-show');
     return;
   }
@@ -1683,6 +1688,7 @@ function refreshSelBar(el) {
   bar.classList.add('sel-bar-show');
   const cEl = bar.querySelector('#sel-bar-count');
   if (cEl) cEl.textContent = `${visualCount} selecionado${visualCount !== 1 ? 's' : ''}`;
+  dlog('DEBUG', `Barra de seleção exibida — ${visualCount} item(ns) visual(is), ${state.selectedMods.size} arquivo(s) no total`);
 }
 
 // ─── Group Overlay ────────────────────────────────────────────────────────────
@@ -2523,6 +2529,8 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
         }
       });
       _rubberBand.didSelect = true;
+      const selectedCount = state.selectedMods.size;
+      if (selectedCount > 0) dlog('DEBUG', `Seleção por arrasto concluída — ${selectedCount} arquivo(s) selecionado(s)`);
       refreshSelBar(document.getElementById('page-mods'));
     };
 
