@@ -666,6 +666,27 @@ function invalidateUndoForTrashPaths(trashPaths) {
   });
   if (changed && state.currentPage === 'history') renderHistory();
 }
+
+// Marca entradas do histórico como "desfeitas" quando os arquivos correspondentes
+// foram restaurados manualmente pela página da Lixeira.
+// Sem isso, o botão "↩ Desfazer" no Histórico continua ativo mesmo após o arquivo
+// já ter sido restaurado, permitindo uma segunda restauração indevida.
+function markRestoredFromTrash(trashPaths) {
+  if (!trashPaths || !trashPaths.length) return;
+  const pathSet = new Set(trashPaths);
+  let changed = false;
+  state.actionLog.forEach(entry => {
+    if (entry.undone) return;
+    const entryPaths = entry.details?.trashPaths;
+    if (!entryPaths) return;
+    const overlaps = entryPaths.some(p => pathSet.has(p));
+    if (overlaps) {
+      entry.undone = true;
+      changed = true;
+    }
+  });
+  if (changed && state.currentPage === 'history') renderHistory();
+}
 function showUndoBar(label) {
   let bar = document.getElementById('undo-bar');
   if (!bar) {
@@ -5649,7 +5670,8 @@ function renderTrashList(el, items) {
         const result = await apiTrashRestore(item.trashPath, item.originalPath);
         if (result.success) {
           dlog('INFO', `Lixeira: "${item.name}" restaurado para ${item.originalPath}`);
-          clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
+          clearUndoBar();
+          markRestoredFromTrash([item.trashPath]); // impede "Desfazer" no Histórico para item já restaurado
           await loadMods();
           toast(`"${item.name}" restaurado`, 'success');
         } else {
@@ -5719,7 +5741,10 @@ function renderTrashList(el, items) {
               const r = await apiTrashRestore(item.trashPath, item.originalPath);
               if (r.success) ok++;
             }
-            if (ok > 0) clearUndoBar(); // restaurar da lixeira invalida qualquer "desfazer exclusão" pendente
+            if (ok > 0) {
+              clearUndoBar();
+              markRestoredFromTrash(restorable.map(i => i.trashPath)); // impede "Desfazer" no Histórico para itens já restaurados
+            }
             await loadMods();
             toast(`${ok} item(ns) restaurado(s)`, 'success');
             logAction('restore', { count: ok, source: 'trash', label: `Restaurar ${ok} item(ns) da lixeira` });
