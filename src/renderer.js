@@ -2107,7 +2107,7 @@ function openGroupOverlay(group) {
     });
   }
 
-
+  function renderView(view) {
     currentView = view;
     // Don't clear modalSelected — preserve selection across list/grid mode switches.
     // Just update the toggle button state.
