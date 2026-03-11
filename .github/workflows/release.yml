@@ -216,6 +216,21 @@ jobs:
           if ($changed) {
             $pkg | ConvertTo-Json -Depth 10 | Set-Content "package.json" -Encoding utf8
           }
+          # Exporta flag para o próximo step saber se precisa commitar
+          echo "changed=$($changed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        id: sync_pkg
+
+      - name: Commitar package.json atualizado
+        if: steps.sync_pkg.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore: bump version para $tag [skip ci]"
+          git push origin HEAD:main
+          Write-Host "package.json commitado e enviado para o repositório"
 
       - name: Build do instalador Windows
         run: npm run build
