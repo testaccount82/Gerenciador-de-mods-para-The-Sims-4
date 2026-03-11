@@ -322,12 +322,21 @@
       }, 200);
     });
 
-    // ── Real-time updates ─────────────────────────────────────────────────────
-    window.debugApi.onLine(line => appendLine(line));
-
     // ── Init ─────────────────────────────────────────────────────────────────
-    loadStatus();
-    loadLog();
+    // debugApi is exposed by the preload via contextBridge.
+    // If it's not available, show a clear diagnostic instead of a cryptic error.
+    function waitForApi(retries = 20) {
+      if (window.debugApi) {
+        window.debugApi.onLine(line => appendLine(line));
+        loadStatus();
+        loadLog();
+      } else if (retries > 0) {
+        setTimeout(() => waitForApi(retries - 1), 50);
+      } else {
+        renderAll('[ERRO] window.debugApi não encontrado — o preload-debug.js não foi carregado.\nVerifique se o arquivo preload-debug.js existe na pasta do aplicativo.');
+      }
+    }
+    waitForApi();
   </script>
 </body>
 </html>

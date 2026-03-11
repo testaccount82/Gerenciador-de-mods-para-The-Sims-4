@@ -53,6 +53,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "preload-debug.js",
       "src/**/*",
       "assets/**/*",
       "node_modules/**/*"
