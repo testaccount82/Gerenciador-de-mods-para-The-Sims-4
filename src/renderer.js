@@ -4397,7 +4397,7 @@ async function renderOrganizer() {
     return;
   }
 
-  if (state.misplaced.length > 0 || state.emptyFolders.length > 0 || state.scattered.length > 0) renderOrganizeResults(el);
+  if (state.misplaced.length > 0 || state.emptyFolders.length > 0 || state.scattered.length > 0 || state.invalidFiles.length > 0) renderOrganizeResults(el);
 }
 
 async function runOrganizeScan(el) {

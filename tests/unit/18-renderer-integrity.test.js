@@ -366,3 +366,34 @@ describe('renderer.js — regressões de comportamento crítico', () => {
     expect(emptyBody).toMatch(/fs\.(unlinkSync|rmSync)/);
   });
 });
+
+// ─── Regressão: renderOrganizer deve mostrar resultados quando só há invalidFiles ─────────────────
+describe('renderer.js — regressão: renderOrganizer com apenas invalidFiles', () => {
+  const src = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../src/renderer.js'), 'utf8'
+  );
+
+  test('condição de renderOrganizeResults inclui invalidFiles', () => {
+    // Deve haver uma condição que verifica state.invalidFiles.length > 0
+    // antes de chamar renderOrganizeResults — sem isso, navegar do dashboard
+    // com apenas arquivos inválidos detectados mostra a página vazia.
+    const lines = src.split('\n');
+    const conditionLine = lines.find(l =>
+      l.includes('renderOrganizeResults(el)') &&
+      l.includes('misplaced') &&
+      !l.includes('//')
+    );
+    expect(conditionLine).toBeTruthy();
+    expect(conditionLine).toContain('invalidFiles');
+  });
+
+  test('renderOrganizeResults usa hasInvalid para renderizar seção de inválidos', () => {
+    // Confirma que renderOrganizeResults declara e usa hasInvalid
+    const fnStart = src.indexOf('function renderOrganizeResults(');
+    const fnEnd   = src.indexOf('\nfunction ', fnStart + 10);
+    const fnBody  = src.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('hasInvalid');
+    expect(fnBody).toContain('state.invalidFiles.length');
+    expect(fnBody).toContain('Arquivos inválidos');
+  });
+});
