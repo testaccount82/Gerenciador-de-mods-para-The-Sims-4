@@ -1584,7 +1584,14 @@ function setupCommonModsEvents(el) {
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
-      dlog('INFO', `Ativação em lote — ${targets.length} mod(s) ativados`);
+      const ok     = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success);
+      if (failed.length) {
+        failed.forEach(r => dlog('ERROR', `Falha ao ativar: ${r.error || 'erro desconhecido'}`));
+        dlog('WARN', `Ativação em lote — ${ok} ativado(s), ${failed.length} com falha de ${targets.length} tentado(s)`);
+      } else {
+        dlog('INFO', `Ativação em lote — ${ok} mod(s) ativados`);
+      }
       toast(`${targets.length} mod(s) ativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
@@ -1593,7 +1600,7 @@ function setupCommonModsEvents(el) {
         await loadMods(); renderMods();
         logAction('restore', { count: newPaths.length, label: `Desfazer ativação em lote` });
       }, 'toggle_on', { count: newPaths.length, source: 'batch' });
-    } catch (e) { toast('Erro ao ativar mods: ' + e.message, 'error'); }
+    } catch (e) { dlog('ERROR', `Exceção ao ativar mods em lote: ${e.message}`); toast('Erro ao ativar mods: ' + e.message, 'error'); }
   });
 
   // Batch disable
@@ -1609,7 +1616,14 @@ function setupCommonModsEvents(el) {
       const results = [];
       for (const p of targets) results.push(await window.api.toggleMod(p));
       await loadMods(); state.selectedMods.clear(); renderMods();
-      dlog('INFO', `Desativação em lote — ${targets.length} mod(s) desativados`);
+      const ok     = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success);
+      if (failed.length) {
+        failed.forEach(r => dlog('ERROR', `Falha ao desativar: ${r.error || 'erro desconhecido'}`));
+        dlog('WARN', `Desativação em lote — ${ok} desativado(s), ${failed.length} com falha de ${targets.length} tentado(s)`);
+      } else {
+        dlog('INFO', `Desativação em lote — ${ok} mod(s) desativados`);
+      }
       toast(`${targets.length} mod(s) desativados`, 'success');
       // Use newPath returned by each toggleMod so undo operates on the renamed file
       const newPaths = results.filter(r => r.success).map(r => r.newPath);
@@ -1618,7 +1632,7 @@ function setupCommonModsEvents(el) {
         await loadMods(); renderMods();
         logAction('restore', { count: newPaths.length, label: `Desfazer desativação em lote` });
       }, 'toggle_off', { count: newPaths.length, source: 'batch' });
-    } catch (e) { toast('Erro ao desativar mods: ' + e.message, 'error'); }
+    } catch (e) { dlog('ERROR', `Exceção ao desativar mods em lote: ${e.message}`); toast('Erro ao desativar mods: ' + e.message, 'error'); }
   });
 
   // Batch delete
