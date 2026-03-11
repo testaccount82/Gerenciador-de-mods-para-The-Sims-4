@@ -824,13 +824,12 @@ tbody tr.disabled td { opacity: 0.5; }
 /* ─── Rubber Band Selection ──────────────────────────────────────────── */
 .rubber-band-rect {
   display: none;
-  position: absolute;
+  position: fixed;
   border: 1.5px dashed var(--accent);
   background: var(--accent-subtle);
   pointer-events: none;
-  z-index: 50;
+  z-index: 9999;
   border-radius: 2px;
-  /* Ensure rect is never clipped by the card overflow:hidden */
   will-change: left, top, width, height;
 }
 

@@ -1934,14 +1934,11 @@ function openGroupOverlay(group) {
     const scrollEl = document.getElementById('modal-body');
 
     function ensureRect() {
-      // Cria um novo rect se: não existe, não está no DOM, OU está em outro container (main page)
-      if (!_rubberBand.rect || !_rubberBand.rect.isConnected || !scrollEl.contains(_rubberBand.rect)) {
-        // Remove o rect antigo do container anterior, se ainda presente
-        if (_rubberBand.rect && _rubberBand.rect.isConnected) _rubberBand.rect.remove();
+      // Rect é position:fixed no body — não precisa estar dentro do container de scroll
+      if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
         _rubberBand.rect = document.createElement('div');
         _rubberBand.rect.className = 'rubber-band-rect';
-        scrollEl.style.position = 'relative';
-        scrollEl.appendChild(_rubberBand.rect);
+        document.body.appendChild(_rubberBand.rect);
       }
     }
 
@@ -1966,13 +1963,10 @@ function openGroupOverlay(group) {
 
       const updateRect = () => {
         if (!started || !_rubberBand.active) return;
-        const r = scrollEl.getBoundingClientRect();
-        const curX = lastMouseClientX - r.left + scrollEl.scrollLeft;
-        const curY = lastMouseClientY - r.top  + scrollEl.scrollTop;
-        const x = Math.min(curX, _rubberBand.startX);
-        const y = Math.min(curY, _rubberBand.startY);
-        const w = Math.abs(curX - _rubberBand.startX);
-        const h = Math.abs(curY - _rubberBand.startY);
+        const x = Math.min(lastMouseClientX, _rubberBand.startClientX);
+        const y = Math.min(lastMouseClientY, _rubberBand.startClientY);
+        const w = Math.abs(lastMouseClientX - _rubberBand.startClientX);
+        const h = Math.abs(lastMouseClientY - _rubberBand.startClientY);
         if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
       };
 
@@ -2013,6 +2007,8 @@ function openGroupOverlay(group) {
           _rubberBand.active = true;
           _rubberBand.startX = startX;
           _rubberBand.startY = startY;
+          _rubberBand.startClientX = e.clientX;
+          _rubberBand.startClientY = e.clientY;
           _rubberBand.didSelect = false;
           document.body.style.userSelect = 'none';
           if (!e.ctrlKey && !e.metaKey) clearOverlaySelection();
@@ -2030,13 +2026,9 @@ function openGroupOverlay(group) {
         if (!nearEdge) stopAutoScroll();
       };
 
-      const onScroll = () => { if (started) updateRect(); };
-      scrollEl.addEventListener('scroll', onScroll);
-
       const onUp = ev => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        scrollEl.removeEventListener('scroll', onScroll);
         stopAutoScroll();
         document.body.style.userSelect = '';
 
@@ -2230,7 +2222,7 @@ function openGroupOverlay(group) {
 
 // ─── Rubber Band Selection ────────────────────────────────────────────────────
 
-let _rubberBand = { active: false, startX: 0, startY: 0, rect: null, didSelect: false };
+let _rubberBand = { active: false, startX: 0, startY: 0, startClientX: 0, startClientY: 0, rect: null, didSelect: false };
 
 /**
  * @param container       - Element that holds the cards (gallery-grid or table-container)
@@ -2243,16 +2235,14 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
   // The element that actually scrolls — .page in grid mode, the container itself in list mode
   function getScrollEl() { return container.closest('.page') || container; }
 
-  // Create (or reuse) the rubber band rect, appended to the correct scroll element.
-  // Bug fix: also checks that the rect belongs to THIS scroll element, not a stale one
-  // left behind by a modal or a previous initRubberBand call.
-  function ensureRect(scrollEl) {
-    if (!_rubberBand.rect || !_rubberBand.rect.isConnected || !scrollEl.contains(_rubberBand.rect)) {
-      if (_rubberBand.rect && _rubberBand.rect.isConnected) _rubberBand.rect.remove();
+  // Create (or reuse) the rubber band rect on document.body.
+  // Using position:fixed means the rect is outside the scroll container's layout flow,
+  // so it never expands scrollHeight or causes scrollbars during drag.
+  function ensureRect() {
+    if (!_rubberBand.rect || !_rubberBand.rect.isConnected) {
       _rubberBand.rect = document.createElement('div');
       _rubberBand.rect.className = 'rubber-band-rect';
-      scrollEl.style.position = 'relative'; // ensure positioned ancestor
-      scrollEl.appendChild(_rubberBand.rect);
+      document.body.appendChild(_rubberBand.rect);
     }
   }
 
@@ -2281,16 +2271,14 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
     let lastMouseClientY = e.clientY;
     let autoScrollRaf = null;
 
-    // Redraws the rubber-band rect from current scroll + last known mouse position
+    // Redraws the rubber-band rect using viewport (client) coordinates.
+    // The rect uses position:fixed so client coords map directly — no scroll offset needed.
     const updateRect = () => {
       if (!started || !_rubberBand.active) return;
-      const r = scrollEl.getBoundingClientRect();
-      const curX = lastMouseClientX - r.left + scrollEl.scrollLeft;
-      const curY = lastMouseClientY - r.top  + scrollEl.scrollTop;
-      const x = Math.min(curX, _rubberBand.startX);
-      const y = Math.min(curY, _rubberBand.startY);
-      const w = Math.abs(curX - _rubberBand.startX);
-      const h = Math.abs(curY - _rubberBand.startY);
+      const x = Math.min(lastMouseClientX, _rubberBand.startClientX);
+      const y = Math.min(lastMouseClientY, _rubberBand.startClientY);
+      const w = Math.abs(lastMouseClientX - _rubberBand.startClientX);
+      const h = Math.abs(lastMouseClientY - _rubberBand.startClientY);
       if (_rubberBand.rect) _rubberBand.rect.style.cssText = `display:block;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
     };
 
@@ -2333,6 +2321,8 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
         _rubberBand.active = true;
         _rubberBand.startX = startX;
         _rubberBand.startY = startY;
+        _rubberBand.startClientX = e.clientX; // viewport coords for fixed-position visual rect
+        _rubberBand.startClientY = e.clientY;
         _rubberBand.didSelect = false;
 
         // Bug fix: prevent text selection during drag
@@ -2349,7 +2339,7 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
           refreshSelBar(document.getElementById('page-mods'));
         }
 
-        ensureRect(scrollEl);
+        ensureRect();
       }
 
       updateRect();
@@ -2364,14 +2354,10 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
       if (!nearEdge) stopAutoScroll();
     };
 
-    // Sync rect when the user scrolls manually (mouse wheel / trackpad) during drag
-    const onScroll = () => { if (started) updateRect(); };
-    scrollEl.addEventListener('scroll', onScroll);
 
     const onUp = ev => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      scrollEl.removeEventListener('scroll', onScroll);
       stopAutoScroll();
       document.body.style.userSelect = '';
 
