@@ -302,8 +302,14 @@ async function apiRestoreEmptyFolders(paths, context = '') {
 // Novos botões/inputs adicionados no futuro são cobertos automaticamente.
 (function installUiInterceptor() {
   // Retorna o nome da página ativa atual para enriquecer cada log.
+  const _PAGE_NAMES = {
+    dashboard: 'Início', mods: 'Mods', conflicts: 'Conflitos',
+    organizer: 'Organizar', manual: 'Manual', history: 'Histórico',
+    trash: 'Lixeira', settings: 'Configurações',
+  };
   function currentPageLabel() {
-    return state?.currentPage || '?';
+    const p = state?.currentPage || '?';
+    return _PAGE_NAMES[p] || p;
   }
 
   // Verifica se algum modal está aberto no momento.
@@ -834,7 +840,18 @@ function initColumnResize(table) {
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 function navigate(page) {
-  dlog('INFO', `Navegando para: ${page}`);
+  const PAGE_NAMES = {
+    dashboard: 'Início',
+    mods:      'Mods',
+    conflicts: 'Conflitos',
+    organizer: 'Organizar',
+    manual:    'Manual',
+    history:   'Histórico',
+    trash:     'Lixeira',
+    settings:  'Configurações',
+  };
+  const prev = state.currentPage;
+  dlog('INFO', `Interface aberta: ${PAGE_NAMES[page] || page} (saindo de: ${PAGE_NAMES[prev] || prev || '?'})`);
   state.currentPage = page;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -2522,6 +2539,7 @@ function openGroupOverlay(group) {
         const selT = Math.min(curY, _rubberBand.startY), selB = Math.max(curY, _rubberBand.startY);
 
         const selector = currentView === 'list' ? '.group-overlay-row' : '.group-overlay-grid-card';
+        let dragSelected = 0;
         contentEl.querySelectorAll(selector).forEach(item => {
           const ir = item.getBoundingClientRect();
           const iL = ir.left - r.left + scrollEl.scrollLeft;
@@ -2529,9 +2547,14 @@ function openGroupOverlay(group) {
           const iR = iL + ir.width, iB = iT + ir.height;
           if (iL < selR && iR > selL && iT < selB && iB > selT) {
             selectOverlayItem(item, true);
+            dragSelected++;
           }
         });
         _rubberBand.didSelect = true;
+        if (dragSelected > 0) {
+          const modo = currentView === 'list' ? 'lista' : 'grade';
+          dlog('DEBUG', `Seleção por arrasto (janela de grupo "${displayTitle}") — ${dragSelected} arquivo(s) selecionado(s) [modo: ${modo}]`);
+        }
       };
 
       document.addEventListener('mousemove', onMove);
@@ -2889,7 +2912,14 @@ function initRubberBand(container, getCards, selectCard, allowOnCards = false) {
       });
       _rubberBand.didSelect = true;
       const selectedCount = state.selectedMods.size;
-      if (selectedCount > 0) dlog('DEBUG', `Seleção por arrasto concluída — ${selectedCount} arquivo(s) selecionado(s)`);
+      if (selectedCount > 0) {
+        const modo = state.viewMode === 'grid' ? 'grade' : 'lista';
+        const _pn = { dashboard: 'Início', mods: 'Mods', conflicts: 'Conflitos',
+          organizer: 'Organizar', manual: 'Manual', history: 'Histórico',
+          trash: 'Lixeira', settings: 'Configurações' };
+        const pageName = _pn[state.currentPage] || state.currentPage;
+        dlog('DEBUG', `Seleção por arrasto — ${selectedCount} arquivo(s) selecionado(s) [interface: ${pageName}, modo: ${modo}]`);
+      }
       refreshSelBar(document.getElementById('page-mods'));
     };
 
