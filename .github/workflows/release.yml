@@ -75,7 +75,7 @@ jobs:
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Instalar dependências
         run: npm install --legacy-peer-deps
@@ -96,34 +96,41 @@ jobs:
             $tag = "v1.0.0"
             Write-Host "Sem releases anteriores — versão fixada em $tag"
           } else {
-            # Já existe pelo menos um release: faz bump semântico sobre a última tag
-            $baseVer = $ultimaTag.TrimStart("v")
-            $parts = $baseVer -split "\."
-            $major = [int]$parts[0]
-            $minor = [int]$parts[1]
-            $patch = [int]$parts[2]
-
+            # Já existe pelo menos um release: verifica se há commits novos
             $commitMessages = git log "$ultimaTag..HEAD" --pretty=format:"%s" --no-merges
 
-            $hasBreaking = $commitMessages | Where-Object { $_ -match "BREAKING CHANGE|^.+!:" }
-            $hasFeat     = $commitMessages | Where-Object { $_ -match "^feat(\(.+\))?:" }
-            $hasFix      = $commitMessages | Where-Object { $_ -match "^fix(\(.+\))?:" }
-
-            if ($hasBreaking) {
-              $major++; $minor = 0; $patch = 0
-              Write-Host "Bump: MAJOR (breaking change)"
-            } elseif ($hasFeat) {
-              $minor++; $patch = 0
-              Write-Host "Bump: MINOR (feat detectado)"
-            } elseif ($hasFix) {
-              $patch++
-              Write-Host "Bump: PATCH (fix detectado)"
+            if (-not $commitMessages) {
+              # Nenhum commit novo desde a última tag — usa a tag existente (ex: criada manualmente)
+              $tag = $ultimaTag
+              Write-Host "Nenhum commit novo desde $ultimaTag — usando tag existente"
             } else {
-              $patch++
-              Write-Host "Bump: PATCH (padrão — nenhum feat/fix convencional encontrado)"
-            }
+              # Há commits novos: faz bump semântico
+              $baseVer = $ultimaTag.TrimStart("v")
+              $parts = $baseVer -split "\."
+              $major = [int]$parts[0]
+              $minor = [int]$parts[1]
+              $patch = [int]$parts[2]
 
-            $tag = "v$major.$minor.$patch"
+              $hasBreaking = $commitMessages | Where-Object { $_ -match "BREAKING CHANGE|^.+!:" }
+              $hasFeat     = $commitMessages | Where-Object { $_ -match "^feat(\(.+\))?:" }
+              $hasFix      = $commitMessages | Where-Object { $_ -match "^fix(\(.+\))?:" }
+
+              if ($hasBreaking) {
+                $major++; $minor = 0; $patch = 0
+                Write-Host "Bump: MAJOR (breaking change)"
+              } elseif ($hasFeat) {
+                $minor++; $patch = 0
+                Write-Host "Bump: MINOR (feat detectado)"
+              } elseif ($hasFix) {
+                $patch++
+                Write-Host "Bump: PATCH (fix detectado)"
+              } else {
+                $patch++
+                Write-Host "Bump: PATCH (padrão — nenhum feat/fix convencional encontrado)"
+              }
+
+              $tag = "v$major.$minor.$patch"
+            }
           }
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
 
@@ -154,6 +161,20 @@ jobs:
             $commits = git log "$ultimaTag..HEAD" --pretty=format:"- %s (%h)" --no-merges
             if ($commits) {
               $changelog = "## O que mudou desde $ultimaTag`n`n$($commits -join "`n")"
+            } elseif ($tag -eq $ultimaTag) {
+              # Tag existente sem commits novos — usa log dos commits que fazem parte da tag
+              $tagCommit = git rev-list -n 1 $ultimaTag
+              $tagAnterior = git describe --tags --abbrev=0 "$tagCommit^" 2>$null
+              if ($tagAnterior) {
+                $commitsTag = git log "$tagAnterior..$ultimaTag" --pretty=format:"- %s (%h)" --no-merges
+                if ($commitsTag) {
+                  $changelog = "## O que mudou em $ultimaTag`n`n$($commitsTag -join "`n")"
+                } else {
+                  $changelog = "Nova versão disponível."
+                }
+              } else {
+                $changelog = "Nova versão disponível."
+              }
             } else {
               $changelog = "Nova versão disponível."
             }
