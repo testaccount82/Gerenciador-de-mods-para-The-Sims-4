@@ -4,7 +4,7 @@ echo ""
 echo "🔍 Rodando testes antes do push..."
 echo ""
 
-NODE_ENV=test jest --config jest.config.js
+NODE_ENV=test npx --no-install jest --config jest.config.js
 
 if [ $? -ne 0 ]; then
   echo ""
