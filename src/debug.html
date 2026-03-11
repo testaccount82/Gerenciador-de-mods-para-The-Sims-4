@@ -212,9 +212,9 @@
     <button id="btn-always-on-top" title="Sempre no topo (Alt+T)">📌 Topo</button>
     <button id="btn-wrap"          title="Quebra de linha (Alt+W)">↩ Wrap</button>
     <button id="btn-linenum"       title="Mostrar números de linha (Alt+L)">🔢 Linhas</button>
-    <button id="btn-copy-all"      title="Copiar todas as linhas visíveis (Ctrl+Shift+C)">⎘ Copiar</button>
+    <button id="btn-copy-all"      title="Copiar todas as linhas filtradas (Ctrl+Shift+C)">⎘ Copiar</button>
     <button id="btn-jump-error"    title="Ir para próximo ERROR (Alt+E)" style="display:none">⚠ → Erro</button>
-    <button id="btn-export"        title="Exportar linhas visíveis como .log (Ctrl+S)">💾 Exportar</button>
+    <button id="btn-export"        title="Exportar linhas filtradas como .log (Ctrl+S)">💾 Exportar</button>
     <button id="btn-open-file"     title="Abrir arquivo no editor">📂 Arquivo</button>
     <button id="btn-refresh"       title="Recarregar do arquivo (F5)">↺ Atualizar</button>
     <button id="btn-pause"         title="Pausar atualização em tempo real (Space)">⏸ Pausar</button>
@@ -566,7 +566,7 @@
     // ── Export ───────────────────────────────────────────────────────────────
     function doExport() {
       const lines = [...container.querySelectorAll('.log-line:not(.hidden)')].map(el => el.dataset.raw || '');
-      if (!lines.length) { alert('Nenhuma linha visível para exportar.'); return; }
+      if (!lines.length) { alert('Nenhuma linha filtrada para exportar.'); return; }
       const now = new Date();
       const pad = n => String(n).padStart(2, '0');
       const localStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
@@ -579,10 +579,10 @@
     }
     document.getElementById('btn-export').addEventListener('click', doExport);
 
-    // ── Copiar visíveis ───────────────────────────────────────────────────────
+    // ── Copiar filtradas ──────────────────────────────────────────────────────
     document.getElementById('btn-copy-all').addEventListener('click', () => {
       const lines = [...container.querySelectorAll('.log-line:not(.hidden)')].map(el => el.dataset.raw || '');
-      if (!lines.length) { alert('Nenhuma linha visível para copiar.'); return; }
+      if (!lines.length) { alert('Nenhuma linha filtrada para copiar.'); return; }
       navigator.clipboard.writeText(lines.join('\n')).then(() => {
         const btn = document.getElementById('btn-copy-all');
         const orig = btn.textContent;
