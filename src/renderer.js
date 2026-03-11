@@ -1395,7 +1395,7 @@ function renderMods() {
         </button>
         <button class="chip ${state.filterStatus === 'inactive' ? 'chip-on' : ''}" data-fs="inactive"
           title="Mostrar apenas mods inativos (desabilitados com .disabled)">
-          <span class="chip-dot chip-dot-dim"></span>Inativos
+          <span class="chip-dot chip-dot-red"></span>Inativos
         </button>
         <button class="chip ${state.filterStatus === 'partial' ? 'chip-on' : ''}" data-fs="partial"
           title="Grupos onde apenas alguns arquivos estão ativos">
