@@ -297,10 +297,21 @@ async function apiRestoreEmptyFolders(paths, context = '') {
 // to the debug log. The patch is applied at the bottom of this section.
 
 // ─── Global UI Event Interceptor ─────────────────────────────────────────────
-// Captures every user interaction (click, change, input) at the document root
-// via event delegation and forwards a readable label to the debug log.
-// New buttons/inputs added in the future are automatically covered.
+// Captura toda interação do usuário (clique, change, input) via delegação no
+// document root e encaminha um label legível para o log de debug.
+// Novos botões/inputs adicionados no futuro são cobertos automaticamente.
 (function installUiInterceptor() {
+  // Retorna o nome da página ativa atual para enriquecer cada log.
+  function currentPageLabel() {
+    return state?.currentPage || '?';
+  }
+
+  // Verifica se algum modal está aberto no momento.
+  function isModalOpen() {
+    const overlay = document.getElementById('modal-overlay');
+    return overlay && !overlay.classList.contains('hidden');
+  }
+
   function elementLabel(el) {
     // Walk up to find the most meaningful interactive ancestor
     let node = el;
@@ -334,15 +345,21 @@ async function apiRestoreEmptyFolders(paths, context = '') {
   document.addEventListener('click', e => {
     const el = e.target;
     if (!el || el === document.body || el === document.documentElement) return;
-    // Skip invisible / disabled elements and the undo bar dismiss button (noise)
     if (el.disabled) return;
-    dlog('DEBUG', `Click: ${elementLabel(el)}`);
+    // Ignorar cliques em containers vazios (ruído)
+    const tag = el.tagName?.toLowerCase();
+    if (tag === 'div' && !el.id && !el.className.includes('ctx-item') &&
+        !el.className.includes('stat-card') && !el.className.includes('nav-item') &&
+        !el.className.includes('toggle') && !el.className.includes('dot-clickable')) return;
+
+    const context = isModalOpen() ? 'modal' : `página:${currentPageLabel()}`;
+    dlog('DEBUG', `[${context}] Click: ${elementLabel(el)}`);
   }, true);  // capture phase — fires before any handler
 
   document.addEventListener('contextmenu', e => {
     const el = e.target;
     if (!el || el === document.body || el === document.documentElement) return;
-    dlog('DEBUG', `Clique direito: ${elementLabel(el)}`);
+    dlog('DEBUG', `[página:${currentPageLabel()}] Clique direito: ${elementLabel(el)}`);
   }, true);
 
   document.addEventListener('change', e => {
@@ -351,7 +368,8 @@ async function apiRestoreEmptyFolders(paths, context = '') {
     const val = el.type === 'checkbox' || el.type === 'radio'
       ? (el.checked ? 'checked' : 'unchecked')
       : (el.value || '').slice(0, 80);
-    dlog('DEBUG', `Change: ${elementLabel(el)} → "${val}"`);
+    const context = isModalOpen() ? 'modal' : `página:${currentPageLabel()}`;
+    dlog('DEBUG', `[${context}] Change: ${elementLabel(el)} → "${val}"`);
   }, true);
 
   document.addEventListener('input', e => {
@@ -362,7 +380,8 @@ async function apiRestoreEmptyFolders(paths, context = '') {
     if (now - last < 500) return;
     inputThrottle.set(el, now);
     const val = (el.value || '').slice(0, 80);
-    dlog('DEBUG', `Input: ${elementLabel(el)} → "${val}"`);
+    const context = isModalOpen() ? 'modal' : `página:${currentPageLabel()}`;
+    dlog('DEBUG', `[${context}] Input: ${elementLabel(el)} → "${val}"`);
   }, true);
 })();
 
@@ -473,6 +492,9 @@ function toast(message, type = 'info', duration = 3500) {
 // ─── Modal ───────────────────────────────────────────────────────────────────
 
 function openModal(title, bodyHtml, buttons = []) {
+  const buttonLabels = buttons.map(b => b.label).join(' | ');
+  dlog('INFO', `Modal aberto: "${title}" [${buttonLabels || 'sem botões'}]`);
+
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = bodyHtml;
   const footer = document.getElementById('modal-footer');
@@ -482,8 +504,12 @@ function openModal(title, bodyHtml, buttons = []) {
     btn.className = `btn ${cls || 'btn-secondary'}`;
     btn.textContent = label;
     btn.addEventListener('click', async () => {
+      dlog('INFO', `Modal "${title}": botão "${label}" clicado`);
       closeModal();
-      try { await action(); } catch (e) { console.error('Modal action error:', e); }
+      try { await action(); } catch (e) {
+        dlog('ERROR', `Modal "${title}" — erro no callback de "${label}": ${e.message}`);
+        console.error('Modal action error:', e);
+      }
     });
     footer.appendChild(btn);
   });
@@ -2045,6 +2071,7 @@ function openGroupGridOverlay(group) {
   const displayTitle = isTray
     ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
     : (group.modPrefix || group.name);
+  dlog('INFO', `Janela de grade do grupo aberta: "${displayTitle}" (${group.files.length} arquivo(s))`);
 
   const cardsHtml = group.files.map(f => {
     const fCached = state.thumbnailCache[thumbKey(f.path)];
@@ -2137,6 +2164,11 @@ function openGroupGridOverlay(group) {
 }
 
 function openGroupOverlay(group) {
+  const displayTitle = group._isTrayGroup
+    ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
+    : (group.modPrefix || group.name);
+  dlog('INFO', `Janela de grupo aberta: "${displayTitle}" (${group.files.length} arquivo(s))`);
+
   // Bug fix: remove the mousedown listener left by a previous openGroupOverlay call.
   // Without this, each reopening stacks another listener on modal-body, corrupting rubber band.
   if (_cleanupModalRubberBand) { _cleanupModalRubberBand(); _cleanupModalRubberBand = null; }
@@ -2148,11 +2180,6 @@ function openGroupOverlay(group) {
     return c && c !== THUMB_LOADING;
   });
   const initialView = hasThumbs ? 'grid' : 'list';
-
-  const isTray = group._isTrayGroup;
-  const displayTitle = isTray
-    ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
-    : (group.modPrefix || group.name);
 
   const folders = [...new Set(group.files.map(f => f.folder))];
   const multiFolder = folders.length > 1;
