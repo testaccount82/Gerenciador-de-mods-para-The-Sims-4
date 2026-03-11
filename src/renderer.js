@@ -1574,9 +1574,9 @@ function setupCommonModsEvents(el) {
   // Batch enable
   el.querySelector('#btn-enable-all-sel')?.addEventListener('click', async () => {
     const sel = [...state.selectedMods];
-    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    if (!sel.length) { dlog('DEBUG', 'Sel-bar: ativar — nenhum item selecionado'); toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && !m.enabled; });
-    if (!targets.length) { toast('Nenhum mod inativo selecionado', 'warning'); return; }
+    if (!targets.length) { dlog('DEBUG', `Sel-bar: ativar — ${sel.length} selecionado(s), mas todos já estão ativos`); toast('Nenhum mod inativo selecionado', 'warning'); return; }
     dlog('DEBUG', `Sel-bar: ativar seleção — ${sel.length} selecionado(s), ${targets.length} inativo(s) para ativar`);
     // Desabilita todos os botões da sel-bar durante a operação para evitar condição de corrida
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
@@ -1599,9 +1599,9 @@ function setupCommonModsEvents(el) {
   // Batch disable
   el.querySelector('#btn-disable-all-sel')?.addEventListener('click', async () => {
     const sel = [...state.selectedMods];
-    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    if (!sel.length) { dlog('DEBUG', 'Sel-bar: desativar — nenhum item selecionado'); toast('Selecione ao menos um mod', 'warning'); return; }
     const targets = sel.filter(p => { const m = [...state.mods, ...state.trayFiles].find(m => m.path === p); return m && m.enabled; });
-    if (!targets.length) { toast('Nenhum mod ativo selecionado', 'warning'); return; }
+    if (!targets.length) { dlog('DEBUG', `Sel-bar: desativar — ${sel.length} selecionado(s), mas todos já estão inativos`); toast('Nenhum mod ativo selecionado', 'warning'); return; }
     dlog('DEBUG', `Sel-bar: desativar seleção — ${sel.length} selecionado(s), ${targets.length} ativo(s) para desativar`);
     // Desabilita todos os botões da sel-bar durante a operação para evitar condição de corrida
     el.querySelectorAll('.sel-bar button').forEach(b => { b.disabled = true; });
@@ -1624,7 +1624,7 @@ function setupCommonModsEvents(el) {
   // Batch delete
   el.querySelector('#btn-delete-sel')?.addEventListener('click', () => {
     const sel = [...state.selectedMods];
-    if (!sel.length) { toast('Selecione ao menos um mod', 'warning'); return; }
+    if (!sel.length) { dlog('DEBUG', 'Sel-bar: excluir — nenhum item selecionado'); toast('Selecione ao menos um mod', 'warning'); return; }
     dlog('DEBUG', `Sel-bar: excluir seleção — abrindo confirmação para ${sel.length} item(ns)`);
     openModal('Confirmar Exclusão em Lote',
       `<p>Tem certeza que deseja mover <strong>${sel.length}</strong> mod(s) selecionado(s) para a lixeira?</p>`,
