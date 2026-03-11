@@ -68,12 +68,12 @@ jobs:
 
     steps:
       - name: Checkout código (histórico completo para changelog)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: '24'
 
