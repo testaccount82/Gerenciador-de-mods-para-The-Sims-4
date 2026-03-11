@@ -58,6 +58,8 @@ const DEBUG_MAX_BYTES = 5 * 1024 * 1024; // 5 MB — rotate when exceeded
 // Activated by config flag OR --debug / -debug CLI argument
 let debugEnabled = process.argv.some(a => a === '--debug' || a === '-debug');
 let debugWindow = null;
+let debugWindowReady = false;   // true after did-finish-load
+let debugPendingLines = [];     // lines buffered while window is loading
 
 /**
  * Write a timestamped entry to the debug log file and forward it to the
@@ -90,7 +92,11 @@ function debugLog(level, ...args) {
   } catch (_) { /* never crash due to logging */ }
   // Forward to debug window in real time
   if (debugWindow && !debugWindow.isDestroyed()) {
-    try { debugWindow.webContents.send('debug:line', line); } catch (_) {}
+    if (debugWindowReady) {
+      try { debugWindow.webContents.send('debug:line', line); } catch (_) {}
+    } else {
+      debugPendingLines.push(line);
+    }
   }
 }
 
@@ -141,6 +147,8 @@ function createDebugWindow() {
     debugWindow.focus();
     return;
   }
+  debugWindowReady = false;
+  debugPendingLines = [];
   debugWindow = new BrowserWindow({
     width: 900,
     height: 600,
@@ -157,7 +165,19 @@ function createDebugWindow() {
   });
   debugWindow.setMenuBarVisibility(false);
   debugWindow.loadFile(path.join(__dirname, 'src', 'debug.html'));
-  debugWindow.on('closed', () => { debugWindow = null; });
+  debugWindow.webContents.once('did-finish-load', () => {
+    debugWindowReady = true;
+    // Flush lines that arrived while the page was loading
+    const pending = debugPendingLines.splice(0);
+    for (const l of pending) {
+      try { debugWindow.webContents.send('debug:line', l); } catch (_) {}
+    }
+  });
+  debugWindow.on('closed', () => {
+    debugWindow = null;
+    debugWindowReady = false;
+    debugPendingLines = [];
+  });
 }
 
 function readConfig() {
@@ -225,6 +245,7 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     debugLog('INFO', 'Main window ready and shown');
+    if (debugEnabled) createDebugWindow();
   });
 
   mainWindow.webContents.on('did-fail-load', (e, code, desc, url) => {
