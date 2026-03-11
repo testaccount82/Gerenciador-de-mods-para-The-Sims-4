@@ -10,6 +10,7 @@ const tmpDir = path.join(os.tmpdir(), 'ts4-test-userData');
 
 const _ipcHandlers = {};
 const _ipcOnHandlers = {};
+const _appHandlers = {};
 
 const ipcMain = {
   handle: jest.fn((channel, handler) => {
@@ -31,7 +32,7 @@ const app = {
   }),
   whenReady:                  jest.fn(() => Promise.resolve()),
   quit:                       jest.fn(),
-  on:                         jest.fn(),
+  on:                         jest.fn((event, handler) => { _appHandlers[event] = handler; }),
   requestSingleInstanceLock:  jest.fn(() => true), // always returns true (sole instance) in tests
   getVersion:                 jest.fn(() => '1.1.0'),
 };
@@ -80,4 +81,5 @@ module.exports = {
   // Exposed for tests that need to call handlers directly
   _ipcHandlers,
   _ipcOnHandlers,
+  _appHandlers,
 };

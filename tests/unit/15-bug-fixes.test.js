@@ -641,3 +641,36 @@ describe('IPC fs:exists', () => {
     expect(await handler(fakeEvent, '')).toBe(false);
   });
 });
+
+// ─── BUG: second-instance com mainWindow fechada não reabria o app ────────────
+describe('second-instance — recriar mainWindow quando debug window mantém processo vivo', () => {
+  const mainSrc = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../main.js'), 'utf8'
+  );
+
+  function getSecondInstanceSrc(src) {
+    const start = src.indexOf("app.on('second-instance'");
+    const marker = "});";
+    const end = src.indexOf(marker, start) + marker.length;
+    return src.slice(start, end);
+  }
+
+  test('handler second-instance está registrado no app', () => {
+    const { _appHandlers } = require('electron');
+    expect(typeof _appHandlers['second-instance']).toBe('function');
+  });
+
+  test('second-instance contém ramo else que chama createWindow()', () => {
+    // Sem este ramo, fechar a mainWindow com debugWindow aberta deixa o usuário
+    // sem conseguir reabrir o app (second-instance dispara mas não faz nada).
+    const handlerSrc = getSecondInstanceSrc(mainSrc);
+    expect(handlerSrc).toContain('else');
+    expect(handlerSrc).toContain('createWindow()');
+  });
+
+  test('second-instance verifica isDestroyed() antes de focar', () => {
+    // Garante que não tenta focar uma janela destruída
+    const handlerSrc = getSecondInstanceSrc(mainSrc);
+    expect(handlerSrc).toContain('isDestroyed()');
+  });
+});

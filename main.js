@@ -273,10 +273,16 @@ function createWindow() {
 }
 
 app.on('second-instance', () => {
-  // Someone tried to run a second instance — focus our window
-  if (mainWindow) {
+  // Someone tried to run a second instance.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    // Main window exists — just bring it to focus.
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
+  } else {
+    // Main window was closed but process is still alive (e.g. debug window open).
+    // Recreate it so the user is not left with nothing.
+    debugLog('INFO', 'second-instance: mainWindow ausente — recriando janela principal');
+    createWindow();
   }
 });
 
