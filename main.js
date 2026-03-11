@@ -32,6 +32,10 @@ const SEVEN_ZIP_PATHS = [
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const LOGS_DIR    = path.join(app.getPath('userData'), 'logs');
+
+// Garante que a pasta de logs existe assim que o processo inicia
+try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch (_) {}
 
 const DEFAULT_CONFIG = {
   modsFolder: path.join(os.homedir(), 'Documents', 'Electronic Arts', 'The Sims 4', 'Mods'),
@@ -87,6 +91,31 @@ function debugLog(level, ...args) {
     try { debugWindow.webContents.send('debug:line', line); } catch (_) {}
   }
 }
+
+// ─── Error Logger ────────────────────────────────────────────────────────────
+// Writes uncaught errors to a dedicated file inside LOGS_DIR.
+// Each session creates its own timestamped file so nothing is overwritten.
+
+const ERROR_LOG_PATH = path.join(
+  LOGS_DIR,
+  `error-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
+);
+
+function errorLog(context, err) {
+  try {
+    const ts  = new Date().toISOString();
+    const msg = err instanceof Error
+      ? `${err.message}\n${err.stack || ''}`
+      : String(err);
+    const line = `[${ts}] [${context}]\n${msg}\n${'─'.repeat(60)}\n`;
+    fs.appendFileSync(ERROR_LOG_PATH, line, 'utf-8');
+    debugLog('ERROR', `[${context}] ${msg}`);
+  } catch (_) { /* never crash due to logging */ }
+}
+
+// Capture unhandled errors in the main process
+process.on('uncaughtException',  err  => errorLog('uncaughtException',  err));
+process.on('unhandledRejection', err  => errorLog('unhandledRejection', err));
 
 function createDebugWindow() {
   if (debugWindow && !debugWindow.isDestroyed()) {
@@ -1361,6 +1390,16 @@ ipcMain.handle('debug:open-log-file', () => {
 });
 
 ipcMain.handle('debug:open-window', () => { createDebugWindow(); });
+
+ipcMain.handle('shell:open-userdata', () => {
+  shell.openPath(app.getPath('userData'));
+});
+
+ipcMain.handle('shell:open-logs', () => {
+  // Cria a pasta se por algum motivo não existir ainda
+  try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch (_) {}
+  shell.openPath(LOGS_DIR);
+});
 
 ipcMain.handle('debug:log-from-renderer', (_, level, message) => {
   debugLog(level || 'INFO', `[renderer] ${message}`);

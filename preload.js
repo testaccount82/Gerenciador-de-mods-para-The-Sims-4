@@ -81,6 +81,8 @@ contextBridge.exposeInMainWorld('api', {
   setDebugEnabled:  (value)      => ipcRenderer.invoke('debug:set-enabled', value),
   openDebugWindow:  ()           => ipcRenderer.invoke('debug:open-window'),
   openDebugLogFile: ()           => ipcRenderer.invoke('debug:open-log-file'),
+  openUserDataFolder: ()         => ipcRenderer.invoke('shell:open-userdata'),
+  openLogsFolder:     ()         => ipcRenderer.invoke('shell:open-logs'),
   debugLog:         (level, msg) => ipcRenderer.invoke('debug:log-from-renderer', level, msg),
 
   // Window controls

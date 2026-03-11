@@ -5130,6 +5130,26 @@ function renderSettings() {
     </div>
 
     <div class="card">
+      <div class="card-title">Dados do Aplicativo</div>
+      <div class="settings-group">
+        <div class="settings-item">
+          <div>
+            <div class="settings-label">Pasta de configurações</div>
+            <div class="settings-desc">Contém o arquivo de configuração, cache de miniaturas, lixeira interna e logs de depuração do aplicativo</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btn-open-userdata">📂 Abrir pasta</button>
+        </div>
+        <div class="settings-item" style="border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:12px;margin-top:4px">
+          <div>
+            <div class="settings-label">Pasta de logs de erro</div>
+            <div class="settings-desc">Erros inesperados do programa são registrados automaticamente aqui — útil para reportar problemas</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btn-open-logs">📋 Abrir pasta de logs</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-title">Sobre</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
         <strong style="color:var(--text-primary)">TS4 Mod Manager</strong> <span id="about-version">${state.appVersion ? 'v' + escapeHtml(String(state.appVersion)) : ''}</span><br>
@@ -5194,6 +5214,16 @@ function renderSettings() {
   el.querySelector('#btn-open-debug-file')?.addEventListener('click', async () => {
     try { await window.api.openDebugLogFile(); }
     catch (_) { toast('Não foi possível abrir o arquivo de log', 'error'); }
+  });
+
+  el.querySelector('#btn-open-userdata')?.addEventListener('click', async () => {
+    try { await window.api.openUserDataFolder(); }
+    catch (_) { toast('Não foi possível abrir a pasta de configurações', 'error'); }
+  });
+
+  el.querySelector('#btn-open-logs')?.addEventListener('click', async () => {
+    try { await window.api.openLogsFolder(); }
+    catch (_) { toast('Não foi possível abrir a pasta de logs', 'error'); }
   });
 }
 
