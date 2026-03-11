@@ -50,10 +50,19 @@ const BrowserWindow = jest.fn().mockImplementation(() => ({
   on:           jest.fn(),
   getSize:      jest.fn(() => [1100, 720]),
   isMaximized:  jest.fn(() => false),
+  isMinimized:  jest.fn(() => false),
   minimize:     jest.fn(),
   maximize:     jest.fn(),
   unmaximize:   jest.fn(),
   close:        jest.fn(),
+  focus:        jest.fn(),
+  restore:      jest.fn(),
+  isDestroyed:  jest.fn(() => false),
+  setMenuBarVisibility: jest.fn(),
+  webContents: {
+    on:   jest.fn(),
+    send: jest.fn(),
+  },
 }));
 
 const dialog = {
