@@ -25,20 +25,23 @@ function touch(filePath, content = 'data') {
 // ─── scanConflicts ────────────────────────────────────────────────────────────
 
 describe('scanConflicts — same-name', () => {
-  let mods;
-  beforeEach(() => { mods = makeTmpDir(); });
-  afterEach(() => { fs.rmSync(mods, { recursive: true, force: true }); });
+  let mods, tray;
+  beforeEach(() => { mods = makeTmpDir(); tray = makeTmpDir(); });
+  afterEach(() => {
+    fs.rmSync(mods, { recursive: true, force: true });
+    fs.rmSync(tray, { recursive: true, force: true });
+  });
 
   test('sem conflitos retorna array vazio', async () => {
     touch(path.join(mods, 'hair.package'));
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     expect(result).toEqual([]);
   });
 
   test('mesmo nome em subpastas diferentes gera conflito same-name', async () => {
     touch(path.join(mods, 'CAS', 'hair.package'));
     touch(path.join(mods, 'Other', 'hair.package'));
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     expect(result.length).toBeGreaterThanOrEqual(1);
     const sameNameConflict = result.find(c => c.type === 'same-name');
     expect(sameNameConflict).toBeDefined();
@@ -46,11 +49,9 @@ describe('scanConflicts — same-name', () => {
   });
 
   test('arquivos com sufixo OS-duplicate: mesmo nome (N) em pastas diferentes', async () => {
-    // Os-duplicate é detectado quando o MESMO nome com sufixo " (N)" aparece
-    // em múltiplas subpastas (o próprio filename contém " (2)")
     touch(path.join(mods, 'sub1', 'hair (2).package'));
     touch(path.join(mods, 'sub2', 'hair (2).package'));
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     const osDup = result.find(c => c.type === 'os-duplicate');
     expect(osDup).toBeDefined();
     expect(osDup.label).toBe('Duplicata do sistema');
@@ -59,23 +60,31 @@ describe('scanConflicts — same-name', () => {
   test('conflito tem id determinístico baseado no nome', async () => {
     touch(path.join(mods, 'sub1', 'outfit.package'));
     touch(path.join(mods, 'sub2', 'outfit.package'));
-    const r1 = await core.scanConflicts(mods);
-    const r2 = await core.scanConflicts(mods);
-    // Mesmo conteúdo = mesmo id
+    const r1 = await core.scanConflicts(mods, tray);
+    const r2 = await core.scanConflicts(mods, tray);
     expect(r1[0].id).toBe(r2[0].id);
+  });
+
+  test('trayFolder null não lança exceção', async () => {
+    touch(path.join(mods, 'hair.package'));
+    const result = await core.scanConflicts(mods, null);
+    expect(result).toEqual([]);
   });
 });
 
 describe('scanConflicts — hash-duplicate', () => {
-  let mods;
-  beforeEach(() => { mods = makeTmpDir(); });
-  afterEach(() => { fs.rmSync(mods, { recursive: true, force: true }); });
+  let mods, tray;
+  beforeEach(() => { mods = makeTmpDir(); tray = makeTmpDir(); });
+  afterEach(() => {
+    fs.rmSync(mods, { recursive: true, force: true });
+    fs.rmSync(tray, { recursive: true, force: true });
+  });
 
   test('arquivos com conteúdo idêntico mas nomes diferentes geram hash-duplicate', async () => {
     const content = 'IDENTICAL_CONTENT_XYZ_12345';
     touch(path.join(mods, 'mod-original.package'), content);
     touch(path.join(mods, 'mod-copia.package'), content);
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     const hashDup = result.find(c => c.type === 'hash-duplicate');
     expect(hashDup).toBeDefined();
     expect(hashDup.files).toHaveLength(2);
@@ -84,7 +93,7 @@ describe('scanConflicts — hash-duplicate', () => {
   test('conteúdo diferente não gera hash-duplicate', async () => {
     touch(path.join(mods, 'mod-a.package'), 'conteudo-a');
     touch(path.join(mods, 'mod-b.package'), 'conteudo-b');
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     const hashDups = result.filter(c => c.type === 'hash-duplicate');
     expect(hashDups).toHaveLength(0);
   });
@@ -93,9 +102,8 @@ describe('scanConflicts — hash-duplicate', () => {
     const content = 'SAME_CONTENT';
     touch(path.join(mods, 'sub1', 'mod.package'), content);
     touch(path.join(mods, 'sub2', 'mod.package'), content);
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     const hashDups = result.filter(c => c.type === 'hash-duplicate');
-    // Não deve criar hash-duplicate quando todos os caminhos têm o mesmo nome
     expect(hashDups).toHaveLength(0);
   });
 
@@ -103,11 +111,65 @@ describe('scanConflicts — hash-duplicate', () => {
     const content = 'UNIQUE_HASH_TEST';
     touch(path.join(mods, 'a.package'), content);
     touch(path.join(mods, 'b.package'), content);
-    const result = await core.scanConflicts(mods);
+    const result = await core.scanConflicts(mods, tray);
     const hashDup = result.find(c => c.type === 'hash-duplicate');
     expect(hashDup).toBeDefined();
     expect(typeof hashDup.hash).toBe('string');
     expect(hashDup.hash).toHaveLength(32); // MD5
+  });
+});
+
+// ─── scanConflicts — Tray ─────────────────────────────────────────────────────
+
+describe('scanConflicts — itens da Tray duplicados', () => {
+  let mods, tray;
+  beforeEach(() => { mods = makeTmpDir(); tray = makeTmpDir(); });
+  afterEach(() => {
+    fs.rmSync(mods, { recursive: true, force: true });
+    fs.rmSync(tray, { recursive: true, force: true });
+  });
+
+  test('mesmo .trayitem duplicado na Tray gera conflito same-name', async () => {
+    touch(path.join(tray, '0x00000002!0xaabbccdd.trayitem'), 'data');
+    touch(path.join(tray, 'sub', '0x00000002!0xaabbccdd.trayitem'), 'data');
+    const result = await core.scanConflicts(mods, tray);
+    const conflict = result.find(c => c.type === 'same-name' || c.type === 'os-duplicate');
+    expect(conflict).toBeDefined();
+    expect(conflict.files.some(f => f.path.includes('tray') || f.path.includes('Tray'))).toBe(true);
+  });
+
+  test('mesmo .blueprint duplicado na Tray gera conflito same-name', async () => {
+    touch(path.join(tray, 'minhacasa.blueprint'), 'dataA');
+    touch(path.join(tray, 'backup', 'minhacasa.blueprint'), 'dataA');
+    const result = await core.scanConflicts(mods, tray);
+    const conflict = result.find(c => c.type === 'same-name' || c.type === 'os-duplicate');
+    expect(conflict).toBeDefined();
+  });
+
+  test('.trayitem com conteúdo idêntico mas nomes diferentes gera hash-duplicate', async () => {
+    const content = 'TRAY_IDENTICAL_CONTENT';
+    touch(path.join(tray, '0x00000002!0xaaa.trayitem'), content);
+    touch(path.join(tray, '0x00000002!0xbbb.trayitem'), content);
+    const result = await core.scanConflicts(mods, tray);
+    const hashDup = result.find(c => c.type === 'hash-duplicate');
+    expect(hashDup).toBeDefined();
+    expect(hashDup.files).toHaveLength(2);
+  });
+
+  test('itens únicos na Tray não geram conflito', async () => {
+    touch(path.join(tray, '0x00000002!0xaaa.trayitem'), 'dataA');
+    touch(path.join(tray, '0x00000002!0xbbb.trayitem'), 'dataB');
+    const result = await core.scanConflicts(mods, tray);
+    expect(result).toHaveLength(0);
+  });
+
+  test('conflitos em Mods e Tray são detectados na mesma execução', async () => {
+    touch(path.join(mods, 'sub1', 'hair.package'), 'moddata');
+    touch(path.join(mods, 'sub2', 'hair.package'), 'moddata');
+    touch(path.join(tray, 'casa.trayitem'), 'traydata');
+    touch(path.join(tray, 'backup', 'casa.trayitem'), 'traydata');
+    const result = await core.scanConflicts(mods, tray);
+    expect(result.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -157,7 +219,6 @@ describe('scanMisplaced', () => {
     const item = result.find(r => r.type === 'wrong-folder');
     expect(item).toBeDefined();
     expect(item.name).toBe('house.trayitem');
-    // Destino sugerido deve ser dentro de tray
     expect(item.suggestedDest).toBe(path.join(tray, 'house.trayitem'));
   });
 
@@ -167,7 +228,6 @@ describe('scanMisplaced', () => {
     const item = result.find(r => r.type === 'wrong-folder');
     expect(item).toBeDefined();
     expect(item.name).toBe('misplaced.package');
-    // Destino sugerido deve ser dentro de mods
     expect(item.suggestedDest).toBe(path.join(mods, 'misplaced.package'));
   });
 
@@ -209,7 +269,6 @@ describe('fixMisplaced', () => {
     const filePath = path.join(mods, 'script.ts4script');
     touch(filePath);
     const item = { path: filePath, suggestedDest: path.join(mods, 'script.ts4script'), name: 'script.ts4script' };
-    // mover para a mesma pasta (no-op útil para testar estrutura de retorno)
     const results = core.fixMisplaced([item]);
     expect(results[0].item).toEqual(item);
   });

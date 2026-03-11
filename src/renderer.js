@@ -1229,7 +1229,7 @@ async function runStartupChecks() {
       }
     });
     try {
-      const result = await window.api.scanConflicts(cfg.modsFolder);
+      const result = await window.api.scanConflicts(cfg.modsFolder, cfg.trayFolder);
       if (result !== null) state.conflicts = result;
     } catch (_) {}
     unsubscribe();
@@ -4243,8 +4243,8 @@ async function runConflictScan(el) {
   });
 
   try {
-    dlog('INFO', `Iniciando scan de conflitos — pasta: ${state.config.modsFolder}`);
-    const result = await window.api.scanConflicts(state.config.modsFolder);
+    dlog('INFO', `Iniciando scan de conflitos — mods: ${state.config.modsFolder} | tray: ${state.config.trayFolder}`);
+    const result = await window.api.scanConflicts(state.config.modsFolder, state.config.trayFolder);
 
     // null means the scan was cancelled
     if (result === null) {

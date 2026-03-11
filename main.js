@@ -1054,12 +1054,17 @@ function extractArchive(archivePath, destDir, sevenZipPath) {
 // Active cancellation token — replaced on each new scan, set to cancelled on cancel request.
 let _conflictCancelToken = null;
 
-async function scanConflicts(modsFolder, sender, cancelToken) {
+async function scanConflicts(modsFolder, trayFolder, sender, cancelToken) {
   const conflicts = [];
-  const allFiles = walkFolder(modsFolder, modsFolder);
-  const modFiles = allFiles.filter(({ fullPath }) =>
-    MOD_EXTENSIONS.includes(getRealExtension(fullPath))
-  );
+
+  const modsFiles = walkFolder(modsFolder, modsFolder)
+    .filter(({ fullPath }) => MOD_EXTENSIONS.includes(getRealExtension(fullPath)));
+
+  const trayFiles = (trayFolder && fs.existsSync(trayFolder))
+    ? walkFolder(trayFolder, trayFolder).filter(({ fullPath }) => TRAY_EXTENSIONS.includes(getRealExtension(fullPath)))
+    : [];
+
+  const modFiles = [...modsFiles, ...trayFiles];
 
   const total = modFiles.length;
 
@@ -1629,15 +1634,18 @@ ipcMain.handle('mods:import', async (event, filePaths, modsFolder, trayFolder) =
 });
 
 // Conflicts
-ipcMain.handle('conflicts:scan', async (event, modsFolder) => {
+ipcMain.handle('conflicts:scan', async (event, modsFolder, trayFolder) => {
   if (!modsFolder || typeof modsFolder !== 'string') return [];
   // SEC-03: bloqueia pastas fora das raízes permitidas (consistente com mods:scan)
   const roots = getAllowedRoots();
   if (roots.length && !isPathSafe(modsFolder, ...roots)) return [];
+  // Valida trayFolder apenas se fornecida
+  const safeTrayFolder = (trayFolder && typeof trayFolder === 'string' && (!roots.length || isPathSafe(trayFolder, ...roots)))
+    ? trayFolder : null;
   // Create a fresh token for this scan, invalidating any previous one
   const token = { cancelled: false };
   _conflictCancelToken = token;
-  return scanConflicts(modsFolder, event.sender, token);
+  return scanConflicts(modsFolder, safeTrayFolder, event.sender, token);
 });
 ipcMain.on('conflicts:cancel', () => {
   if (_conflictCancelToken) _conflictCancelToken.cancelled = true;
