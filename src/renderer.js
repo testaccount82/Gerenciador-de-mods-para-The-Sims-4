@@ -319,7 +319,65 @@ async function apiRestoreEmptyFolders(paths, context = '') {
   }
 
   function elementLabel(el) {
-    // Walk up to find the most meaningful interactive ancestor
+    // ── Reconhecimento de elementos especiais da UI (antes de qualquer busca genérica) ──
+    // Esses elementos não são <button> nem <a>, então o loop genérico não os identifica.
+    // Verificamos tanto o elemento clicado quanto seus ancestrais próximos.
+    let probe = el;
+    for (let i = 0; i < 4 && probe && probe !== document.body; i++, probe = probe.parentElement) {
+      const cls = probe.className || '';
+
+      // Toggle liga/desliga de mod (bolinha colorida)
+      if (cls.includes('dot-clickable')) {
+        const tooltip = probe.dataset?.tooltip || (probe.closest('[data-tooltip]')?.dataset.tooltip) || '';
+        const modPath = probe.dataset?.path || '';
+        const modName = modPath ? modPath.replace(/\.disabled$/i, '').split(/[/\\]/).pop() : '';
+        const action  = tooltip.includes('desativar') ? 'desativar' : tooltip.includes('ativar') ? 'ativar' : 'toggle';
+        const isGroup = cls.includes('dot-clickable-group');
+        const prefix  = probe.dataset?.modPrefix || probe.dataset?.trayGuid || '';
+        const target  = isGroup
+          ? `grupo "${prefix || modName}"`
+          : `"${modName || modPath.slice(-40)}"`;
+        return `Toggle ${action}: ${target}`;
+      }
+
+      // Checkbox de seleção de mod (card-check / row-check)
+      if (cls.includes('card-check') || cls.includes('row-check')) {
+        const modPath = probe.dataset?.path || '';
+        const modName = modPath ? modPath.replace(/\.disabled$/i, '').split(/[/\\]/).pop() : '';
+        return `Checkbox seleção: "${modName || modPath.slice(-40)}"`;
+      }
+
+      // Checkbox de seleção de grupo (row-check-group)
+      if (cls.includes('row-check-group')) {
+        const prefix = probe.dataset?.modPrefix || probe.dataset?.trayGuid || '(grupo)';
+        return `Checkbox seleção grupo: "${prefix}"`;
+      }
+
+      // Chip de filtro de status/tipo
+      if (probe.dataset?.fs) return `Chip filtro status: "${probe.dataset.fs}"`;
+      if (probe.dataset?.ft) return `Chip filtro tipo: "${probe.dataset.ft}"`;
+
+      // Ítem de contexto menu
+      if (cls.includes('ctx-item')) {
+        const text = (probe.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        return `Menu contexto: "${text}"`;
+      }
+
+      // Card de mod (grade/lista) — clique para selecionar
+      if (cls.includes('gallery-card') || cls.includes('group-grid-card')) {
+        const modPath = probe.dataset?.path || '';
+        const modName = modPath ? modPath.replace(/\.disabled$/i, '').split(/[/\\]/).pop() : '';
+        return `Card mod: "${modName || modPath.slice(-40)}"`;
+      }
+
+      // Linha de tabela (tr com data-path)
+      if (probe.tagName?.toLowerCase() === 'tr' && probe.dataset?.path) {
+        const modName = probe.dataset.path.replace(/\.disabled$/i, '').split(/[/\\]/).pop();
+        return `Linha tabela: "${modName}"`;
+      }
+    }
+
+    // ── Busca genérica por elemento interativo (button, a, label, input…) ──
     let node = el;
     for (let i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
       const tag  = node.tagName?.toLowerCase();
@@ -338,11 +396,13 @@ async function apiRestoreEmptyFolders(paths, context = '') {
         return `<${tag}${id} type="${node.type || ''}">${extra}`;
       }
     }
-    // Fallback: describe the original target
+
+    // ── Fallback final ──
     const tag  = el.tagName?.toLowerCase() || '?';
     const id   = el.id ? `#${el.id}` : '';
     const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-    return `<${tag}${id}> "${text}"`;
+    const cls  = el.className ? `.${String(el.className).trim().split(/\s+/)[0]}` : '';
+    return `<${tag}${id}${cls}> "${text}"`;
   }
 
   // Throttle input events (fire at most every 500 ms per element)
