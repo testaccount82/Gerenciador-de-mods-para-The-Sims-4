@@ -63,6 +63,8 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout código (histórico completo para changelog)
