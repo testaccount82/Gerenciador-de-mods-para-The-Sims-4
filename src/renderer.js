@@ -2313,10 +2313,17 @@ function openGroupGridOverlay(group) {
               { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
                 const results = await apiTrashBatch([filePath]);
                 if (results[0]?.success) {
+                  const { trashPath, originalPath } = results[0];
                   closeModal();
                   await loadMods(); renderMods();
                   updateTrashBadge();
                   toast(`"${name}" movido para a lixeira`, 'success');
+                  pushUndo(`Excluir ${name}`, async () => {
+                    await apiRestoreFromTrash(trashPath, originalPath);
+                    await loadMods(); renderMods();
+                    toast('Mod restaurado', 'success');
+                    logAction('restore', { name, label: `Restaurar ${name}` });
+                  }, 'delete', { name, source: 'group-grid-overlay', trashPaths: [trashPath] });
                 } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
               }}
             ]
@@ -2903,10 +2910,17 @@ function openGroupOverlay(group) {
                 { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
                   const results = await apiTrashBatch([filePath]);
                   if (results[0]?.success) {
+                    const { trashPath, originalPath } = results[0];
                     closeModal();
                     await loadMods(); renderMods();
                     updateTrashBadge();
                     toast(`"${name}" movido para a lixeira`, 'success');
+                    pushUndo(`Excluir ${name}`, async () => {
+                      await apiRestoreFromTrash(trashPath, originalPath);
+                      await loadMods(); renderMods();
+                      toast('Mod restaurado', 'success');
+                      logAction('restore', { name, label: `Restaurar ${name}` });
+                    }, 'delete', { name, source: 'group-overlay', trashPaths: [trashPath] });
                   } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
                 }}
               ]
@@ -4752,18 +4766,20 @@ function renderOrganizeResults(el) {
     await loadMods();
     renderOrganizeResults(el);
     dlog('INFO', `Organizador: ${ok} arquivo(s) corrigido(s)`);
-    toast(`${ok} arquivo(s) corrigido(s)`, 'success');
-    pushUndo(`Mover ${ok} arquivo(s)`, async () => {
-      for (const r of results) {
-        if (r.success) await apiMoveMod(r.to, r.from);
-      }
-      await loadMods();
-      renderOrganizeResults(el);
-      logAction('restore', { count: ok, label: `Desfazer correção de ${ok} arquivo(s)` });
-    }, 'move', { count: ok, source: 'organizer-fix-all' });
+    toast(`${ok} arquivo(s) corrigido(s)`, ok > 0 ? 'success' : 'warning');
+    if (ok > 0) {
+      pushUndo(`Mover ${ok} arquivo(s)`, async () => {
+        for (const r of results) {
+          if (r.success) await apiMoveMod(r.to, r.from);
+        }
+        await loadMods();
+        renderOrganizeResults(el);
+        logAction('restore', { count: ok, label: `Desfazer correção de ${ok} arquivo(s)` });
+      }, 'move', { count: ok, source: 'organizer-fix-all' });
+    }
     } catch (e) {
       toast('Erro ao corrigir arquivos: ' + (e.message || ''), 'error');
-      if (fixAllBtn) { fixAllBtn.disabled = false; fixAllBtn.textContent = 'Corrigir Tudo'; }
+      if (fixAllBtn) { fixAllBtn.disabled = false; fixAllBtn.textContent = 'Corrigir Todos'; }
       el.querySelectorAll('.fix-one-btn').forEach(b => { b.disabled = false; });
     }
   });
@@ -4832,13 +4848,17 @@ function renderOrganizeResults(el) {
     }));
 
     let moved = 0;
+    const successfulMovedMap = [];
     for (const { originalPath, newPath } of movedMap) {
       const result = await apiMoveMod(originalPath, newPath);
-      if (result.success) moved++;
+      if (result.success) {
+        moved++;
+        successfulMovedMap.push({ originalPath, newPath });
+      }
     }
 
     await loadMods();
-    return { moved, targetAbs, movedMap };
+    return { moved, targetAbs, movedMap: successfulMovedMap };
   }
 
   el.querySelectorAll('.consolidate-one-btn').forEach(btn => {
@@ -6139,14 +6159,13 @@ async function init() {
   try { state.errorLogStatus = await window.api.getErrorLogStatus(); } catch (_) {}
 
 
-  // Versão dinâmica — lida do package.json via Electron
+  // Versão dinâmica — já lida acima; populamos state e UI diretamente
   try {
-    const version = await window.api.getAppVersion();
-    state.appVersion = version;
+    state.appVersion = appVersion !== '?' ? appVersion : null;
     const el = document.getElementById('sidebar-version');
-    if (el) el.textContent = `v${version}`;
+    if (el && state.appVersion) el.textContent = `v${state.appVersion}`;
     const about = document.getElementById('about-version');
-    if (about) about.textContent = `v${version}`;
+    if (about && state.appVersion) about.textContent = `v${state.appVersion}`;
   } catch (_) { /* mantém vazio se falhar */ }
 
   // Load app icon from main process and set in titlebar (replaces SVG placeholder)

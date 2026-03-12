@@ -872,7 +872,14 @@ function moveFile(fromPath, toPath) {
   } catch (e) {
     try {
       fs.copyFileSync(fromPath, toPath);
-      fs.unlinkSync(fromPath);
+      try {
+        fs.unlinkSync(fromPath);
+      } catch (unlinkErr) {
+        // Copy succeeded but original couldn't be removed — clean up the copy to avoid
+        // leaving a duplicate, then report failure so the caller knows nothing moved.
+        try { fs.unlinkSync(toPath); } catch (_) {}
+        return { success: false, error: unlinkErr.message };
+      }
       return { success: true, from: fromPath, to: toPath };
     } catch (e2) {
       return { success: false, error: e2.message };
@@ -1704,7 +1711,12 @@ ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
     return { success: true, alreadyRestored: true };
   }
   const result = moveFile(trashPath, originalPath);
-  if (!result.success) errorLog('ERROR', 'conflicts:restore-from-trash', `"${path.basename(originalPath)}" — ${result.error}`);
+  if (result.success) {
+    // Cleanup sidecar metadata — same as mods:restore-from-trash and trash:restore
+    try { fs.unlinkSync(trashPath + '.meta.json'); } catch (_) {}
+  } else {
+    errorLog('ERROR', 'conflicts:restore-from-trash', `"${path.basename(originalPath)}" — ${result.error}`);
+  }
   return result;
 });
 
