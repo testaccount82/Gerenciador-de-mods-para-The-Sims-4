@@ -129,6 +129,10 @@
 
     .level-btn  { padding: 2px 6px; font-size: 11px; opacity: 0.4; }
     .level-btn.active  { opacity: 1; border-color: currentColor; }
+    .level-btn-count {
+      display: inline-block; margin-left: 4px; font-size: 9.5px; font-weight: 700;
+      background: rgba(255,255,255,0.12); padding: 0 4px; border-radius: 6px; line-height: 14px;
+    }
     .source-btn { padding: 2px 6px; font-size: 11px; opacity: 0.4; }
     .source-btn.active { opacity: 1; border-color: var(--accent); color: var(--accent); }
 
@@ -211,13 +215,6 @@
       <h1>🐛 Debug — TS4 Mod Manager</h1>
       <span id="status-badge">● ATIVO</span>
 
-      <div id="level-counters">
-        <span class="lvl-counter cnt-error" data-lvl="ERROR" data-zero="1" title="Erros — clique para filtrar">ERR: <b id="cn-error">0</b></span>
-        <span class="lvl-counter cnt-warn"  data-lvl="WARN"  data-zero="1" title="Avisos — clique para filtrar">WARN: <b id="cn-warn">0</b></span>
-        <span class="lvl-counter cnt-info"  data-lvl="INFO"  data-zero="1" title="Info — clique para filtrar">INFO: <b id="cn-info">0</b></span>
-        <span class="lvl-counter cnt-debug" data-lvl="DEBUG" data-zero="1" title="Debug — clique para filtrar">DBG: <b id="cn-debug">0</b></span>
-      </div>
-
       <div class="toolbar-sep"></div>
 
       <button id="btn-always-on-top" title="Sempre no topo (Alt+T)">📌 Topo</button>
@@ -261,10 +258,10 @@
     <div class="fsep"></div>
 
     <button class="level-btn active" data-level="ALL">Todos</button>
-    <button class="level-btn" data-level="INFO"  style="color:#81c784">INFO</button>
-    <button class="level-btn" data-level="WARN"  style="color:#ffb74d">WARN</button>
-    <button class="level-btn" data-level="ERROR" style="color:#ef5350">ERROR</button>
-    <button class="level-btn" data-level="DEBUG" style="color:#ce93d8">DEBUG</button>
+    <button class="level-btn" data-level="INFO"  style="color:#81c784">INFO <span class="level-btn-count" id="fc-info">0</span></button>
+    <button class="level-btn" data-level="WARN"  style="color:#ffb74d">WARN <span class="level-btn-count" id="fc-warn">0</span></button>
+    <button class="level-btn" data-level="ERROR" style="color:#ef5350">ERROR <span class="level-btn-count" id="fc-error">0</span></button>
+    <button class="level-btn" data-level="DEBUG" style="color:#ce93d8">DEBUG <span class="level-btn-count" id="fc-debug">0</span></button>
 
     <div class="fsep"></div>
 
@@ -351,10 +348,11 @@
     // ── Contadores ───────────────────────────────────────────────────────────
     function updateCounters() {
       for (const [lvl, n] of Object.entries(levelCounts)) {
-        const el = document.getElementById(`cn-${lvl.toLowerCase()}`);
-        if (el) el.textContent = n;
-        const chip = document.querySelector(`.lvl-counter[data-lvl="${lvl}"]`);
-        if (chip) chip.dataset.zero = n === 0 ? '1' : '0';
+        const el = document.getElementById(`fc-${lvl.toLowerCase()}`);
+        if (el) {
+          el.textContent = n;
+          el.style.display = n === 0 ? 'none' : '';
+        }
       }
     }
     function resetCounters() {
@@ -433,7 +431,7 @@
       if (findIndex >= 0) findMatches[findIndex].el.classList.remove('find-current');
       findIndex = dir === 'next'
         ? (findIndex + 1) % findMatches.length
-        : (findIndex - 1 + findMatches.length) % findMatches.length;
+        : findIndex < 0 ? findMatches.length - 1 : (findIndex - 1 + findMatches.length) % findMatches.length;
       findMatches[findIndex].el.classList.add('find-current');
       findMatches[findIndex].el.scrollIntoView({ block: 'center' });
       autoScroll = false;
@@ -702,16 +700,6 @@
         const lvl = btn.dataset.level;
         if (lvl === 'ALL') { activeLevels.clear(); }
         else { activeLevels.has(lvl) ? activeLevels.delete(lvl) : activeLevels.add(lvl); }
-        syncLevelBtns(); applyFilters();
-      });
-    });
-
-    // Level counter chips — single-level shortcut
-    document.querySelectorAll('.lvl-counter').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const lvl = chip.dataset.lvl;
-        if (activeLevels.size === 1 && activeLevels.has(lvl)) activeLevels.clear();
-        else { activeLevels.clear(); activeLevels.add(lvl); }
         syncLevelBtns(); applyFilters();
       });
     });

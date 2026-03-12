@@ -520,6 +520,7 @@ const state = {
   itemsPerPage: 30,
   thumbnailCache: {},     // path -> base64 | null
   expandedGroups: new Set(), // group keys currently expanded
+  groupingEnabled: true,     // whether to group items by prefix/GUID in list and grid
   appVersion: null,        // cached app version string (populated in init())
   debugStatus: null,       // { enabled, logPath, activatedByCli } — populated in init()
   errorLogStatus: null,    // { enabled, level, logPath } — populated in init()
@@ -919,20 +920,53 @@ document.addEventListener('mousedown', e => { if (_ctxMenu && !_ctxMenu.contains
 document.addEventListener('keydown',   e => { if (e.key === 'Escape') closeCtxMenu(); });
 
 function attachCtxMenu(container) {
-  // Cards da galeria (individuais e grupos)
+  // Cards da galeria (individuais — grupos não têm data-path no card raiz)
   container.querySelectorAll('.gallery-card[data-path]').forEach(card => {
     card.addEventListener('contextmenu', e => {
       e.preventDefault();
-      showCtxMenu(e.clientX, e.clientY, card.dataset.path);
+      showCtxMenu(e.clientX, e.clientY, card.dataset.path, {
+        onDelete: (fp) => handleCtxMenuDelete(fp, 'gallery-ctx')
+      });
     });
   });
   // Linhas da tabela (individuais e child-rows)
   container.querySelectorAll('tr[data-path]').forEach(row => {
     row.addEventListener('contextmenu', e => {
       e.preventDefault();
-      showCtxMenu(e.clientX, e.clientY, row.dataset.path);
+      showCtxMenu(e.clientX, e.clientY, row.dataset.path, {
+        onDelete: (fp) => handleCtxMenuDelete(fp, 'list-ctx')
+      });
     });
   });
+}
+
+async function handleCtxMenuDelete(filePath, source = 'ctx-menu') {
+  const allMods = [...state.mods, ...state.trayFiles];
+  const f = allMods.find(m => m.path === filePath);
+  const name = f?.name || filePath.split(/[\/\\]/).pop();
+  openModal('Confirmar Exclusão',
+    `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
+    [
+      { label: 'Cancelar', cls: 'btn-secondary', action: () => {} },
+      { label: 'Mover para lixeira', cls: 'btn-danger', action: async () => {
+        const results = await apiTrashBatch([filePath]);
+        if (results[0]?.success) {
+          const { trashPath, originalPath } = results[0];
+          closeModal();
+          state.selectedMods.delete(filePath);
+          await loadMods(); renderMods();
+          updateTrashBadge();
+          toast(`"${name}" movido para a lixeira`, 'success');
+          pushUndo(`Excluir ${name}`, async () => {
+            await apiRestoreFromTrash(trashPath, originalPath);
+            await loadMods(); renderMods();
+            toast('Mod restaurado', 'success');
+            logAction('restore', { name, label: `Restaurar ${name}` });
+          }, 'delete', { name, source, trashPaths: [trashPath] });
+        } else toast('Erro ao excluir: ' + (results[0]?.error || ''), 'error');
+      }}
+    ]
+  );
 }
 
 function initColumnResize(table) {
@@ -1295,7 +1329,9 @@ function renderMods() {
                      || state.filterType !== 'all' || state.filterFolder !== 'all';
 
   // Group tray files by GUID, then group mods by prefix before pagination
-  let allGrouped = groupModsByPrefix(groupTrayFiles(allFiltered));
+  let allGrouped = state.groupingEnabled
+    ? groupModsByPrefix(groupTrayFiles(allFiltered))
+    : allFiltered;
 
   // Apply status filter after grouping — at the group level, using actual file states.
   // This prevents partial groups from being split or misclassified.
@@ -1432,6 +1468,15 @@ function renderMods() {
           </select>
         ` : ''}
         ${hasFilter ? `<button class="chip chip-clear" id="clear-filters">✕ Limpar</button>` : ''}
+        <button class="chip ${state.groupingEnabled ? 'chip-on' : ''}" id="btn-toggle-grouping"
+          title="Ativar ou desativar o agrupamento de itens com o mesmo prefixo">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle">
+            <rect x="2" y="3" width="8" height="5" rx="1"/><rect x="14" y="3" width="8" height="5" rx="1"/>
+            <rect x="2" y="11" width="8" height="5" rx="1"/><rect x="14" y="11" width="8" height="5" rx="1"/>
+            <rect x="2" y="19" width="20" height="2" rx="1"/>
+          </svg>
+          Agrupar
+        </button>
         ${isGrid ? `
           <label class="select-all-label">
             <input type="checkbox" class="checkbox" id="select-all-grid">
@@ -1502,6 +1547,9 @@ function renderMods() {
   `;
 
   isGrid ? setupGalleryEvents(el, mods) : setupModsEvents(el, mods);
+  // Bug fix: re-sync the sel-bar count after every render (raw state.selectedMods.size
+  // counts individual files, but groups must count as 1 visual item).
+  refreshSelBar(el);
 }
 
 function renderTable(mods) {
@@ -1649,6 +1697,7 @@ function groupModsByPrefix(mods) {
     result.push({
       _isModGroup: true,
       modPrefix: prefix,
+      displayName: prefix.split(/[\s_]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
       files,
       path: primary.path,
       name: primary.name,
@@ -1954,6 +2003,14 @@ function setupCommonModsEvents(el) {
     state.filterFolder = 'all'; state.galleryPage = 1; renderMods();
   });
 
+  // Grouping toggle
+  el.querySelector('#btn-toggle-grouping')?.addEventListener('click', () => {
+    state.groupingEnabled = !state.groupingEnabled;
+    dlog('DEBUG', `Agrupamento: ${state.groupingEnabled ? 'ativado' : 'desativado'}`);
+    state.galleryPage = 1;
+    renderMods();
+  });
+
   // Items per page (both list and grid modes)
   el.querySelector('#items-per-page')?.addEventListener('change', e => {
     const val = e.target.value;
@@ -2157,7 +2214,9 @@ function refreshSelBar(el) {
   }
 
   // Conta itens visuais: cada grupo (tray ou mod) selecionado conta como 1
-  const allGrouped = groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]));
+  const allGrouped = state.groupingEnabled
+    ? groupModsByPrefix(groupTrayFiles([...state.mods, ...state.trayFiles]))
+    : [...state.mods, ...state.trayFiles];
   let visualCount = 0;
   const accounted = new Set();
 
@@ -2339,7 +2398,7 @@ function openGroupGridOverlay(group) {
 function openGroupOverlay(group) {
   const displayTitle = group._isTrayGroup
     ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
-    : (group.modPrefix || group.name);
+    : (group.displayName || group.modPrefix || group.name);
   dlog('INFO', `Janela de grupo aberta: "${displayTitle}" (${group.files.length} arquivo(s))`);
 
   // Bug fix: remove the mousedown listener left by a previous openGroupOverlay call.
@@ -2374,7 +2433,7 @@ function openGroupOverlay(group) {
           </div>
           <span style="font-size:11.5px;color:var(--text-secondary);flex-shrink:0">${formatBytes(f.size)}</span>
           <span class="${fTypeClass}" style="flex-shrink:0;font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:3px">${fTypeLabel}</span>
-          <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'}" style="flex-shrink:0">${f.enabled ? 'Ativo' : 'Inativo'}</span>
+          <span class="badge ${f.enabled ? 'badge-active' : 'badge-inactive'} toggle-overlay-status" data-path="${escapeHtml(f.path)}" style="flex-shrink:0;cursor:pointer" title="${f.enabled ? 'Ativo — clique para desativar' : 'Inativo — clique para ativar'}">${f.enabled ? 'Ativo' : 'Inativo'}</span>
         </div>`;
     }).join('');
   }
@@ -2824,26 +2883,36 @@ function openGroupOverlay(group) {
           }
         });
       });
-      row.addEventListener('click', async e => {
-        // Ctrl/Meta+click → toggle selection, no toggle
+
+      // Status badge click → toggle mod (active/inactive)
+      const badge = row.querySelector('.toggle-overlay-status');
+      if (badge) {
+        badge.addEventListener('click', async e => {
+          e.stopPropagation();
+          const fp = row.dataset.path;
+          const result = await apiToggleMod(fp);
+          if (result.success) {
+            await loadMods();
+            refreshGroupFiles([result]);
+            renderMods();
+            renderView(currentView);
+          } else { toast('Erro ao alternar mod', 'error'); }
+        });
+      }
+
+      row.addEventListener('click', e => {
+        // Ctrl/Meta+click → toggle selection
         if (e.ctrlKey || e.metaKey) {
           selectOverlayItem(row, !modalSelected.has(row.dataset.path));
           return;
         }
-        // Click on already-selected row with others selected → clear selection
-        if (modalSelected.size > 1 && modalSelected.has(row.dataset.path)) {
+        // Plain left click → select/deselect item
+        const isSelected = modalSelected.has(row.dataset.path);
+        if (modalSelected.size > 1 && isSelected) {
           clearOverlaySelection();
           return;
         }
-        // Plain click with no drag → toggle mod
-        const fp = row.dataset.path;
-        const result = await apiToggleMod(fp);
-        if (result.success) {
-          await loadMods();
-          refreshGroupFiles([result]);
-          renderMods();
-          renderView(currentView);
-        } else { toast('Erro ao alternar mod', 'error'); }
+        selectOverlayItem(row, !isSelected);
       });
     });
   }
@@ -2865,38 +2934,19 @@ function openGroupOverlay(group) {
       });
     });
     document.querySelectorAll('.group-overlay-grid-card').forEach(card => {
-      card.addEventListener('click', async e => {
+      card.addEventListener('click', e => {
         // Ctrl/Meta+click → toggle selection only
         if (e.ctrlKey || e.metaKey) {
           selectOverlayItem(card, !modalSelected.has(card.dataset.path));
           return;
         }
-        // Click on already-selected card with others selected → clear selection
-        if (modalSelected.size > 1 && modalSelected.has(card.dataset.path)) {
+        // Plain left click → select/deselect item (don't toggle mod status)
+        const isSelected = modalSelected.has(card.dataset.path);
+        if (modalSelected.size > 1 && isSelected) {
           clearOverlaySelection();
           return;
         }
-        // Click on single selected card → deselect
-        if (modalSelected.size === 1 && modalSelected.has(card.dataset.path)) {
-          clearOverlaySelection();
-          return;
-        }
-        // Card already in selection (just one or none) and click lands here after drag → do nothing extra
-        if (modalSelected.size > 0 && !modalSelected.has(card.dataset.path)) {
-          // Clicking a different card while others are selected → select only this one
-          clearOverlaySelection();
-          selectOverlayItem(card, true);
-          return;
-        }
-        // Plain click with no selection → toggle mod
-        const fp = card.dataset.path;
-        const result = await apiToggleMod(fp);
-        if (result.success) {
-          await loadMods();
-          refreshGroupFiles([result]);
-          renderMods();
-          renderView(currentView);
-        } else { toast('Erro ao alternar mod', 'error'); }
+        selectOverlayItem(card, !isSelected);
       });
       card.addEventListener('contextmenu', e => {
         e.preventDefault();
@@ -3390,7 +3440,7 @@ function renderModGroupCard(group) {
     ? 'tray-group-badge mod-group-badge mod-group-badge-script'
     : 'tray-group-badge mod-group-badge';
   return renderGroupCard(group, 'mod:' + group.modPrefix, typeTag, typeClass,
-    badgeClass, fileIcon(group.type), group.name);
+    badgeClass, fileIcon(group.type), group.displayName || group.name);
 }
 
 async function loadVisibleThumbnails(el) {
@@ -3650,9 +3700,11 @@ function renderGroupRow(group, idAttr, idVal, badgeEmoji) {
       </td>
       <td>
         <div class="cell-name">
-          <span class="file-icon">${badgeEmoji}</span>
-          <span title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
-          ${(() => { const tc = getTrueGroupCount(group); const lbl = tc > group.files.length ? `${group.files.length}/${tc}` : String(tc); return `<span class="group-row-badge">${lbl} arquivo${tc !== 1 ? 's' : ''}</span>`; })()}
+          <span class="file-icon" style="position:relative">
+            ${badgeEmoji}
+            ${(() => { const tc = getTrueGroupCount(group); const lbl = tc > group.files.length ? `${group.files.length}/${tc}` : String(tc); return `<span class="group-row-badge">${lbl}</span>`; })()}
+          </span>
+          <span title="${escapeHtml(group.name)}">${escapeHtml(group.displayName || group.name)}</span>
         </div>
       </td>
       <td>${typeBadge(group.type)}</td>
@@ -5982,7 +6034,6 @@ function renderSettings() {
 
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" id="save-settings">Salvar Configurações</button>
-      <button class="btn btn-secondary" id="reload-mods-btn">Recarregar Mods</button>
       <button class="btn btn-secondary" id="clear-thumb-cache">🗑 Limpar cache de miniaturas</button>
     </div>
   `;
@@ -6016,11 +6067,6 @@ function renderSettings() {
     } catch (_) {}
     toast('Configurações salvas com sucesso', 'success');
     await loadMods();
-  });
-
-  el.querySelector('#reload-mods-btn').addEventListener('click', async () => {
-    await loadMods();
-    toast('Mods recarregados', 'info');
   });
 
   el.querySelector('#clear-thumb-cache')?.addEventListener('click', async () => {
