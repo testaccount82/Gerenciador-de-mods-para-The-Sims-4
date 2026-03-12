@@ -3288,7 +3288,7 @@ function setupGalleryEvents(el, mods) {
         el.querySelectorAll('.gallery-card.selected, .card-check:checked').forEach(node => {
           node.classList?.remove('selected');
           if (node.tagName === 'INPUT') node.checked = false;
-          else node.querySelector('.card-check')?.setAttribute('checked', false);
+          else node.querySelector('.card-check')?.removeAttribute('checked');
         });
         if (!wasSelected) state.selectedMods.add(p);
       }
@@ -4478,8 +4478,6 @@ async function runOrganizeScan(el) {
       window.api.scanScatteredGroups(state.config.modsFolder),
       window.api.scanInvalidFiles(state.config.modsFolder, state.config.trayFolder),
     ]);
-    const totalIssues = state.misplaced.length + state.emptyFolders.length
-                      + state.scattered.length + state.invalidFiles.length;
     dlog('INFO', `Scan do organizador concluído — ${state.misplaced.length} mal colocado(s), ${state.emptyFolders.length} pasta(s) vazia(s), ${state.scattered.length} grupo(s) disperso(s), ${state.invalidFiles.length} inválido(s)`);
     if (state.currentPage === 'organizer' && el) renderOrganizeResults(el);
   } catch (e) {
@@ -5480,13 +5478,7 @@ function renderHistory() {
     btn.addEventListener('click', () => {
       const page = btn.dataset.page;
       if (!page) return;
-      state.currentPage = page;
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-      document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
-      const renderers = { dashboard: renderDashboard, mods: renderMods, conflicts: renderConflicts,
-                          organizer: renderOrganizer, manual: renderManual,
-                          history: renderHistory, trash: renderTrash, settings: renderSettings };
-      renderers[page]?.();
+      navigate(page);
     });
   });
 
