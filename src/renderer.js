@@ -1995,13 +1995,15 @@ function setupCommonModsEvents(el) {
       e.preventDefault();
       // Only show overlay for external file drags from the OS, not internal card drags
       if (!e.dataTransfer.types.includes('Files')) return;
-      if (++dragDepth === 1) dz.classList.add('drop-overlay-show');
+      // Re-query on each event: el.innerHTML is replaced by every renderMods() call,
+      // so a reference captured at registration time would point to a detached node.
+      if (++dragDepth === 1) el.querySelector('#drop-zone')?.classList.add('drop-overlay-show');
     });
     el.addEventListener('dragleave', e => {
       // Only hide when leaving el itself (not a child element)
       if (!el.contains(e.relatedTarget)) {
         dragDepth = 0;
-        dz.classList.remove('drop-overlay-show');
+        el.querySelector('#drop-zone')?.classList.remove('drop-overlay-show');
       }
     });
     el.addEventListener('dragover', e => e.preventDefault());
@@ -3277,9 +3279,18 @@ function setupGalleryEvents(el, mods) {
       if (!p) return;
       const isSelected = state.selectedMods.has(p);
       if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Meta: add/remove from multi-select without touching other selections
         isSelected ? state.selectedMods.delete(p) : state.selectedMods.add(p);
       } else {
-        isSelected ? state.selectedMods.delete(p) : state.selectedMods.add(p);
+        // Plain click: deselect all other cards, then toggle this one
+        const wasSelected = isSelected;
+        state.selectedMods.clear();
+        el.querySelectorAll('.gallery-card.selected, .card-check:checked').forEach(node => {
+          node.classList?.remove('selected');
+          if (node.tagName === 'INPUT') node.checked = false;
+          else node.querySelector('.card-check')?.setAttribute('checked', false);
+        });
+        if (!wasSelected) state.selectedMods.add(p);
       }
       card.classList.toggle('selected', state.selectedMods.has(p));
       const cb = card.querySelector('.card-check');
