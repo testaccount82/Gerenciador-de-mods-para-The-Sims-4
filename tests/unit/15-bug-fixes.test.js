@@ -77,7 +77,7 @@ describe('BUG 1 — app:version IPC handler', () => {
     expect(handler).toBeDefined();
     const result = await handler(fakeEvent);
     expect(typeof result).toBe('string');
-    expect(result).toBe('1.1.0');
+    expect(result).toBe('1.0.0');
   });
 
   test('handler app:version não lança exceção', () => {

@@ -1683,7 +1683,7 @@ ipcMain.handle('conflicts:restore-from-trash', (_, trashPath, originalPath) => {
   const result = moveFile(trashPath, originalPath);
   if (!result.success) errorLog('ERROR', 'conflicts:restore-from-trash', `"${path.basename(originalPath)}" — ${result.error}`);
   return result;
-});;
+});
 
 // Organizer
 ipcMain.handle('organize:scan', (_, modsFolder, trayFolder) => {
@@ -1700,10 +1700,6 @@ ipcMain.handle('organize:fix', (_, items) => {
   // não abortam o lote inteiro (fix do fail-fast).
   if (!Array.isArray(items)) return [];
   const roots = getAllowedRoots();
-  const safeItems = items.filter(item => {
-    if (!item || !item.path || !item.suggestedDest) return false;
-    return isPathSafe(item.path, ...roots) && isPathSafe(item.suggestedDest, ...roots);
-  });
   // Preservar alinhamento de índices com o array original para o renderer
   // saber quais itens foram pulados (resultado undefined → não movido)
   return items.map(item => {
