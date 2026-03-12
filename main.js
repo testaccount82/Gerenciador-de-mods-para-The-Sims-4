@@ -371,6 +371,8 @@ function getAllowedRoots() {
     cfg.modsFolder,
     cfg.trayFolder,
     path.join(app.getPath('userData'), 'trash'),
+    // SEC-02: include tempFolder so extraction directories are covered by isPathSafe checks
+    cfg.tempFolder || path.join(app.getPath('temp'), 'ts4modmanager'),
   ].filter(Boolean);
 }
 
@@ -1125,7 +1127,7 @@ async function scanConflicts(modsFolder, trayFolder, sender, cancelToken) {
       const allSameName = names.every(n => n === names[0]);
       if (!allSameName) {
         conflicts.push({
-          id: 'hash_' + hash,
+          id: 'hash_' + crypto.createHash('sha256').update(hash).digest('hex').slice(0, 32),
           type: 'hash-duplicate',
           label: 'Conteúdo idêntico',
           hash,
@@ -1564,6 +1566,17 @@ ipcMain.handle('config:set', (_, config) => {
   if (config.modsFolder && config.trayFolder) {
     if (path.resolve(config.modsFolder) === path.resolve(config.trayFolder)) return false;
   }
+  // QA: normalizar e limitar windowBounds para evitar valores inválidos que travam a janela
+  if (config.windowBounds && typeof config.windowBounds === 'object') {
+    const MIN_W = 200, MAX_W = 7680, MIN_H = 150, MAX_H = 4320;
+    const w = Number(config.windowBounds.width);
+    const h = Number(config.windowBounds.height);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return false;
+    config.windowBounds = {
+      width:  Math.max(MIN_W, Math.min(MAX_W, Math.round(w))),
+      height: Math.max(MIN_H, Math.min(MAX_H, Math.round(h))),
+    };
+  }
   writeConfig(config);
   debugLog('INFO', `Config saved: modsFolder=${config.modsFolder} trayFolder=${config.trayFolder} debugMode=${config.debugMode}`);
   return true;
@@ -1596,7 +1609,10 @@ ipcMain.handle('mods:toggle', (_, filePath) => {
   return result;
 });
 ipcMain.handle('mods:toggle-folder', (_, folderPath, modsFolder) => {
-  if (!isPathSafe(folderPath, ...getAllowedRoots())) return [];
+  const roots = getAllowedRoots();
+  if (!isPathSafe(folderPath, ...roots)) return [];
+  // QA: validar modsFolder para evitar que um baseFolder inválido afete o resultado
+  if (modsFolder && (typeof modsFolder !== 'string' || !isPathSafe(modsFolder, ...roots))) return [];
   return toggleFolder(folderPath, modsFolder);
 });
 ipcMain.handle('mods:delete', async (_, filePaths) => {
@@ -1623,6 +1639,13 @@ ipcMain.handle('mods:import', async (event, filePaths, modsFolder, trayFolder) =
   if (!Array.isArray(filePaths)) return { imported: [], errors: [] };
   if (typeof modsFolder !== 'string' || typeof trayFolder !== 'string')
     return { imported: [], errors: [{ error: 'Parâmetro de pasta inválido' }] };
+  // SEC-03: limite máximo de arquivos por lote para evitar DoS
+  const MAX_IMPORT_BATCH = 5000;
+  if (filePaths.length > MAX_IMPORT_BATCH)
+    return { imported: [], errors: [{ error: `Lote de importação excede o limite de ${MAX_IMPORT_BATCH} arquivos` }] };
+  // SEC-03: todos os elementos devem ser strings
+  if (filePaths.some(p => typeof p !== 'string'))
+    return { imported: [], errors: [{ error: 'Lista de arquivos contém entradas inválidas' }] };
   // SEC-02: validar se destinos estão dentro das raízes permitidas
   const roots = getAllowedRoots();
   if (!isPathSafe(modsFolder, ...roots) || !isPathSafe(trayFolder, ...roots))
