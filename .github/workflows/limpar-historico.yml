@@ -3,17 +3,26 @@ name: 🧹 Limpar Histórico de Execuções
 on:
   workflow_dispatch:
     inputs:
-      workflow:
-        description: "Histórico a limpar"
-        required: true
-        type: choice
-        default: Todos
-        options:
-          - Todos
-          - Criar Artefatos
-          - Criar Release
-          - Testes
-          - Limpar Histórico de Execuções
+      historico_criar_artefatos:
+        description: "Histórico: Criar Artefatos"
+        required: false
+        default: false
+        type: boolean
+      historico_criar_release:
+        description: "Histórico: Criar Release"
+        required: false
+        default: false
+        type: boolean
+      historico_testes:
+        description: "Histórico: Testes"
+        required: false
+        default: false
+        type: boolean
+      historico_limpar_historico:
+        description: "Histórico: Limpar Histórico de Execuções"
+        required: false
+        default: false
+        type: boolean
       apagar_releases:
         description: "Apagar releases e tags"
         required: false
@@ -40,7 +49,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      WORKFLOW_ALVO: ${{ github.event.inputs.workflow }}
+      H_CRIAR_ARTEFATOS:  ${{ github.event.inputs.historico_criar_artefatos }}
+      H_CRIAR_RELEASE:    ${{ github.event.inputs.historico_criar_release }}
+      H_TESTES:           ${{ github.event.inputs.historico_testes }}
+      H_LIMPAR_HISTORICO: ${{ github.event.inputs.historico_limpar_historico }}
 
     steps:
       - name: 🗂️ Limpar histórico de execuções
@@ -48,7 +60,19 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const alvo = process.env.WORKFLOW_ALVO;
+
+            const selecionados = new Map([
+              ['Criar Artefatos',               process.env.H_CRIAR_ARTEFATOS  === 'true'],
+              ['Criar Release',                 process.env.H_CRIAR_RELEASE    === 'true'],
+              ['Testes',                        process.env.H_TESTES           === 'true'],
+              ['Limpar Histórico de Execuções', process.env.H_LIMPAR_HISTORICO === 'true'],
+            ]);
+
+            const algumSelecionado = [...selecionados.values()].some(Boolean);
+            if (!algumSelecionado) {
+              console.log('ℹ️  Nenhum histórico selecionado — etapa ignorada.');
+              return;
+            }
 
             const runs = [];
             for (let page = 1; ; page++) {
@@ -62,7 +86,7 @@ jobs:
             const para_deletar = runs.filter(r =>
               r.id !== context.runId &&
               r.status === 'completed' &&
-              (alvo === 'Todos' || r.name === alvo)
+              selecionados.get(r.name) === true
             );
 
             console.log(`🔍 ${para_deletar.length} execução(ões) encontrada(s).`);
