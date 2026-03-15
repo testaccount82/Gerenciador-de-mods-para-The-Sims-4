@@ -2813,6 +2813,14 @@ function openGroupOverlay(group) {
       const fresh = allCurrent.find(m => m.path === lookup);
       return fresh ? fresh : (newPath ? { ...f, path: newPath, enabled: !f.enabled } : f);
     });
+    // Keep modalSelected in sync: if a toggled file was selected under its old path,
+    // re-register it under the new path (toggle renames the file with/without .disabled).
+    for (const [oldPath, newPath] of Object.entries(pathMap)) {
+      if (modalSelected.has(oldPath)) {
+        modalSelected.delete(oldPath);
+        modalSelected.add(newPath);
+      }
+    }
   }
 
   function renderView(view) {
