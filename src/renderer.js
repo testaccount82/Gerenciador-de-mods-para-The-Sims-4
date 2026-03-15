@@ -2660,6 +2660,8 @@ function openGroupOverlay(group) {
     const onMousedown = e => {
       if (e.button !== 0) return;
       if (e.target.closest('button, input, a')) return;
+      // Never start rubber band on toggle elements — they handle their own click/stopPropagation
+      if (e.target.closest('.toggle-overlay-status, .dot-clickable')) return;
       // In list mode, don't start drag on the row itself (only on empty space)
       if (!allowOnItems && e.target.closest('.group-overlay-row, .group-overlay-grid-card')) return;
 
@@ -2887,6 +2889,7 @@ function openGroupOverlay(group) {
       // Status badge click → toggle mod (active/inactive)
       const badge = row.querySelector('.toggle-overlay-status');
       if (badge) {
+        badge.addEventListener('mousedown', e => e.stopPropagation());
         badge.addEventListener('click', async e => {
           e.stopPropagation();
           const fp = row.dataset.path;
@@ -2919,6 +2922,7 @@ function openGroupOverlay(group) {
 
   function wireGridEvents() {
     document.querySelectorAll('.group-overlay-grid-card .dot-clickable').forEach(dot => {
+      dot.addEventListener('mousedown', e => e.stopPropagation());
       dot.addEventListener('click', async e => {
         e.stopPropagation();
         const card = dot.closest('.group-overlay-grid-card');
