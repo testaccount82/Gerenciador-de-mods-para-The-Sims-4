@@ -943,7 +943,7 @@ function attachCtxMenu(container) {
 async function handleCtxMenuDelete(filePath, source = 'ctx-menu') {
   const allMods = [...state.mods, ...state.trayFiles];
   const f = allMods.find(m => m.path === filePath);
-  const name = f?.name || filePath.split(/[\/\\]/).pop();
+  const name = f?.name || filePath.split(/[/\\]/).pop();
   openModal('Confirmar Exclusão',
     `<p>Mover <strong>${escapeHtml(name)}</strong> para a lixeira?</p>`,
     [
@@ -2912,6 +2912,11 @@ function openGroupOverlay(group) {
             refreshGroupFiles([result]);
             renderMods();
             renderView(currentView);
+            const name = result.newPath?.replace(/\.disabled$/i, '').split(/[/\\]/).pop() || fp.split(/[/\\]/).pop();
+            const nowEnabled = !result.newPath?.endsWith('.disabled');
+            pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${name}`, async () => {
+              await apiToggleMod(result.newPath); await loadMods(); renderMods();
+            }, nowEnabled ? 'toggle_on' : 'toggle_off', { name, source: 'group-overlay' });
           } else { toast('Erro ao alternar mod', 'error'); }
         });
       }
@@ -2947,6 +2952,11 @@ function openGroupOverlay(group) {
           refreshGroupFiles([result]);
           renderMods();
           renderView(currentView);
+          const name = result.newPath?.replace(/\.disabled$/i, '').split(/[/\\]/).pop() || fp.split(/[/\\]/).pop();
+          const nowEnabled = !result.newPath?.endsWith('.disabled');
+          pushUndo(`${nowEnabled ? 'Ativar' : 'Desativar'} ${name}`, async () => {
+            await apiToggleMod(result.newPath); await loadMods(); renderMods();
+          }, nowEnabled ? 'toggle_on' : 'toggle_off', { name, source: 'group-overlay' });
         } else { toast('Erro ao alternar mod', 'error'); }
       });
     });
