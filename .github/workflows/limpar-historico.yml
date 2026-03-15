@@ -3,6 +3,12 @@ name: 🧹 Limpar Histórico de Execuções
 on:
   workflow_dispatch:
     inputs:
+      atualizar_lista:
+        description: "Atualizar lista de workflows (não limpa nada)"
+        required: false
+        default: false
+        type: boolean
+      # [BEGIN_HISTORICO]
       historico_criar_artefatos:
         description: "Histórico: Criar Artefatos"
         required: false
@@ -18,11 +24,12 @@ on:
         required: false
         default: false
         type: boolean
-      historico_limpar_historico:
-        description: "Histórico: Limpar Histórico de Execuções"
+      historico_limpar_historico_de_execucoes:
+        description: "Histórico: 🧹 Limpar Histórico de Execuções"
         required: false
         default: false
         type: boolean
+      # [END_HISTORICO]
       apagar_releases:
         description: "Apagar releases e tags"
         required: false
@@ -48,24 +55,124 @@ jobs:
     name: Limpar repositório
     runs-on: ubuntu-latest
 
-    env:
-      H_CRIAR_ARTEFATOS:  ${{ github.event.inputs.historico_criar_artefatos }}
-      H_CRIAR_RELEASE:    ${{ github.event.inputs.historico_criar_release }}
-      H_TESTES:           ${{ github.event.inputs.historico_testes }}
-      H_LIMPAR_HISTORICO: ${{ github.event.inputs.historico_limpar_historico }}
-
     steps:
+      - name: 📋 Atualizar lista de workflows
+        if: ${{ github.event.inputs.atualizar_lista == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📋 Reescrever inputs com workflows atuais
+        if: ${{ github.event.inputs.atualizar_lista == 'true' }}
+        run: |
+          python3 - << 'PYEOF'
+          import os, re, unicodedata
+
+          workflows_dir = '.github/workflows'
+          self_file = os.path.join(workflows_dir, 'limpar-historico.yml')
+
+          # Coleta nome de todos os workflows, exceto o próprio
+          nomes = []
+          for fname in sorted(os.listdir(workflows_dir)):
+            if not fname.endswith('.yml') or fname == 'limpar-historico.yml':
+              continue
+            with open(os.path.join(workflows_dir, fname), 'r', encoding='utf-8') as f:
+              content = f.read()
+            m = re.search(r'^name:\s*(.+)', content, re.MULTILINE)
+            if m:
+              nomes.append(m.group(1).strip())
+
+          nomes.append('🧹 Limpar Histórico de Execuções')
+
+          def slugify(nome):
+            import unicodedata
+            s = unicodedata.normalize('NFKD', nome)
+            s = ''.join(c for c in s if not unicodedata.combining(c))
+            s = re.sub(r'[^a-z0-9]+', '_', s.lower())
+            return s.strip('_')
+
+          # Bloco de inputs dinâmicos
+          novos_inputs = ''
+          for nome in nomes:
+            chave = f'historico_{slugify(nome)}'
+            label = f'Histórico: {nome}'
+            novos_inputs += (
+              f'      {chave}:\n'
+              f'        description: "{label}"\n'
+              f'        required: false\n'
+              f'        default: false\n'
+              f'        type: boolean\n'
+            )
+
+          # Bloco de entradas do Map JS
+          map_entries = ''
+          for nome in nomes:
+            chave_env = f'H_{slugify(nome).upper()}'
+            map_entries += f"              ['{nome}', process.env.{chave_env} === 'true'],\n"
+
+          # Bloco de env do step
+          env_entries = ''
+          for nome in nomes:
+            chave_input = f'historico_{slugify(nome)}'
+            chave_env   = f'H_{slugify(nome).upper()}'
+            env_entries += f"          {chave_env}: ${{{{ github.event.inputs.{chave_input} }}}}\n"
+
+          with open(self_file, 'r', encoding='utf-8') as f:
+            texto = f.read()
+
+          texto = re.sub(
+            r'(      # \[BEGIN_HISTORICO\]\n).*?(      # \[END_HISTORICO\]\n)',
+            r'\g<1>' + novos_inputs + r'\g<2>',
+            texto, flags=re.DOTALL
+          )
+          texto = re.sub(
+            r'(              // \[BEGIN_MAP\]\n).*?(              // \[END_MAP\]\n)',
+            r'\g<1>' + map_entries + r'\g<2>',
+            texto, flags=re.DOTALL
+          )
+          texto = re.sub(
+            r'(          # \[BEGIN_ENV\]\n).*?(          # \[END_ENV\]\n)',
+            r'\g<1>' + env_entries + r'\g<2>',
+            texto, flags=re.DOTALL
+          )
+
+          with open(self_file, 'w', encoding='utf-8') as f:
+            f.write(texto)
+
+          print(f'✅ Lista atualizada com {len(nomes)} workflow(s): {", ".join(nomes)}')
+          PYEOF
+
+      - name: 📋 Commit da lista atualizada
+        if: ${{ github.event.inputs.atualizar_lista == 'true' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet && echo "ℹ️  Nenhuma alteração necessária." && exit 0
+          git add .github/workflows/limpar-historico.yml
+          git commit -m "chore: atualizar lista de workflows no Limpar Histórico [skip ci]"
+          git push
+
       - name: 🗂️ Limpar histórico de execuções
+        if: ${{ github.event.inputs.atualizar_lista != 'true' }}
         uses: actions/github-script@v7
+        env:
+          # [BEGIN_ENV]
+          H_CRIAR_ARTEFATOS: ${{ github.event.inputs.historico_criar_artefatos }}
+          H_CRIAR_RELEASE: ${{ github.event.inputs.historico_criar_release }}
+          H_TESTES: ${{ github.event.inputs.historico_testes }}
+          H_LIMPAR_HISTORICO_DE_EXECUCOES: ${{ github.event.inputs.historico_limpar_historico_de_execucoes }}
+          # [END_ENV]
         with:
           script: |
             const { owner, repo } = context.repo;
 
             const selecionados = new Map([
-              ['Criar Artefatos',               process.env.H_CRIAR_ARTEFATOS  === 'true'],
-              ['Criar Release',                 process.env.H_CRIAR_RELEASE    === 'true'],
-              ['Testes',                        process.env.H_TESTES           === 'true'],
-              ['Limpar Histórico de Execuções', process.env.H_LIMPAR_HISTORICO === 'true'],
+              // [BEGIN_MAP]
+              ['Criar Artefatos', process.env.H_CRIAR_ARTEFATOS === 'true'],
+              ['Criar Release', process.env.H_CRIAR_RELEASE === 'true'],
+              ['Testes', process.env.H_TESTES === 'true'],
+              ['🧹 Limpar Histórico de Execuções', process.env.H_LIMPAR_HISTORICO_DE_EXECUCOES === 'true'],
+              // [END_MAP]
             ]);
 
             const algumSelecionado = [...selecionados.values()].some(Boolean);
@@ -106,7 +213,7 @@ jobs:
             console.log(`\n📊 ${ok} deletado(s), ${falhou} ignorado(s).`);
 
       - name: 🏷️ Apagar releases e tags
-        if: ${{ github.event.inputs.apagar_releases == 'true' }}
+        if: ${{ github.event.inputs.apagar_releases == 'true' && github.event.inputs.atualizar_lista != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -144,7 +251,7 @@ jobs:
             console.log(`\n📊 ${relOk} release(s) e ${tagOk} tag(s) deletadas, ${falhou} erro(s).`);
 
       - name: 📦 Apagar artefatos
-        if: ${{ github.event.inputs.apagar_artefatos == 'true' }}
+        if: ${{ github.event.inputs.apagar_artefatos == 'true' && github.event.inputs.atualizar_lista != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -174,7 +281,7 @@ jobs:
             console.log(`\n📊 ${ok} artefato(s) deletado(s), ${falhou} erro(s).`);
 
       - name: 🗑️ Apagar caches
-        if: ${{ github.event.inputs.apagar_caches == 'true' }}
+        if: ${{ github.event.inputs.apagar_caches == 'true' && github.event.inputs.atualizar_lista != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
