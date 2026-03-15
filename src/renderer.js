@@ -2631,14 +2631,19 @@ function openGroupOverlay(group) {
     if (add) {
       modalSelected.add(fp);
       el.classList.add('selected');
+      dlog('DEBUG', `[modal] Selecionado: "${fp.split(/[\/]/).pop()}"`);
     } else {
       modalSelected.delete(fp);
       el.classList.remove('selected');
+      dlog('DEBUG', `[modal] Desselecionado: "${fp.split(/[\/]/).pop()}"`);
     }
     updateSelCount();
   }
 
   function clearOverlaySelection() {
+    if (modalSelected.size > 0) {
+      dlog('DEBUG', `[modal] Seleção limpa (${modalSelected.size} item(s))`);
+    }
     modalSelected.clear();
     contentEl.querySelectorAll('.group-overlay-row.selected, .group-overlay-grid-card.selected').forEach(el => el.classList.remove('selected'));
     updateSelCount();
