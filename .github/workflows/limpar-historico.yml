@@ -1,4 +1,4 @@
-name: 🧹 Limpar Histórico de Execuções
+name: Limpar Histórico de Execuções
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ on:
         default: false
         type: boolean
       historico_limpar_historico_de_execucoes:
-        description: "Histórico: 🧹 Limpar Histórico de Execuções"
+        description: "Histórico: Limpar Histórico de Execuções"
         required: false
         default: false
         type: boolean
@@ -87,7 +87,7 @@ jobs:
             if m:
               nomes.append(m.group(1).strip())
 
-          nomes.append('🧹 Limpar Histórico de Execuções')
+          nomes.append('Limpar Histórico de Execuções')
 
           def slugify(nome):
             import unicodedata
@@ -178,7 +178,7 @@ jobs:
               ['Criar Artefatos', process.env.H_CRIAR_ARTEFATOS === 'true'],
               ['Criar Release', process.env.H_CRIAR_RELEASE === 'true'],
               ['Testes', process.env.H_TESTES === 'true'],
-              ['🧹 Limpar Histórico de Execuções', process.env.H_LIMPAR_HISTORICO_DE_EXECUCOES === 'true'],
+              ['Limpar Histórico de Execuções', process.env.H_LIMPAR_HISTORICO_DE_EXECUCOES === 'true'],
               // [END_MAP]
             ]);
 
