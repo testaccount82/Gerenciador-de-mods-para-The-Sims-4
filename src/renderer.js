@@ -2295,7 +2295,7 @@ function openGroupGridOverlay(group) {
   const isTray = group._isTrayGroup;
   const displayTitle = isTray
     ? (group.name.replace(/^[0-9a-fx]+![0-9a-fx]+\./i, '').replace(/\.trayitem$/i, '') || group.name)
-    : (group.modPrefix || group.name);
+    : (group.displayName || group.modPrefix || group.name);
   dlog('INFO', `Janela de grade do grupo aberta: "${displayTitle}" (${group.files.length} arquivo(s))`);
 
   const cardsHtml = group.files.map(f => {
