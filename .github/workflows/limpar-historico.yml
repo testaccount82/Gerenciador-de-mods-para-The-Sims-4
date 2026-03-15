@@ -117,10 +117,12 @@ jobs:
 
           # Bloco de env do step
           env_entries = ''
+          expr_open  = '$' + '{{'
+          expr_close = '}}'
           for nome in nomes:
             chave_input = f'historico_{slugify(nome)}'
             chave_env   = f'H_{slugify(nome).upper()}'
-            env_entries += f"          {chave_env}: ${{{{ github.event.inputs.{chave_input} }}}}\n"
+            env_entries += f"          {chave_env}: {expr_open} github.event.inputs.{chave_input} {expr_close}\n"
 
           with open(self_file, 'r', encoding='utf-8') as f:
             texto = f.read()
