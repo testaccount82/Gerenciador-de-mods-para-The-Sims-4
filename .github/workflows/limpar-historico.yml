@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      limpar_todo_historico:
+        description: "Limpar todo o histórico (ignora seleção individual)"
+        required: false
+        default: false
+        type: boolean
       # [BEGIN_HISTORICO]
       historico_criar_artefatos:
         description: "Histórico: Criar Artefatos"
@@ -156,6 +161,7 @@ jobs:
         if: ${{ github.event.inputs.atualizar_lista != 'true' }}
         uses: actions/github-script@v7
         env:
+          LIMPAR_TUDO: ${{ github.event.inputs.limpar_todo_historico }}
           # [BEGIN_ENV]
           H_CRIAR_ARTEFATOS: ${{ github.event.inputs.historico_criar_artefatos }}
           H_CRIAR_RELEASE: ${{ github.event.inputs.historico_criar_release }}
@@ -165,6 +171,7 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
+            const limparTudo = process.env.LIMPAR_TUDO === 'true';
 
             const selecionados = new Map([
               // [BEGIN_MAP]
@@ -175,7 +182,7 @@ jobs:
               // [END_MAP]
             ]);
 
-            const algumSelecionado = [...selecionados.values()].some(Boolean);
+            const algumSelecionado = limparTudo || [...selecionados.values()].some(Boolean);
             if (!algumSelecionado) {
               console.log('ℹ️  Nenhum histórico selecionado — etapa ignorada.');
               return;
@@ -193,7 +200,7 @@ jobs:
             const para_deletar = runs.filter(r =>
               r.id !== context.runId &&
               r.status === 'completed' &&
-              selecionados.get(r.name) === true
+              (limparTudo || selecionados.get(r.name) === true)
             );
 
             console.log(`🔍 ${para_deletar.length} execução(ões) encontrada(s).`);
