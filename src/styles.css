@@ -1656,7 +1656,7 @@ tr.child-row td:first-child { border-left: 2px solid #0078D4; }
   font-size: 13px;
   color: var(--text-primary);
   box-shadow: var(--shadow-md);
-  z-index: 4000;
+  z-index: 6000;
   animation: toast-in 0.2s ease;
 }
 #undo-bar.hidden { display: none; }
